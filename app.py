@@ -164,7 +164,7 @@ def main() -> None:
             if lot_number and quadrant_selection == "All":
                 fig.add_annotation(x=PANEL_WIDTH + gap_size, y=PANEL_HEIGHT + gap_size, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # --- VIEW 2: PARETO CHART ---
         elif view_mode == "Pareto View":
@@ -189,37 +189,76 @@ def main() -> None:
                 legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR)),
                 height=600
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         
         # --- VIEW 3: SUMMARY ---
         elif view_mode == "Summary View":
-            st.subheader(f"Data Summary - Quadrant: {quadrant_selection}")
+            # Replaced with the provided Summary View block (clean)
+            st.header(f"Statistical Summary for Quadrant: {quadrant_selection}")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Total Defects in Selection", len(display_df))
-            with col2:
-                if quadrant_selection != "All":
-                    total_units_in_selection = panel_rows * panel_cols
-                else:
-                    total_units_in_selection = panel_rows * panel_cols * 4
-                
-                if total_units_in_selection > 0:
-                    st.metric("Defect Density (Defects per Unit)", f"{len(display_df)/total_units_in_selection:.2f}")
+            if display_df.empty:
+                st.info("No defects to summarize in the selected quadrant.")
+                return
 
-            st.divider()
-            
-            with st.expander("Defect Counts by Type (in Selection)", expanded=True):
-                counts_by_type = display_df['DEFECT_TYPE'].value_counts().reset_index()
-                counts_by_type.columns = ['Defect Type', 'Count']
-                st.dataframe(counts_by_type, use_container_width=True)
+            if quadrant_selection != "All":
+                total_defects = len(display_df)
+                total_cells = panel_rows * panel_cols
+                defective_cells = len(display_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+                defect_density = total_defects / total_cells if total_cells > 0 else 0
+                yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
 
-            # Always show full panel counts by quadrant for context
-            st.subheader("Full Panel Overview")
-            with st.expander("Total Defect Counts by Quadrant", expanded=True):
-                counts_by_quad = full_df['QUADRANT'].value_counts().reset_index()
-                counts_by_quad.columns = ['Quadrant', 'Count']
-                st.dataframe(counts_by_quad, use_container_width=True)
+                st.markdown("### Key Performance Indicators (KPIs)")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Defect Count", f"{total_defects:,}")
+                col2.metric("Defect Density", f"{defect_density:.2f} defects/cell")
+                col3.metric("Yield Estimate", f"{yield_estimate:.2%}")
+
+                st.divider()
+                st.markdown("### Top Defect Types")
+                top_offenders = display_df['DEFECT_TYPE'].value_counts().reset_index()
+                top_offenders.columns = ['Defect Type', 'Count']
+                top_offenders['Percentage'] = (top_offenders['Count'] / total_defects) * 100
+
+                theme_cmap = mcolors.LinearSegmentedColormap.from_list("theme_cmap", [PLOT_AREA_COLOR, PANEL_COLOR])
+
+                st.dataframe(
+                    top_offenders.style.format({'Percentage': '{:.2f}%'}).background_gradient(cmap=theme_cmap, subset=['Count']),
+                    width='stretch'
+                )
+
+            else:
+                st.markdown("### Quarterly KPI Breakdown")
+
+                kpi_data = []
+                quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+                for quad in quadrants:
+                    quad_df = full_df[full_df['QUADRANT'] == quad]
+                    total_defects = len(quad_df)
+                    density = total_defects / (panel_rows * panel_cols) if (panel_rows * panel_cols) > 0 else 0
+                    kpi_data.append({"Quadrant": quad, "Total Defects": total_defects, "Defect Density": f"{density:.2f}"})
+
+                kpi_df = pd.DataFrame(kpi_data)
+                st.dataframe(kpi_df, width='stretch')
+
+                st.divider()
+                st.markdown("### Defect Distribution by Quadrant")
+                fig = go.Figure()
+                grouped_traces = create_grouped_pareto_trace(full_df)
+                for trace in grouped_traces: 
+                    fig.add_trace(trace)
+
+                fig.update_layout(
+                    title=dict(text="Defect Count by Type and Quadrant", font=dict(color=TEXT_COLOR)),
+                    barmode='group',
+                    xaxis=dict(title="Defect Type", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+                    yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+                    plot_bgcolor=PLOT_AREA_COLOR,
+                    paper_bgcolor=BACKGROUND_COLOR,
+                    legend=dict(font=dict(color=TEXT_COLOR)),
+                    height=600
+                )
+                st.plotly_chart(fig, width='stretch')
+
 
     else:
         st.header("Welcome to the Panel Defect Analysis Tool!")

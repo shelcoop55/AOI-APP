@@ -82,7 +82,7 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, gap_size: int, quadrant
             type="rect",
             x0=x_start, y0=y_start,
             x1=x_start + QUADRANT_WIDTH, y1=y_start + QUADRANT_HEIGHT,
-            line=dict(color=GRID_COLOR, width=3),
+            line=dict(color=GRID_COLOR, width=2),
             fillcolor=PANEL_COLOR,
             layer='below'
         ))
@@ -92,7 +92,7 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, gap_size: int, quadrant
             line_x = x_start + (i * cell_width)
             shapes.append(dict(
                 type="line", x0=line_x, y0=y_start, x1=line_x, y1=y_start + QUADRANT_HEIGHT,
-                line=dict(color=GRID_COLOR, width=0.5, dash='dot'), opacity=0.5, layer='below'
+                line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'
             ))
         
         # Draw horizontal grid lines based on calculated cell_height
@@ -100,7 +100,7 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, gap_size: int, quadrant
             line_y = y_start + (i * cell_height)
             shapes.append(dict(
                 type="line", x0=x_start, y0=line_y, x1=x_start + QUADRANT_WIDTH, y1=line_y,
-                line=dict(color=GRID_COLOR, width=0.5, dash='dot'), opacity=0.5, layer='below'
+                line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'
             ))
             
     return shapes
