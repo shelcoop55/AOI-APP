@@ -12,8 +12,8 @@ from io import BytesIO
 # --- DEFINE PHYSICAL CONSTANTS ---
 # These are the fixed, real-world dimensions (in mm) of the panel.
 # These constants are imported by other modules (like plotting.py).
-PANEL_WIDTH = 510
-PANEL_HEIGHT = 510
+PANEL_WIDTH = 600
+PANEL_HEIGHT = 600
 QUADRANT_WIDTH = PANEL_WIDTH / 2      # This will be 255
 QUADRANT_HEIGHT = PANEL_HEIGHT / 2    # This will be 255
 

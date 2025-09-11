@@ -1,6 +1,7 @@
 """
 Plotting and Visualization Module.
 This version draws a true-to-scale simulation of a 510x510mm physical panel.
+UPDATED: Now includes an outer border frame.
 """
 import plotly.graph_objects as go
 import pandas as pd
@@ -33,16 +34,42 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, gap_size: int, quadrant
     
     # --- Draw the gap/saw street shapes if showing the full panel ---
     if quadrant == 'All':
-        gap_color = '#A8652A' # A color for the gap
+        gap_color = '#A8652A' # A color for the gap and border
         total_width_with_gap = PANEL_WIDTH + gap_size
         total_height_with_gap = PANEL_HEIGHT + gap_size
         
-        # Vertical gap
+        # --- NEW CODE BLOCK STARTS HERE ---
+        # --- Draw the outer border frame ---
+        
+        # Top Border
+        shapes.append(dict(
+            type="rect", x0=0, y0=total_height_with_gap, x1=total_width_with_gap, y1=total_height_with_gap + gap_size,
+            fillcolor=gap_color, line_width=0, layer='below'
+        ))
+        # Bottom Border
+        shapes.append(dict(
+            type="rect", x0=0, y0=-gap_size, x1=total_width_with_gap, y1=0,
+            fillcolor=gap_color, line_width=0, layer='below'
+        ))
+        # Left Border
+        shapes.append(dict(
+            type="rect", x0=-gap_size, y0=-gap_size, x1=0, y1=total_height_with_gap + gap_size,
+            fillcolor=gap_color, line_width=0, layer='below'
+        ))
+        # Right Border
+        shapes.append(dict(
+            type="rect", x0=total_width_with_gap, y0=-gap_size, x1=total_width_with_gap + gap_size, y1=total_height_with_gap + gap_size,
+            fillcolor=gap_color, line_width=0, layer='below'
+        ))
+        
+        # --- NEW CODE BLOCK ENDS HERE ---
+
+        # Vertical inner gap
         shapes.append(dict(
             type="rect", x0=QUADRANT_WIDTH, y0=0, x1=QUADRANT_WIDTH + gap_size, y1=total_height_with_gap,
             fillcolor=gap_color, line_width=0, layer='below'
         ))
-        # Horizontal gap
+        # Horizontal inner gap
         shapes.append(dict(
             type="rect", x0=0, y0=QUADRANT_HEIGHT, x1=total_width_with_gap, y1=QUADRANT_HEIGHT + gap_size,
             fillcolor=gap_color, line_width=0, layer='below'
@@ -77,6 +104,8 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, gap_size: int, quadrant
             ))
             
     return shapes
+
+# --- The functions below are unchanged ---
 
 def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     """

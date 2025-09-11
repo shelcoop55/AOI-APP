@@ -2,6 +2,7 @@
 Main Application File for the Defect Analysis Streamlit Dashboard.
 This version implements a true-to-scale simulation of a 510x510mm physical panel.
 It includes the Defect Map, Pareto Chart, and a Summary View.
+CORRECTED: Re-implements the zoom-to-quadrant functionality.
 """
 import streamlit as st
 import plotly.graph_objects as go
@@ -57,7 +58,7 @@ def main() -> None:
                 panel_cols = st.number_input("Panel Columns", min_value=1, value=7, help="Number of horizontal units in a single quadrant.")
                 lot_number = st.text_input("Lot Number (Optional)", help="Enter the Lot Number to display it on the defect map.")
                 # --- The physical gap is fixed at 10mm as requested ---
-                gap_size = 10
+                gap_size = 20
             submitted = st.form_submit_button("🚀 Run Analysis")
 
         st.divider()
@@ -106,12 +107,39 @@ def main() -> None:
             fig = go.Figure()
             defect_traces = create_defect_traces(display_df)
             for trace in defect_traces: fig.add_trace(trace)
-
-            total_width = PANEL_WIDTH + gap_size
-            total_height = PANEL_HEIGHT + gap_size
             
             plot_shapes = create_grid_shapes(panel_rows, panel_cols, gap_size, quadrant_selection)
+
+            # --- *** FIX STARTS HERE: Define ranges for all quadrants and conditionally set them *** ---
             
+            # 1. Define the physical axis ranges for each quadrant
+            q1_x_range = [0, QUADRANT_WIDTH]
+            q1_y_range = [0, QUADRANT_HEIGHT]
+            q2_x_range = [QUADRANT_WIDTH + gap_size, PANEL_WIDTH + gap_size]
+            q2_y_range = [0, QUADRANT_HEIGHT]
+            q3_x_range = [0, QUADRANT_WIDTH]
+            q3_y_range = [QUADRANT_HEIGHT + gap_size, PANEL_HEIGHT + gap_size]
+            q4_x_range = [QUADRANT_WIDTH + gap_size, PANEL_WIDTH + gap_size]
+            q4_y_range = [QUADRANT_HEIGHT + gap_size, PANEL_HEIGHT + gap_size]
+
+            # 2. Set the plot's axis range and tick visibility based on the user's selection
+            if quadrant_selection == "All":
+                x_axis_range = [-gap_size, PANEL_WIDTH + gap_size]
+                y_axis_range = [-gap_size, PANEL_HEIGHT + gap_size]
+                show_ticks = True
+            else:
+                show_ticks = False # Hide tick labels in zoom view for clarity
+                if quadrant_selection == "Q1":
+                    x_axis_range, y_axis_range = q1_x_range, q1_y_range
+                elif quadrant_selection == "Q2":
+                    x_axis_range, y_axis_range = q2_x_range, q2_y_range
+                elif quadrant_selection == "Q3":
+                    x_axis_range, y_axis_range = q3_x_range, q3_y_range
+                else: # Q4
+                    x_axis_range, y_axis_range = q4_x_range, q4_y_range
+            
+            # --- *** FIX ENDS HERE *** ---
+
             cell_width = QUADRANT_WIDTH / panel_cols
             cell_height = QUADRANT_HEIGHT / panel_rows
             x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
@@ -125,8 +153,8 @@ def main() -> None:
 
             fig.update_layout(
                 title=dict(text=f"Panel Defect Map - Quadrant: {quadrant_selection} ({len(display_df)} Defects)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
-                xaxis=dict(title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=x_tick_vals if quadrant_selection == "All" else [], ticktext=x_tick_text if quadrant_selection == "All" else [], range=[-gap_size, total_width + gap_size], showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-                yaxis=dict(title="Unit Row Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=y_tick_vals if quadrant_selection == "All" else [], ticktext=y_tick_text if quadrant_selection == "All" else [], range=[-gap_size, total_height + gap_size], scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
+                xaxis=dict(title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=x_tick_vals if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
+                yaxis=dict(title="Unit Row Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=y_tick_vals if show_ticks else [], ticktext=y_tick_text if show_ticks else [], range=y_axis_range, scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
                 plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=plot_shapes,
                 legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
                 hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"),
@@ -134,7 +162,7 @@ def main() -> None:
             )
             
             if lot_number and quadrant_selection == "All":
-                fig.add_annotation(x=total_width, y=total_height, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
+                fig.add_annotation(x=PANEL_WIDTH + gap_size, y=PANEL_HEIGHT + gap_size, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
             
             st.plotly_chart(fig, use_container_width=True)
 
@@ -142,14 +170,24 @@ def main() -> None:
         elif view_mode == "Pareto View":
             st.subheader(f"Defect Pareto - Quadrant: {quadrant_selection}")
             fig = go.Figure()
-            pareto_trace = create_pareto_trace(display_df)
-            fig.add_trace(pareto_trace)
+            
+            if quadrant_selection == "All":
+                # Show grouped pareto for the full panel view
+                pareto_traces = create_grouped_pareto_trace(display_df)
+                for trace in pareto_traces:
+                    fig.add_trace(trace)
+                fig.update_layout(barmode='stack')
+            else:
+                # Show a simple pareto for a single quadrant
+                pareto_trace = create_pareto_trace(display_df)
+                fig.add_trace(pareto_trace)
 
             fig.update_layout(
                 xaxis=dict(title="Defect Type", categoryorder='total descending', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
                 yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
                 plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR,
-                height=800
+                legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR)),
+                height=600
             )
             st.plotly_chart(fig, use_container_width=True)
         
@@ -161,19 +199,24 @@ def main() -> None:
             with col1:
                 st.metric("Total Defects in Selection", len(display_df))
             with col2:
-                total_units_in_selection = (panel_rows * panel_cols) if quadrant_selection != "All" else (panel_rows * panel_cols * 4)
+                if quadrant_selection != "All":
+                    total_units_in_selection = panel_rows * panel_cols
+                else:
+                    total_units_in_selection = panel_rows * panel_cols * 4
+                
                 if total_units_in_selection > 0:
                     st.metric("Defect Density (Defects per Unit)", f"{len(display_df)/total_units_in_selection:.2f}")
 
             st.divider()
             
-            with st.expander("Defect Counts by Type", expanded=True):
+            with st.expander("Defect Counts by Type (in Selection)", expanded=True):
                 counts_by_type = display_df['DEFECT_TYPE'].value_counts().reset_index()
                 counts_by_type.columns = ['Defect Type', 'Count']
                 st.dataframe(counts_by_type, use_container_width=True)
 
             # Always show full panel counts by quadrant for context
-            with st.expander("Defect Counts by Quadrant", expanded=True):
+            st.subheader("Full Panel Overview")
+            with st.expander("Total Defect Counts by Quadrant", expanded=True):
                 counts_by_quad = full_df['QUADRANT'].value_counts().reset_index()
                 counts_by_quad.columns = ['Quadrant', 'Count']
                 st.dataframe(counts_by_quad, use_container_width=True)
