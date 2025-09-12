@@ -5,6 +5,14 @@ This module contains all configuration and styling variables for the application
 including color themes and the method for loading defect-specific styles.
 """
 
+# --- Physical Constants (in mm) ---
+# These define the real-world dimensions of the panel being simulated.
+PANEL_WIDTH = 600
+PANEL_HEIGHT = 600
+# The physical gap between the quadrants on the panel.
+GAP_SIZE = 20
+
+
 # --- Style Theme: Post-Etch AOI Panel ---
 # This palette is designed to look like a copper-clad panel from the PCB/IC Substrate industry.
 
