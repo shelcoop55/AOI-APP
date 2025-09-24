@@ -186,7 +186,7 @@ def main() -> None:
             if lot_number and quadrant_selection == Quadrant.ALL.value:
                 fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
             
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, use_container_width=True)
 
         # --- VIEW 2: PARETO CHART ---
         elif view_mode == ViewMode.PARETO.value:
@@ -211,7 +211,7 @@ def main() -> None:
                 legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR)),
                 height=600
             )
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, use_container_width=True)
         
         # --- VIEW 3: SUMMARY ---
         elif view_mode == ViewMode.SUMMARY.value:
@@ -279,7 +279,7 @@ def main() -> None:
                     legend=dict(font=dict(color=TEXT_COLOR)),
                     height=600
                 )
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(fig, use_container_width=True)
 
 
     else:
