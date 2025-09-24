@@ -32,6 +32,24 @@ def test_excel_file() -> list[BytesIO]:
 
     return [output]
 
+@pytest.fixture
+def test_excel_file_missing_cols() -> list[BytesIO]:
+    """A pytest fixture that creates an in-memory Excel file with missing columns."""
+    data = {
+        'DEFECT_ID': [101, 102],
+        'DEFECT_TYPE': ['Nick', 'Short'],
+        # 'UNIT_INDEX_X' is missing
+        'UNIT_INDEX_Y': [0, 1],
+    }
+    df = pd.DataFrame(data)
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    output.seek(0)
+    output.name = "missing_cols.xlsx"
+    return [output]
+
 import streamlit as st
 import importlib
 from src import data_handler
@@ -105,3 +123,39 @@ def test_load_data_coordinate_calculation(test_excel_file, monkeypatch):
     # Q4 (top-right)
     assert QUADRANT_WIDTH + GAP_SIZE < q4_defect['plot_x'].iloc[0] < (QUADRANT_WIDTH * 2) + GAP_SIZE
     assert QUADRANT_HEIGHT + GAP_SIZE < q4_defect['plot_y'].iloc[0] < (QUADRANT_HEIGHT * 2) + GAP_SIZE
+
+def test_load_data_sample_generation(monkeypatch):
+    """
+    Tests that sample data is generated correctly when no file is uploaded.
+    """
+    monkeypatch.setattr(st, "cache_data", lambda func: func)
+    # Mock the streamlit info call as it's part of the UI
+    monkeypatch.setattr(st.sidebar, "info", lambda *args, **kwargs: None)
+    importlib.reload(data_handler)
+
+    # Pass an empty list to simulate no file upload
+    df = data_handler.load_data([], panel_rows=7, panel_cols=7)
+
+    assert isinstance(df, pd.DataFrame)
+    assert not df.empty
+    assert len(df) == 150 # The default number of sample defects
+
+    # Check that all required columns are present
+    expected_cols = ['DEFECT_ID', 'DEFECT_TYPE', 'UNIT_INDEX_X', 'UNIT_INDEX_Y', 'QUADRANT', 'plot_x', 'plot_y']
+    assert all(col in df.columns for col in expected_cols)
+    assert df['SOURCE_FILE'].iloc[0] == 'Sample Data'
+
+def test_load_data_missing_columns(test_excel_file_missing_cols, monkeypatch):
+    """
+    Tests that an empty DataFrame is returned if the uploaded file has missing columns.
+    """
+    monkeypatch.setattr(st, "cache_data", lambda func: func)
+    # Mock the streamlit error call to avoid printing during tests
+    monkeypatch.setattr(st, "error", lambda *args, **kwargs: None)
+    monkeypatch.setattr(st.sidebar, "success", lambda *args, **kwargs: None)
+    importlib.reload(data_handler)
+
+    df = data_handler.load_data(test_excel_file_missing_cols, panel_rows=1, panel_cols=1)
+
+    assert isinstance(df, pd.DataFrame)
+    assert df.empty

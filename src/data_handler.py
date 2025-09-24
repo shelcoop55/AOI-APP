@@ -9,12 +9,6 @@ import numpy as np
 from typing import List
 from io import BytesIO
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-from typing import List
-from io import BytesIO
-
 # Import constants from the configuration file
 from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE
 

@@ -74,3 +74,45 @@ def test_generate_excel_report_summary_content(sample_report_df):
     assert q1_row['Total Defects'].iloc[0] == 1 # 1 defect in Q1
     # For a 1x1 panel, density should equal total defects
     assert q1_row['Defect Density'].iloc[0] == 1.0
+
+def test_generate_excel_report_top_defects_content(sample_report_df):
+    """
+    Tests the content of a 'Top Defects' sheet (e.g., for Q1).
+    """
+    report_bytes = generate_excel_report(sample_report_df, 1, 1, "test_file.xlsx")
+
+    # Read the Q1 Top Defects sheet
+    q1_defects_df = pd.read_excel(BytesIO(report_bytes), sheet_name='Q1 Top Defects')
+
+    # Check column names
+    expected_columns = ['Defect Type', 'Count', 'Percentage']
+    assert all(col in q1_defects_df.columns for col in expected_columns)
+
+    # In our sample data, Q1 has one defect: 'Nick'
+    assert len(q1_defects_df) == 1
+    assert q1_defects_df['Defect Type'].iloc[0] == 'Nick'
+    assert q1_defects_df['Count'].iloc[0] == 1
+    assert q1_defects_df['Percentage'].iloc[0] == 1.0 # 1 out of 1 defect is 100%
+
+def test_generate_excel_report_full_list_content(sample_report_df):
+    """
+    Tests the content of the 'Full Defect List' sheet.
+    """
+    report_bytes = generate_excel_report(sample_report_df, 1, 1, "test_file.xlsx")
+
+    # Read the full list sheet
+    full_list_df = pd.read_excel(BytesIO(report_bytes), sheet_name='Full Defect List')
+
+    # Check column names
+    expected_columns = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'QUADRANT', 'SOURCE_FILE']
+    assert all(col in full_list_df.columns for col in expected_columns)
+
+    # The full list should contain all 4 defects from the sample data
+    assert len(full_list_df) == 4
+
+    # Verify a specific defect entry (e.g., the 'Short' defect in Q2)
+    short_defect = full_list_df[full_list_df['DEFECT_TYPE'] == 'Short']
+    assert not short_defect.empty
+    assert short_defect['QUADRANT'].iloc[0] == 'Q2'
+    assert short_defect['UNIT_INDEX_X'].iloc[0] == 1
+    assert short_defect['UNIT_INDEX_Y'].iloc[0] == 0

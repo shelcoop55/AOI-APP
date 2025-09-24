@@ -22,6 +22,9 @@ BACKGROUND_COLOR = '#212121' # A dark charcoal grey for the app background, mimi
 PLOT_AREA_COLOR = '#333333'  # A slightly lighter grey for the plot area to create subtle depth.
 TEXT_COLOR = '#FFFFFF'       # White text for readability on the dark background.
 
+# --- Reporting Constants ---
+CRITICAL_DEFECT_TYPES = ["Short", "Cut/Short"]
+
 # --- Defect Styling (Loaded from JSON) ---
 import json
 from pathlib import Path
