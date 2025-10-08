@@ -292,12 +292,16 @@ def main() -> None:
                 return
 
             if quadrant_selection != Quadrant.ALL.value:
+                # Use display_df for view-specific counts
                 total_defects = len(display_df)
                 total_cells = panel_rows * panel_cols
-                # A cell is only defective for yield calculation if it has a 'T' defect.
-                true_defect_df = display_df[display_df['Verification'] == 'T']
-                defective_cells = len(true_defect_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 defect_density = total_defects / total_cells if total_cells > 0 else 0
+
+                # ** Yield calculation must be independent of the verification filter **
+                # It should be based on the full data for the selected quadrant.
+                quad_yield_df = full_df[full_df['QUADRANT'] == quadrant_selection]
+                true_yield_defects = quad_yield_df[quad_yield_df['Verification'] == 'T']
+                defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
 
                 st.markdown("### Key Performance Indicators (KPIs)")
@@ -322,13 +326,15 @@ def main() -> None:
             else:
                 # --- NEW: Panel-Wide KPIs ---
                 st.markdown("### Panel-Wide KPIs (Filtered)")
+                # Use display_df for view-specific counts
                 total_defects = len(display_df)
-                # Total cells for the entire 2x2 panel
                 total_cells = (panel_rows * panel_cols) * 4
-                # A cell is only defective for yield calculation if it has a 'T' defect.
-                true_defect_df = display_df[display_df['Verification'] == 'T']
-                defective_cells = len(true_defect_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 defect_density = total_defects / total_cells if total_cells > 0 else 0
+
+                # ** Yield calculation must be independent of the verification filter **
+                # It should be based on the full data for the entire panel.
+                true_yield_defects = full_df[full_df['Verification'] == 'T']
+                defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
 
                 col1, col2, col3 = st.columns(3)
@@ -347,16 +353,19 @@ def main() -> None:
                 # Note: For the breakdown, we use the 'filtered_df' which is only filtered by
                 # verification, not by quadrant, to get accurate per-quadrant counts.
                 for quad in quadrants:
-                    quad_df = filtered_df[filtered_df['QUADRANT'] == quad]
-                    total_quad_defects = len(quad_df)
+                    # Filtered data for T/F/TA counts
+                    quad_view_df = filtered_df[filtered_df['QUADRANT'] == quad]
+                    total_quad_defects = len(quad_view_df)
 
-                    # Calculate yield for the quadrant
-                    true_defect_df = quad_df[quad_df['Verification'] == 'T']
-                    defective_cells = len(true_defect_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+                    # ** Yield calculation must be independent of the verification filter **
+                    # Use the full dataset, filtered only by the current quadrant
+                    quad_yield_df = full_df[full_df['QUADRANT'] == quad]
+                    true_yield_defects = quad_yield_df[quad_yield_df['Verification'] == 'T']
+                    defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                     yield_estimate = (total_cells_per_quad - defective_cells) / total_cells_per_quad if total_cells_per_quad > 0 else 0
 
-                    # Get verification counts for the quadrant
-                    verification_counts = quad_df['Verification'].value_counts()
+                    # Get verification counts from the view-specific dataframe
+                    verification_counts = quad_view_df['Verification'].value_counts()
                     true_count = int(verification_counts.get('T', 0))
                     false_count = int(verification_counts.get('F', 0))
                     ta_count = int(verification_counts.get('TA', 0))
