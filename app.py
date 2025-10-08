@@ -342,12 +342,18 @@ def main() -> None:
 
                 kpi_data = []
                 quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+                total_cells_per_quad = panel_rows * panel_cols
+
                 # Note: For the breakdown, we use the 'filtered_df' which is only filtered by
                 # verification, not by quadrant, to get accurate per-quadrant counts.
                 for quad in quadrants:
                     quad_df = filtered_df[filtered_df['QUADRANT'] == quad]
                     total_quad_defects = len(quad_df)
-                    quad_density = total_quad_defects / (panel_rows * panel_cols) if (panel_rows * panel_cols) > 0 else 0
+
+                    # Calculate yield for the quadrant
+                    true_defect_df = quad_df[quad_df['Verification'] == 'T']
+                    defective_cells = len(true_defect_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+                    yield_estimate = (total_cells_per_quad - defective_cells) / total_cells_per_quad if total_cells_per_quad > 0 else 0
 
                     # Get verification counts for the quadrant
                     verification_counts = quad_df['Verification'].value_counts()
@@ -361,13 +367,13 @@ def main() -> None:
                         "True (T)": true_count,
                         "False (F)": false_count,
                         "Acceptable (TA)": ta_count,
-                        "Defect Density": f"{quad_density:.2f}"
+                        "Yield": f"{yield_estimate:.2%}"
                     })
 
                 if kpi_data:
                     kpi_df = pd.DataFrame(kpi_data)
                     # Reorder columns for logical presentation
-                    kpi_df = kpi_df[['Quadrant', 'Total Defects', 'True (T)', 'False (F)', 'Acceptable (TA)', 'Defect Density']]
+                    kpi_df = kpi_df[['Quadrant', 'Total Defects', 'True (T)', 'False (F)', 'Acceptable (TA)', 'Yield']]
                     st.dataframe(kpi_df, width='stretch')
                 else:
                     st.info("No data to display for the quarterly breakdown based on current filters.")
