@@ -68,48 +68,68 @@ def main() -> None:
             submitted = st.form_submit_button("🚀 Run Analysis")
 
         st.divider()
-        with st.expander("📊 Analysis Controls", expanded=True):
-            view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.", disabled=st.session_state.get('full_df') is None)
-            quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant of the panel.", disabled=st.session_state.get('full_df') is None)
 
-            # Defer the creation of this filter until the main app body
-            verification_selection = []
+        # --- Analysis and Reporting (only shown if data is loaded) ---
+        if st.session_state.get('full_df') is not None and not st.session_state.full_df.empty:
+            full_df_for_controls = st.session_state.full_df
+            with st.expander("📊 Analysis Controls", expanded=True):
+                view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.")
+                quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant of the panel.")
+                verification_options = ['All'] + sorted(full_df_for_controls['Verification'].unique().tolist())
+                verification_selection = st.radio(
+                    "Filter by Verification Status",
+                    options=verification_options,
+                    index=0,
+                    help="Select a single verification status to filter by, or 'All' to clear."
+                )
 
-        st.divider()
-        with st.expander("📥 Reporting", expanded=True):
-            report_disabled = st.session_state.get('full_df') is None or st.session_state.full_df.empty
+            st.divider()
 
-            if st.button("Generate Report for Download", disabled=report_disabled):
-                with st.spinner("Generating Excel report..."):
-                    # Re-apply filters here to get the correct df for the report
-                    full_df = st.session_state.full_df
+            with st.expander("📥 Reporting", expanded=True):
+                if st.button("Generate Report for Download"):
+                    with st.spinner("Generating Excel report..."):
+                        # Base data for the report is the full dataset
+                        report_df = st.session_state.full_df
 
-                    # 1. Apply Verification Status Filter
-                    report_df = full_df[full_df['Verification'].isin(verification_selection)]
+                        # 1. Apply Verification Status Filter
+                        if verification_selection != 'All':
+                            report_df = report_df[report_df['Verification'] == verification_selection]
 
-                    # 2. Apply Quadrant Filter
-                    report_df = report_df[report_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else report_df
+                        # 2. Apply Quadrant Filter
+                        if quadrant_selection != Quadrant.ALL.value:
+                            report_df = report_df[report_df['QUADRANT'] == quadrant_selection]
 
-                    params = st.session_state.analysis_params
-                    source_filenames = report_df['SOURCE_FILE'].unique().tolist()
+                        params = st.session_state.analysis_params
+                        source_filenames = report_df['SOURCE_FILE'].unique().tolist()
 
-                    excel_bytes = generate_excel_report(
-                        full_df=report_df,
-                        panel_rows=params.get("panel_rows", 7),
-                        panel_cols=params.get("panel_cols", 7),
-                        source_filename=", ".join(source_filenames)
-                    )
-                    st.session_state.report_bytes = excel_bytes
-                    st.rerun()
+                        excel_bytes = generate_excel_report(
+                            full_df=report_df,
+                            panel_rows=params.get("panel_rows", 7),
+                            panel_cols=params.get("panel_cols", 7),
+                            source_filename=", ".join(source_filenames)
+                        )
+                        st.session_state.report_bytes = excel_bytes
+                        st.rerun()
 
-            st.download_button(
-                label="Download Full Report",
-                data=st.session_state.report_bytes if st.session_state.report_bytes is not None else b"",
-                file_name="full_defect_report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                disabled=st.session_state.report_bytes is None,
-                help="Click 'Generate Report' first to enable download."
-            )
+                st.download_button(
+                    label="Download Full Report",
+                    data=st.session_state.report_bytes if st.session_state.report_bytes is not None else b"",
+                    file_name="full_defect_report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    disabled=st.session_state.report_bytes is None,
+                    help="Click 'Generate Report' first to enable download."
+                )
+        else:
+            # Show disabled controls if no data is loaded
+            with st.expander("📊 Analysis Controls", expanded=True):
+                st.radio("Select View", ViewMode.values(), disabled=True)
+                st.selectbox("Select Quadrant", Quadrant.values(), disabled=True)
+                st.radio("Filter by Verification Status", ["All"], disabled=True)
+            st.divider()
+            with st.expander("📥 Reporting", expanded=True):
+                st.button("Generate Report for Download", disabled=True)
+                st.download_button("Download Full Report", b"", disabled=True)
+
 
     st.title("📊 Panel Defect Analysis Tool")
     st.markdown("<br>", unsafe_allow_html=True)
@@ -119,11 +139,10 @@ def main() -> None:
             full_df = load_data(uploaded_files, panel_rows, panel_cols)
             st.session_state.full_df = full_df
             st.session_state.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
-            # Reset report bytes on new analysis
             st.session_state.report_bytes = None
             st.rerun()
 
-    if st.session_state.full_df is not None:
+    if st.session_state.get('full_df') is not None:
         full_df = st.session_state.full_df
         params = st.session_state.analysis_params
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
@@ -133,19 +152,9 @@ def main() -> None:
             st.error("The loaded data is empty or invalid. Please check the source file and try again.")
             return
 
-        # --- NEW: Create and apply filters now that we know data is loaded ---
-        with st.sidebar.expander("📊 Analysis Controls", expanded=True):
-            # Re-create the verification filter here, inside the data-loaded block
-            verification_options = ['All'] + sorted(full_df['Verification'].unique().tolist())
-            verification_selection = st.radio(
-                "Filter by Verification Status",
-                options=verification_options,
-                index=0,
-                help="Select a single verification status to filter by, or 'All' to clear."
-            )
-
         # --- Apply Filters ---
-        # 1. Apply Verification Status Filter first on the full dataset
+        # The verification_selection is now defined directly in the sidebar
+        # and is available here for immediate use.
         if verification_selection != 'All':
             filtered_df = full_df[full_df['Verification'] == verification_selection]
         else:
@@ -285,7 +294,9 @@ def main() -> None:
             if quadrant_selection != Quadrant.ALL.value:
                 total_defects = len(display_df)
                 total_cells = panel_rows * panel_cols
-                defective_cells = len(display_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+                # A cell is only defective for yield calculation if it has a 'T' defect.
+                true_defect_df = display_df[display_df['Verification'] == 'T']
+                defective_cells = len(true_defect_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 defect_density = total_defects / total_cells if total_cells > 0 else 0
                 yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
 
@@ -314,7 +325,9 @@ def main() -> None:
                 total_defects = len(display_df)
                 # Total cells for the entire 2x2 panel
                 total_cells = (panel_rows * panel_cols) * 4
-                defective_cells = len(display_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+                # A cell is only defective for yield calculation if it has a 'T' defect.
+                true_defect_df = display_df[display_df['Verification'] == 'T']
+                defective_cells = len(true_defect_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 defect_density = total_defects / total_cells if total_cells > 0 else 0
                 yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
 
@@ -335,10 +348,29 @@ def main() -> None:
                     quad_df = filtered_df[filtered_df['QUADRANT'] == quad]
                     total_quad_defects = len(quad_df)
                     quad_density = total_quad_defects / (panel_rows * panel_cols) if (panel_rows * panel_cols) > 0 else 0
-                    kpi_data.append({"Quadrant": quad, "Total Defects": total_quad_defects, "Defect Density": f"{quad_density:.2f}"})
 
-                kpi_df = pd.DataFrame(kpi_data)
-                st.dataframe(kpi_df, width='stretch')
+                    # Get verification counts for the quadrant
+                    verification_counts = quad_df['Verification'].value_counts()
+                    true_count = int(verification_counts.get('T', 0))
+                    false_count = int(verification_counts.get('F', 0))
+                    ta_count = int(verification_counts.get('TA', 0))
+
+                    kpi_data.append({
+                        "Quadrant": quad,
+                        "Total Defects": total_quad_defects,
+                        "True (T)": true_count,
+                        "False (F)": false_count,
+                        "Acceptable (TA)": ta_count,
+                        "Defect Density": f"{quad_density:.2f}"
+                    })
+
+                if kpi_data:
+                    kpi_df = pd.DataFrame(kpi_data)
+                    # Reorder columns for logical presentation
+                    kpi_df = kpi_df[['Quadrant', 'Total Defects', 'True (T)', 'False (F)', 'Acceptable (TA)', 'Defect Density']]
+                    st.dataframe(kpi_df, width='stretch')
+                else:
+                    st.info("No data to display for the quarterly breakdown based on current filters.")
 
                 st.divider()
                 st.markdown("### Defect Distribution by Quadrant")
