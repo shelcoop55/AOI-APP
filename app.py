@@ -305,10 +305,11 @@ def main() -> None:
                 yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
 
                 st.markdown("### Key Performance Indicators (KPIs)")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Defect Count", f"{total_defects:,}")
-                col2.metric("Defect Density", f"{defect_density:.2f} defects/cell")
-                col3.metric("Yield Estimate", f"{yield_estimate:.2%}")
+                col2.metric("True Defective Cells", f"{defective_cells:,}")
+                col3.metric("Defect Density", f"{defect_density:.2f} defects/cell")
+                col4.metric("Yield Estimate", f"{yield_estimate:.2%}")
 
                 st.divider()
                 st.markdown("### Top Defect Types")
@@ -337,10 +338,11 @@ def main() -> None:
                 defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
 
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Filtered Defect Count", f"{total_defects:,}")
-                col2.metric("Filtered Defect Density", f"{defect_density:.2f} defects/cell")
-                col3.metric("Filtered Yield Estimate", f"{yield_estimate:.2%}")
+                col2.metric("True Defective Cells", f"{defective_cells:,}")
+                col3.metric("Filtered Defect Density", f"{defect_density:.2f} defects/cell")
+                col4.metric("Filtered Yield Estimate", f"{yield_estimate:.2%}")
                 st.divider()
                 # --- END NEW ---
 
@@ -376,13 +378,14 @@ def main() -> None:
                         "True (T)": true_count,
                         "False (F)": false_count,
                         "Acceptable (TA)": ta_count,
+                        "True Defective Cells": defective_cells,
                         "Yield": f"{yield_estimate:.2%}"
                     })
 
                 if kpi_data:
                     kpi_df = pd.DataFrame(kpi_data)
                     # Reorder columns for logical presentation
-                    kpi_df = kpi_df[['Quadrant', 'Total Defects', 'True (T)', 'False (F)', 'Acceptable (TA)', 'Yield']]
+                    kpi_df = kpi_df[['Quadrant', 'Total Defects', 'True (T)', 'False (F)', 'Acceptable (TA)', 'True Defective Cells', 'Yield']]
                     st.dataframe(kpi_df, width='stretch')
                 else:
                     st.info("No data to display for the quarterly breakdown based on current filters.")
