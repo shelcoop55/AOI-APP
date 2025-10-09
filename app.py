@@ -124,21 +124,21 @@ def main() -> None:
 
         layer_keys = sorted(st.session_state.layer_data.keys())
         if layer_keys:
-            st.write("##### Select View")
-            num_buttons = len(layer_keys) + 1
-            cols = st.columns(num_buttons)
-            for i, layer_num in enumerate(layer_keys):
-                with cols[i]:
-                    is_active = st.session_state.active_view == 'layer' and st.session_state.selected_layer == layer_num
-                    if st.button(f"Layer {layer_num}", key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
-                        st.session_state.active_view = 'layer'
-                        st.session_state.selected_layer = layer_num
+            with st.expander("Select View", expanded=True):
+                num_buttons = len(layer_keys) + 1
+                cols = st.columns(num_buttons)
+                for i, layer_num in enumerate(layer_keys):
+                    with cols[i]:
+                        is_active = st.session_state.active_view == 'layer' and st.session_state.selected_layer == layer_num
+                        if st.button(f"Layer {layer_num}", key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
+                            st.session_state.active_view = 'layer'
+                            st.session_state.selected_layer = layer_num
+                            st.rerun()
+                with cols[num_buttons - 1]:
+                    is_active = st.session_state.active_view == 'still_alive'
+                    if st.button("Still Alive", key="still_alive_btn", use_container_width=True, type="primary" if is_active else "secondary"):
+                        st.session_state.active_view = 'still_alive'
                         st.rerun()
-            with cols[num_buttons - 1]:
-                is_active = st.session_state.active_view == 'still_alive'
-                if st.button("Still Alive", key="still_alive_btn", use_container_width=True, type="primary" if is_active else "secondary"):
-                    st.session_state.active_view = 'still_alive'
-                    st.rerun()
             st.divider()
 
         if st.session_state.active_view == 'still_alive':
