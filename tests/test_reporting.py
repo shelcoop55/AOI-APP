@@ -14,10 +14,14 @@ def sample_report_df(test_excel_file, monkeypatch) -> pd.DataFrame:
     """
     Uses the load_data function to generate a realistic DataFrame for testing reporting.
     This ensures the test data has all the columns the reporting function expects.
+    Updated to return a single layer's DataFrame from the new dictionary structure.
     """
     monkeypatch.setattr(st, "cache_data", lambda func: func)
+    monkeypatch.setattr(st.sidebar, "success", lambda *args, **kwargs: None)
     importlib.reload(data_handler)
-    return data_handler.load_data(test_excel_file, panel_rows=1, panel_cols=1)
+    layer_data = data_handler.load_data(test_excel_file, panel_rows=1, panel_cols=1)
+    # The report is generated for a single layer, so we extract the df for layer 1.
+    return layer_data[1]
 
 def test_generate_excel_report_structure(sample_report_df):
     """
