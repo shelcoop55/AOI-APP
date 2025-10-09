@@ -9,7 +9,10 @@ import pandas as pd
 import matplotlib.colors as mcolors
 
 # Import our modularized functions
-from src.config import BACKGROUND_COLOR, PLOT_AREA_COLOR, GRID_COLOR, TEXT_COLOR, PANEL_COLOR, GAP_SIZE, ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
+from src.config import (
+    BACKGROUND_COLOR, PLOT_AREA_COLOR, GRID_COLOR, TEXT_COLOR, PANEL_COLOR, GAP_SIZE,
+    ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
+)
 from src.data_handler import (
     load_data, get_true_defect_coordinates,
     QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
@@ -122,56 +125,62 @@ def main() -> None:
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
         lot_number = params.get("lot_number", "")
 
-        layer_keys = sorted(st.session_state.layer_data.keys())
-        if layer_keys:
-            with st.expander("Select View", expanded=True):
-                num_buttons = len(layer_keys) + 1
-                cols = st.columns(num_buttons)
-                for i, layer_num in enumerate(layer_keys):
-                    with cols[i]:
-                        is_active = st.session_state.active_view == 'layer' and st.session_state.selected_layer == layer_num
-                        if st.button(f"Layer {layer_num}", key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
-                            st.session_state.active_view = 'layer'
-                            st.session_state.selected_layer = layer_num
-                            st.rerun()
-                with cols[num_buttons - 1]:
-                    is_active = st.session_state.active_view == 'still_alive'
-                    if st.button("Still Alive", key="still_alive_btn", use_container_width=True, type="primary" if is_active else "secondary"):
-                        st.session_state.active_view = 'still_alive'
+        with st.expander("Select View", expanded=True):
+            layer_keys = sorted(st.session_state.layer_data.keys())
+            num_buttons = len(layer_keys) + 1
+            cols = st.columns(num_buttons)
+            for i, layer_num in enumerate(layer_keys):
+                with cols[i]:
+                    is_active = st.session_state.active_view == 'layer' and st.session_state.selected_layer == layer_num
+                    if st.button(f"Layer {layer_num}", key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
+                        st.session_state.active_view = 'layer'
+                        st.session_state.selected_layer = layer_num
                         st.rerun()
-            st.divider()
+            with cols[num_buttons - 1]:
+                is_active = st.session_state.active_view == 'still_alive'
+                if st.button("Still Alive", key="still_alive_btn", use_container_width=True, type="primary" if is_active else "secondary"):
+                    st.session_state.active_view = 'still_alive'
+                    st.rerun()
+        st.divider()
 
         if st.session_state.active_view == 'still_alive':
             st.header("Still Alive Panel Yield Map")
-            true_defect_coords = get_true_defect_coordinates(st.session_state.layer_data)
-            total_cells = (panel_rows * 2) * (panel_cols * 2)
-            defective_cell_count = len(true_defect_coords)
-            alive_cell_count = total_cells - defective_cell_count
-            yield_percentage = (alive_cell_count / total_cells) * 100 if total_cells > 0 else 0
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Surviving Cells", f"{alive_cell_count:,}")
-            col2.metric("Defective Cells", f"{defective_cell_count:,}")
-            col3.metric("Panel Yield", f"{yield_percentage:.2f}%")
-            st.divider()
-
-            legend_html = f'''
-            <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
-                <div style="display: flex; align-items: center; margin-right: 20px;">
-                    <div style="width: 20px; height: 20px; background-color: {ALIVE_CELL_COLOR}; margin-right: 5px; border: 1px solid black;"></div>
-                    <span>Defect-Free Cell</span>
+            map_col, summary_col = st.columns([2.5, 1])
+            with map_col:
+                true_defect_coords = get_true_defect_coordinates(st.session_state.layer_data)
+                fig = go.Figure()
+                map_shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
+                fig.update_layout(
+                    title=dict(text=f"Still Alive Map ({len(true_defect_coords)} Defective Cells)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
+                    xaxis=dict(range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE], showgrid=False, zeroline=False, showticklabels=False, title=""),
+                    yaxis=dict(range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE], scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showticklabels=False, title=""),
+                    plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=map_shapes, height=800, margin=dict(l=20, r=20, t=80, b=20)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            with summary_col:
+                total_cells = (panel_rows * 2) * (panel_cols * 2)
+                defective_cell_count = len(true_defect_coords)
+                alive_cell_count = total_cells - defective_cell_count
+                yield_percentage = (alive_cell_count / total_cells) * 100 if total_cells > 0 else 0
+                st.subheader("Yield Summary")
+                st.metric("Panel Yield", f"{yield_percentage:.2f}%")
+                st.metric("Surviving Cells", f"{alive_cell_count:,} / {total_cells:,}")
+                st.metric("Defective Cells", f"{defective_cell_count:,}")
+                st.divider()
+                st.subheader("Legend")
+                legend_html = f'''
+                <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                    <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                        <div style="width: 20px; height: 20px; background-color: {ALIVE_CELL_COLOR}; margin-right: 10px; border: 1px solid black;"></div>
+                        <span>Defect-Free Cell</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 20px; height: 20px; background-color: {DEFECTIVE_CELL_COLOR}; margin-right: 10px; border: 1px solid black;"></div>
+                        <span>Defective Cell</span>
+                    </div>
                 </div>
-                <div style="display: flex; align-items: center;">
-                    <div style="width: 20px; height: 20px; background-color: {DEFECTIVE_CELL_COLOR}; margin-right: 5px; border: 1px solid black;"></div>
-                    <span>Defective Cell</span>
-                </div>
-            </div>
-            '''
-            st.markdown(legend_html, unsafe_allow_html=True)
-
-            fig = go.Figure()
-            map_shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
-            fig.update_layout(title=dict(text=f"Still Alive Map ({defective_cell_count} Defective Cells)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'), xaxis=dict(range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE], showgrid=False, zeroline=False, showticklabels=False, title=""), yaxis=dict(range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE], scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showticklabels=False, title=""), plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=map_shapes, height=800, margin=dict(l=20, r=20, t=60, b=20))
-            st.plotly_chart(fig, use_container_width=True)
+                '''
+                st.markdown(legend_html, unsafe_allow_html=True)
         
         elif st.session_state.active_view == 'layer':
             full_df = st.session_state.layer_data.get(st.session_state.selected_layer)
@@ -194,13 +203,11 @@ def main() -> None:
                 y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
                 y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
                 x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
-
                 x_axis_range, y_axis_range, show_ticks = [-GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE], True
                 if quadrant_selection != Quadrant.ALL.value:
                     show_ticks = False
                     ranges = {'Q1': ([0, QUADRANT_WIDTH], [0, QUADRANT_HEIGHT]), 'Q2': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [0, QUADRANT_HEIGHT]), 'Q3': ([0, QUADRANT_WIDTH], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]), 'Q4': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE])}
                     x_axis_range, y_axis_range = ranges[quadrant_selection]
-
                 fig.update_layout(
                     title=dict(text=f"Panel Defect Map - Layer {st.session_state.selected_layer} - Quadrant: {quadrant_selection} ({len(display_df)} Defects)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
                     xaxis=dict(title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=x_tick_vals_q1 + x_tick_vals_q2 if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
@@ -211,7 +218,6 @@ def main() -> None:
                 if lot_number and quadrant_selection == Quadrant.ALL.value:
                     fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
                 st.plotly_chart(fig, use_container_width=True)
-
             elif view_mode == ViewMode.PARETO.value:
                 st.subheader(f"Defect Pareto - Layer {st.session_state.selected_layer} - Quadrant: {quadrant_selection}")
                 fig = go.Figure()
@@ -222,7 +228,6 @@ def main() -> None:
                     fig.add_trace(create_pareto_trace(display_df))
                 fig.update_layout(xaxis=dict(title="Defect Type", categoryorder='total descending'), plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, height=600)
                 st.plotly_chart(fig, use_container_width=True)
-
             elif view_mode == ViewMode.SUMMARY.value:
                 st.header(f"Statistical Summary for Layer {st.session_state.selected_layer}, Quadrant: {quadrant_selection}")
                 if display_df.empty:

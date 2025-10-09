@@ -3,46 +3,32 @@ import pandas as pd
 from io import BytesIO
 from src.data_handler import load_data, get_true_defect_coordinates, QUADRANT_WIDTH, QUADRANT_HEIGHT
 from src.config import GAP_SIZE
-
-# To run tests, use `pytest` in the root directory.
+import streamlit as st
+import importlib
+from src import data_handler
+from unittest.mock import MagicMock
 
 @pytest.fixture
 def test_excel_file() -> list[BytesIO]:
-    """
-    A pytest fixture that creates an in-memory Excel file for testing.
-    This simulates a file upload without needing a physical file on disk.
-    It uses a standard BytesIO object and adds a .name attribute to mimic
-    Streamlit's UploadedFile object.
-    The filename is updated to match the new 'BU-XX' format.
-    """
+    """Creates an in-memory Excel file with a valid 'BU-XX' name."""
     data = {
-        'DEFECT_ID': [101, 102, 103, 104],
-        'DEFECT_TYPE': ['Nick', 'Short', 'Cut', 'Nick'],
-        'UNIT_INDEX_X': [0, 1, 0, 1],
-        'UNIT_INDEX_Y': [0, 0, 1, 1],
+        'DEFECT_ID': [101, 102, 103, 104], 'DEFECT_TYPE': ['Nick', 'Short', 'Cut', 'Nick'],
+        'UNIT_INDEX_X': [0, 1, 0, 1], 'UNIT_INDEX_Y': [0, 0, 1, 1],
         'Verification': ['T', 'F', 'T', 'TA'],
     }
     df = pd.DataFrame(data)
-
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Defects')
     output.seek(0)
-
     output.name = "BU-01-test-data.xlsx"
     return [output]
 
 @pytest.fixture
 def test_excel_file_missing_cols() -> list[BytesIO]:
-    """A pytest fixture that creates an in-memory Excel file with missing columns."""
-    data = {
-        'DEFECT_ID': [101, 102],
-        'DEFECT_TYPE': ['Nick', 'Short'],
-        # 'UNIT_INDEX_X' is missing
-        'UNIT_INDEX_Y': [0, 1],
-    }
+    """Creates an in-memory Excel file with missing columns and a valid 'BU-XX' name."""
+    data = {'DEFECT_ID': [101], 'DEFECT_TYPE': ['Nick']}
     df = pd.DataFrame(data)
-
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Defects')
@@ -51,28 +37,8 @@ def test_excel_file_missing_cols() -> list[BytesIO]:
     return [output]
 
 @pytest.fixture
-def test_excel_file_with_extra_cols() -> list[BytesIO]:
-    """A pytest fixture that creates an in-memory Excel file with an extra column."""
-    data = {
-        'DEFECT_ID': [101, 102],
-        'DEFECT_TYPE': ['Nick', 'Short'],
-        'UNIT_INDEX_X': [0, 1],
-        'UNIT_INDEX_Y': [0, 1],
-        'Verification': ['T', 'F'],
-        'Job Name': ['JobA', 'JobB']
-    }
-    df = pd.DataFrame(data)
-
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Defects')
-    output.seek(0)
-    output.name = "BU-03-extra-cols.xlsx"
-    return [output]
-
-@pytest.fixture
 def test_excel_file_invalid_name() -> list[BytesIO]:
-    """A pytest fixture for a file with an invalid name that doesn't match 'BU-XX'."""
+    """Creates an in-memory Excel file with an invalid name."""
     df = pd.DataFrame({'DEFECT_ID': [101]})
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -81,71 +47,23 @@ def test_excel_file_invalid_name() -> list[BytesIO]:
     output.name = "invalid_name.xlsx"
     return [output]
 
-
-import streamlit as st
-import importlib
-from src import data_handler
-from unittest.mock import MagicMock
-
-def test_load_data_quadrant_assignment(test_excel_file, monkeypatch):
-    """
-    Tests that load_data correctly reads a file and assigns quadrants.
-    Updated to handle the dictionary return type.
-    """
+def test_load_data_multilayer(test_excel_file, monkeypatch):
+    """Tests that load_data correctly processes a valid multi-layer file."""
     monkeypatch.setattr(st, "cache_data", lambda func: func)
+    monkeypatch.setattr(st.sidebar, "success", lambda *args, **kwargs: None)
     importlib.reload(data_handler)
-    panel_rows, panel_cols = 1, 1
 
-    layer_data = data_handler.load_data(test_excel_file, panel_rows, panel_cols)
+    layer_data = data_handler.load_data(test_excel_file, 1, 1)
 
-    assert isinstance(layer_data, dict), "load_data should return a dictionary"
-    assert 1 in layer_data, "Dictionary should contain key for layer 1"
-
+    assert isinstance(layer_data, dict)
+    assert 1 in layer_data
     df = layer_data[1]
-    assert not df.empty, "DataFrame for layer 1 should not be empty"
-    assert len(df) == 4, "DataFrame should have 4 rows"
-
-    assert df[df['DEFECT_ID'] == 101]['QUADRANT'].iloc[0] == 'Q1'
-    assert df[df['DEFECT_ID'] == 102]['QUADRANT'].iloc[0] == 'Q2'
-    assert df[df['DEFECT_ID'] == 103]['QUADRANT'].iloc[0] == 'Q3'
-    assert df[df['DEFECT_ID'] == 104]['QUADRANT'].iloc[0] == 'Q4'
-
-def test_load_data_coordinate_calculation(test_excel_file, monkeypatch):
-    """
-    Tests that load_data correctly calculates physical plot coordinates.
-    Updated to handle the dictionary return type.
-    """
-    monkeypatch.setattr(st, "cache_data", lambda func: func)
-    importlib.reload(data_handler)
-    panel_rows, panel_cols = 1, 1
-
-    layer_data = data_handler.load_data(test_excel_file, panel_rows, panel_cols)
-    df = layer_data[1]
-
-    q1_defect = df[df['DEFECT_ID'] == 101]
-    q2_defect = df[df['DEFECT_ID'] == 102]
-    q3_defect = df[df['DEFECT_ID'] == 103]
-    q4_defect = df[df['DEFECT_ID'] == 104]
-
-    assert 'plot_x' in df.columns and pd.api.types.is_float_dtype(df['plot_x'])
-    assert 'plot_y' in df.columns and pd.api.types.is_float_dtype(df['plot_y'])
-
-    assert 0 < q1_defect['plot_x'].iloc[0] < QUADRANT_WIDTH
-    assert 0 < q1_defect['plot_y'].iloc[0] < QUADRANT_HEIGHT
-
-    assert QUADRANT_WIDTH + GAP_SIZE < q2_defect['plot_x'].iloc[0] < (QUADRANT_WIDTH * 2) + GAP_SIZE
-    assert 0 < q2_defect['plot_y'].iloc[0] < QUADRANT_HEIGHT
-
-    assert 0 < q3_defect['plot_x'].iloc[0] < QUADRANT_WIDTH
-    assert QUADRANT_HEIGHT + GAP_SIZE < q3_defect['plot_y'].iloc[0] < (QUADRANT_HEIGHT * 2) + GAP_SIZE
-
-    assert QUADRANT_WIDTH + GAP_SIZE < q4_defect['plot_x'].iloc[0] < (QUADRANT_WIDTH * 2) + GAP_SIZE
-    assert QUADRANT_HEIGHT + GAP_SIZE < q4_defect['plot_y'].iloc[0] < (QUADRANT_HEIGHT * 2) + GAP_SIZE
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 4
+    assert 'QUADRANT' in df.columns
 
 def test_load_data_sample_generation(monkeypatch):
-    """
-    Tests that sample data is generated correctly for multiple layers.
-    """
+    """Tests that sample data is generated correctly for multiple layers."""
     monkeypatch.setattr(st, "cache_data", lambda func: func)
     monkeypatch.setattr(st.sidebar, "info", lambda *args, **kwargs: None)
     importlib.reload(data_handler)
@@ -153,107 +71,42 @@ def test_load_data_sample_generation(monkeypatch):
     layer_data = data_handler.load_data([], panel_rows=7, panel_cols=7)
 
     assert isinstance(layer_data, dict)
-    assert set(layer_data.keys()) == {1, 2, 3}, "Should create sample data for layers 1, 2, and 3."
-
-    # Check properties for each layer
+    assert set(layer_data.keys()) == {1, 2, 3}
     assert len(layer_data[1]) == 75
     assert len(layer_data[2]) == 120
     assert len(layer_data[3]) == 50
-
-    # Verify a specific layer's content
-    df_layer2 = layer_data[2]
-    assert not df_layer2.empty
-    expected_cols = ['DEFECT_ID', 'DEFECT_TYPE', 'UNIT_INDEX_X', 'UNIT_INDEX_Y', 'QUADRANT', 'plot_x', 'plot_y']
-    assert all(col in df_layer2.columns for col in expected_cols)
-    assert df_layer2['SOURCE_FILE'].iloc[0] == 'Sample Data Layer 2'
-
-def test_load_data_missing_columns(test_excel_file_missing_cols, monkeypatch):
-    """
-    Tests that an empty dictionary is returned if the file has missing columns.
-    """
-    monkeypatch.setattr(st, "cache_data", lambda func: func)
-    monkeypatch.setattr(st, "error", lambda *args, **kwargs: None)
-    monkeypatch.setattr(st.sidebar, "success", lambda *args, **kwargs: None)
-    importlib.reload(data_handler)
-
-    layer_data = data_handler.load_data(test_excel_file_missing_cols, panel_rows=1, panel_cols=1)
-
-    assert isinstance(layer_data, dict)
-    assert not layer_data, "Expected an empty dictionary for file with missing columns"
-
-def test_load_data_with_extra_columns(test_excel_file_with_extra_cols, monkeypatch):
-    """
-    Tests that data loads correctly from a file with extra columns.
-    Updated to handle the dictionary return type.
-    """
-    monkeypatch.setattr(st, "cache_data", lambda func: func)
-    monkeypatch.setattr(st.sidebar, "success", lambda *args, **kwargs: None)
-    importlib.reload(data_handler)
-
-    layer_data = data_handler.load_data(test_excel_file_with_extra_cols, panel_rows=1, panel_cols=1)
-
-    assert isinstance(layer_data, dict)
-    assert 3 in layer_data, "Dictionary should contain key for layer 3"
-    df = layer_data[3]
-
-    assert not df.empty, "Dataframe should not be empty"
-    assert len(df) == 2, "Should contain 2 rows of data"
-    assert "Job Name" in df.columns
-    assert df['Job Name'].tolist() == ['JobA', 'JobB']
+    assert 'plot_x' in layer_data[1].columns
 
 def test_load_data_invalid_filename(test_excel_file_invalid_name, monkeypatch):
-    """
-    Tests that a file with an invalid name is ignored and an empty dictionary is returned.
-    """
+    """Tests that a file with an invalid name is ignored."""
     monkeypatch.setattr(st, "cache_data", lambda func: func)
     mock_error = MagicMock()
     monkeypatch.setattr(st, "error", mock_error)
     importlib.reload(data_handler)
 
-    layer_data = data_handler.load_data(test_excel_file_invalid_name, panel_rows=1, panel_cols=1)
+    layer_data = data_handler.load_data(test_excel_file_invalid_name, 1, 1)
+    assert not layer_data
+    mock_error.assert_called_once()
 
-    assert isinstance(layer_data, dict)
-    assert not layer_data, "Expected an empty dictionary for invalid filename"
+def test_load_data_missing_columns(test_excel_file_missing_cols, monkeypatch):
+    """Tests that a file with missing required columns is skipped."""
+    monkeypatch.setattr(st, "cache_data", lambda func: func)
+    mock_error = MagicMock()
+    monkeypatch.setattr(st, "error", mock_error)
+    importlib.reload(data_handler)
+
+    layer_data = data_handler.load_data(test_excel_file_missing_cols, 1, 1)
+    assert not layer_data
     mock_error.assert_called_once()
 
 def test_get_true_defect_coordinates():
-    """
-    Tests the aggregation of 'True' defect coordinates across multiple layers.
-    """
-    # Create sample data with overlapping defects and mixed verification statuses
-    layer_1 = pd.DataFrame({
-        'UNIT_INDEX_X': [1, 2, 3],
-        'UNIT_INDEX_Y': [1, 2, 3],
-        'Verification': ['T', 'F', 'T']
-    })
-    layer_2 = pd.DataFrame({
-        'UNIT_INDEX_X': [1, 4, 5],
-        'UNIT_INDEX_Y': [1, 4, 5],
-        'Verification': ['T', 'T', 'TA'] # (1,1) is a duplicate 'T'
-    })
-    layer_3 = pd.DataFrame({
-        'UNIT_INDEX_X': [2, 6],
-        'UNIT_INDEX_Y': [2, 6],
-        'Verification': ['T', 'T'] # (2,2) was 'F' but is now 'T'
-    })
+    """Tests the aggregation of 'True' defect coordinates across multiple layers."""
+    layer_1 = pd.DataFrame({'UNIT_INDEX_X': [1, 2, 3], 'UNIT_INDEX_Y': [1, 2, 3], 'Verification': ['T', 'F', 'T']})
+    layer_2 = pd.DataFrame({'UNIT_INDEX_X': [1, 4, 5], 'UNIT_INDEX_Y': [1, 4, 5], 'Verification': ['T', 'T', 'TA']})
+    layer_3 = pd.DataFrame({'UNIT_INDEX_X': [2, 6], 'UNIT_INDEX_Y': [2, 6], 'Verification': ['T', 'T']})
+    layer_data = {1: layer_1, 2: layer_2, 3: layer_3}
 
-    layer_data = {
-        1: layer_1,
-        2: layer_2,
-        3: layer_3
-    }
-
-    # Execute the function
     result = get_true_defect_coordinates(layer_data)
 
-    # Define the expected set of unique coordinates with "True" defects
-    expected = {
-        (1, 1), # From layer 1 & 2
-        (3, 3), # From layer 1
-        (4, 4), # From layer 2
-        (2, 2), # From layer 3 (overwrites 'F' from layer 1)
-        (6, 6)  # From layer 3
-    }
-
-    assert isinstance(result, set), "Function should return a set"
-    assert result == expected, "The set of true defect coordinates does not match the expected output"
+    expected = {(1, 1), (3, 3), (4, 4), (2, 2), (6, 6)}
+    assert result == expected

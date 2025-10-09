@@ -32,7 +32,6 @@ def load_data(
     layer_data = {}
 
     if uploaded_files:
-        # 1. Read files and assign to layers
         for uploaded_file in uploaded_files:
             file_name = uploaded_file.name
             match = re.match(r"BU-(\d{2})", file_name, re.IGNORECASE)
@@ -48,7 +47,6 @@ def load_data(
                 df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='openpyxl')
                 df['SOURCE_FILE'] = file_name
 
-                # Basic validation and cleaning
                 if 'Verification' not in df.columns:
                     df['Verification'] = 'T'
                 else:
@@ -85,7 +83,6 @@ def load_data(
         total_units_y = 2 * panel_rows
         layer_data = {}
 
-        # Define different properties for each sample layer
         layer_properties = {
             1: {'num_defects': 75, 'defect_types': ['Nick', 'Short', 'Cut']},
             2: {'num_defects': 120, 'defect_types': ['Fine Short', 'Pad Violation', 'Island', 'Short']},
@@ -142,14 +139,6 @@ def load_data(
 def get_true_defect_coordinates(layer_data: Dict[int, pd.DataFrame]) -> Set[Tuple[int, int]]:
     """
     Aggregates all "True" defects from all layers to find unique defective cell coordinates.
-
-    Args:
-        layer_data: A dictionary where keys are layer numbers and values are DataFrames
-                    of defect data for that layer.
-
-    Returns:
-        A set of tuples, where each tuple is a (UNIT_INDEX_X, UNIT_INDEX_Y) coordinate
-        of a cell that has at least one "True" defect on any layer.
     """
     if not isinstance(layer_data, dict) or not layer_data:
         return set()
