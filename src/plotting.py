@@ -96,20 +96,34 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     Creates a list of scatter traces, one for each defect type in the dataframe.
     """
     traces = []
+
+    # Check if the 'Verification' column exists to make the hovertemplate robust
+    has_verification = 'Verification' in df.columns
+
     for dtype, color in defect_style_map.items():
         dff = df[df['DEFECT_TYPE'] == dtype]
         if not dff.empty:
+            # Base custom data and hover template
+            custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']
+            hovertemplate = (
+                "<b>Type: %{customdata[2]}</b><br>"
+                "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
+                "Defect ID: %{customdata[3]}"
+            )
+
+            # Add verification info only if the column exists
+            if has_verification:
+                custom_data_cols.append('Verification')
+                hovertemplate += "<br>Verification: %{customdata[4]}"
+
+            hovertemplate += "<extra></extra>"
+
             traces.append(go.Scatter(
                 x=dff['plot_x'], y=dff['plot_y'], mode='markers',
                 marker=dict(color=color, size=8, line=dict(width=1, color='black')),
                 name=dtype,
-                customdata=dff[['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']],
-                hovertemplate=(
-                    "<b>Type: %{customdata[2]}</b><br>"
-                    "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
-                    "Defect ID: %{customdata[3]}"
-                    "<extra></extra>"
-                )
+                customdata=dff[custom_data_cols],
+                hovertemplate=hovertemplate
             ))
     return traces
     
@@ -183,9 +197,9 @@ def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:
 
     # 5. Define colors and names for the legend
     status_map = {
-        'T': {'name': 'True', 'color': '#2ca02c'},
-        'F': {'name': 'False', 'color': '#d62728'},
-        'TA': {'name': 'Acceptable', 'color': '#8c564b'}
+        'T': {'name': 'True', 'color': '#FF0000'},
+        'F': {'name': 'False', 'color': '#2ca02c'},
+        'TA': {'name': 'Acceptable', 'color': '#FFBF00'}
     }
 
     # 6. Create a trace for each verification status
