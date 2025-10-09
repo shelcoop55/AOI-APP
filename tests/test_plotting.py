@@ -64,8 +64,8 @@ def test_create_still_alive_map():
     # The function should return a list of shapes (dictionaries)
     assert isinstance(shapes, list)
 
-    # Extract just the colored cell rectangles (they don't have a 'line' key)
-    colored_cells = [s for s in shapes if s.get('type') == 'rect' and 'line' in s and s['line']['width'] == 0]
+    # Extract just the colored cell rectangles, which are now drawn with a line width of 0.
+    colored_cells = [s for s in shapes if s.get('type') == 'rect' and s.get('line', {}).get('width') == 0]
 
     # There should be one rectangle for each cell in the grid
     assert len(colored_cells) == total_cells, "Should be one shape per cell"

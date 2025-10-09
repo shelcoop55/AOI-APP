@@ -222,14 +222,7 @@ def create_still_alive_map(
 ) -> List[Dict[str, Any]]:
     """
     Creates the shapes for the 'Still Alive' map, coloring cells based on defects.
-
-    Args:
-        panel_rows: The number of rows in a single quadrant.
-        panel_cols: The number of columns in a single quadrant.
-        true_defect_coords: A set of (x, y) tuples for cells with true defects.
-
-    Returns:
-        A list of Plotly shape dictionaries for the colored grid.
+    This version draws colored cells first, then overlays the grid lines.
     """
     shapes = []
     total_cols = panel_cols * 2
@@ -242,10 +235,9 @@ def create_still_alive_map(
     cell_width = QUADRANT_WIDTH / panel_cols
     cell_height = QUADRANT_HEIGHT / panel_rows
 
-    # Iterate through every cell in the entire panel grid
+    # 1. Draw the colored cells first (without borders)
     for row in range(total_rows):
         for col in range(total_cols):
-            # Determine the quadrant and local index for the current cell
             quadrant_col = col // panel_cols
             quadrant_row = row // panel_rows
 
@@ -259,13 +251,11 @@ def create_still_alive_map(
             local_col = col % panel_cols
             local_row = row % panel_rows
 
-            # Calculate the physical coordinates for the cell rectangle
             x0 = x_origin + local_col * cell_width
             y0 = y_origin + local_row * cell_height
             x1 = x0 + cell_width
             y1 = y0 + cell_height
 
-            # Determine the fill color
             fill_color = DEFECTIVE_CELL_COLOR if (col, row) in true_defect_coords else ALIVE_CELL_COLOR
 
             shapes.append({
@@ -276,7 +266,18 @@ def create_still_alive_map(
                 'layer': 'below'
             })
 
-    # Add the main grid lines on top of the colored cells
-    shapes.extend(create_grid_shapes(panel_rows, panel_cols))
+    # 2. Draw grid lines over the colored cells
+    for quadrant_key, (x_start, y_start) in all_origins.items():
+        # Draw vertical lines for the quadrant
+        for i in range(panel_cols + 1):
+            line_x = x_start + (i * cell_width)
+            shapes.append(dict(type="line", x0=line_x, y0=y_start, x1=line_x, y1=y_start + QUADRANT_HEIGHT, line=dict(color=GRID_COLOR, width=1)))
+        # Draw horizontal lines for the quadrant
+        for i in range(panel_rows + 1):
+            line_y = y_start + (i * cell_height)
+            shapes.append(dict(type="line", x0=x_start, y0=line_y, x1=x_start + QUADRANT_WIDTH, y1=line_y, line=dict(color=GRID_COLOR, width=1)))
+
+    # 3. Add the outer border and main quadrant gaps
+    shapes.extend(_draw_border_and_gaps())
 
     return shapes
