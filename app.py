@@ -225,37 +225,25 @@ def main() -> None:
             if lot_number and quadrant_selection == Quadrant.ALL.value:
                 fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
 
-            # Add verification summary annotation
-            if not display_df.empty:
-                verification_counts = display_df['Verification'].value_counts()
-                true_count = int(verification_counts.get('T', 0))
-                false_count = int(verification_counts.get('F', 0))
-                ta_count = int(verification_counts.get('TA', 0))
-
-                annotation_text = (
-                    f"<b>Verification Summary</b><br>"
-                    f"True (T): {true_count}<br>"
-                    f"False (F): {false_count}<br>"
-                    f"Acceptable (TA): {ta_count}"
-                )
-
-                fig.add_annotation(
-                    text=annotation_text,
-                    align='left',
-                    showarrow=False,
-                    xref='paper',
-                    yref='paper',
-                    x=1.02, # Position slightly to the right of the plot
-                    y=0.8,  # Position below the legend
-                    xanchor='left',
-                    yanchor='top',
-                    bordercolor=TEXT_COLOR,
-                    borderwidth=1,
-                    bgcolor='rgba(40,40,40,0.8)',
-                    font=dict(color=TEXT_COLOR, size=12)
-                )
-
             st.plotly_chart(fig, use_container_width=True)
+
+            # --- Verification Summary Metrics ---
+            # This container is assigned a data-testid for robust testing
+            with st.container():
+                st.markdown("<div data-testid='verification-summary-container'>", unsafe_allow_html=True)
+                if not display_df.empty:
+                    verification_counts = display_df['Verification'].value_counts()
+                    true_count = int(verification_counts.get('T', 0))
+                    false_count = int(verification_counts.get('F', 0))
+                    ta_count = int(verification_counts.get('TA', 0))
+
+                    st.markdown("---") # Visual separator
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("True (T)", f"{true_count:,}")
+                    col2.metric("False (F)", f"{false_count:,}")
+                    col3.metric("Acceptable (TA)", f"{ta_count:,}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
 
         # --- VIEW 2: PARETO CHART ---
         elif view_mode == ViewMode.PARETO.value:
