@@ -9,7 +9,7 @@ import pandas as pd
 import matplotlib.colors as mcolors
 
 # Import our modularized functions
-from src.config import BACKGROUND_COLOR, PLOT_AREA_COLOR, GRID_COLOR, TEXT_COLOR, PANEL_COLOR, GAP_SIZE
+from src.config import BACKGROUND_COLOR, PLOT_AREA_COLOR, GRID_COLOR, TEXT_COLOR, PANEL_COLOR, GAP_SIZE, ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
 from src.data_handler import (
     load_data, get_true_defect_coordinates,
     QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
@@ -107,16 +107,15 @@ def main() -> None:
     st.markdown("<br>", unsafe_allow_html=True)
 
     if submitted:
-        with st.spinner("Loading and analyzing data..."):
-            st.session_state.layer_data = load_data(uploaded_files, panel_rows, panel_cols)
-            if st.session_state.layer_data:
-                st.session_state.selected_layer = max(st.session_state.layer_data.keys())
-                st.session_state.active_view = 'layer'
-            else:
-                st.session_state.selected_layer = None
-            st.session_state.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
-            st.session_state.report_bytes = None
-            st.rerun()
+        st.session_state.layer_data = load_data(uploaded_files, panel_rows, panel_cols)
+        if st.session_state.layer_data:
+            st.session_state.selected_layer = max(st.session_state.layer_data.keys())
+            st.session_state.active_view = 'layer'
+        else:
+            st.session_state.selected_layer = None
+        st.session_state.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
+        st.session_state.report_bytes = None
+        st.rerun()
 
     if st.session_state.get('layer_data'):
         params = st.session_state.analysis_params
@@ -154,6 +153,21 @@ def main() -> None:
             col2.metric("Defective Cells", f"{defective_cell_count:,}")
             col3.metric("Panel Yield", f"{yield_percentage:.2f}%")
             st.divider()
+
+            legend_html = f'''
+            <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+                <div style="display: flex; align-items: center; margin-right: 20px;">
+                    <div style="width: 20px; height: 20px; background-color: {ALIVE_CELL_COLOR}; margin-right: 5px; border: 1px solid black;"></div>
+                    <span>Defect-Free Cell</span>
+                </div>
+                <div style="display: flex; align-items: center;">
+                    <div style="width: 20px; height: 20px; background-color: {DEFECTIVE_CELL_COLOR}; margin-right: 5px; border: 1px solid black;"></div>
+                    <span>Defective Cell</span>
+                </div>
+            </div>
+            '''
+            st.markdown(legend_html, unsafe_allow_html=True)
+
             fig = go.Figure()
             map_shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
             fig.update_layout(title=dict(text=f"Still Alive Map ({defective_cell_count} Defective Cells)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'), xaxis=dict(range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE], showgrid=False, zeroline=False, showticklabels=False, title=""), yaxis=dict(range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE], scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showticklabels=False, title=""), plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=map_shapes, height=800, margin=dict(l=20, r=20, t=60, b=20))
