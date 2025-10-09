@@ -62,7 +62,9 @@ def load_data(
             st.error(f"One or more uploaded files are missing required columns: {required_columns}")
             return pd.DataFrame()
             
-        df = df[required_columns + ['Verification', 'SOURCE_FILE']]
+        # No longer strictly filtering columns. This allows extra columns from the
+        # source file to be preserved in the dataframe. The required columns check
+        # above already ensures we have what we need.
         df.dropna(subset=required_columns, inplace=True)
         df['UNIT_INDEX_X'] = df['UNIT_INDEX_X'].astype(int)
         df['UNIT_INDEX_Y'] = df['UNIT_INDEX_Y'].astype(int)

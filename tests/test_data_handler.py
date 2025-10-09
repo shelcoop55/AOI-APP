@@ -51,6 +51,26 @@ def test_excel_file_missing_cols() -> list[BytesIO]:
     output.name = "missing_cols.xlsx"
     return [output]
 
+@pytest.fixture
+def test_excel_file_with_extra_cols() -> list[BytesIO]:
+    """A pytest fixture that creates an in-memory Excel file with an extra column."""
+    data = {
+        'DEFECT_ID': [101, 102],
+        'DEFECT_TYPE': ['Nick', 'Short'],
+        'UNIT_INDEX_X': [0, 1],
+        'UNIT_INDEX_Y': [0, 1],
+        'Verification': ['T', 'F'],
+        'Job Name': ['JobA', 'JobB'] # Extra column
+    }
+    df = pd.DataFrame(data)
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Defects')
+    output.seek(0)
+    output.name = "extra_cols.xlsx"
+    return [output]
+
 import streamlit as st
 import importlib
 from src import data_handler
@@ -160,3 +180,22 @@ def test_load_data_missing_columns(test_excel_file_missing_cols, monkeypatch):
 
     assert isinstance(df, pd.DataFrame)
     assert df.empty
+
+def test_load_data_with_extra_columns(test_excel_file_with_extra_cols, monkeypatch):
+    """
+    Tests that data loads correctly from a file with extra, non-required columns.
+    This verifies the fix for the user-reported bug.
+    """
+    monkeypatch.setattr(st, "cache_data", lambda func: func)
+    monkeypatch.setattr(st.sidebar, "success", lambda *args, **kwargs: None)
+    importlib.reload(data_handler)
+
+    df = data_handler.load_data(test_excel_file_with_extra_cols, panel_rows=1, panel_cols=1)
+
+    assert isinstance(df, pd.DataFrame)
+    assert not df.empty, "Dataframe should not be empty"
+    assert len(df) == 2, "Should contain 2 rows of data"
+
+    # Crucially, assert that the extra column is preserved
+    assert "Job Name" in df.columns
+    assert df['Job Name'].tolist() == ['JobA', 'JobB']
