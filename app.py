@@ -14,7 +14,7 @@ from src.config import BACKGROUND_COLOR, PLOT_AREA_COLOR, GRID_COLOR, TEXT_COLOR
 from src.data_handler import load_data, QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
 from src.plotting import (
     create_grid_shapes, create_defect_traces,
-    create_pareto_trace, create_grouped_pareto_trace
+    create_pareto_trace, create_grouped_pareto_trace, create_verification_status_chart
 )
 from src.reporting import generate_excel_report
 from src.enums import ViewMode, Quadrant
@@ -68,37 +68,68 @@ def main() -> None:
             submitted = st.form_submit_button("🚀 Run Analysis")
 
         st.divider()
-        with st.expander("📊 Analysis Controls", expanded=True):
-            view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.", disabled=st.session_state.get('full_df') is None)
-            quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant of the panel.", disabled=st.session_state.get('full_df') is None)
 
-        st.divider()
-        with st.expander("📥 Reporting", expanded=True):
-            report_disabled = st.session_state.get('full_df') is None or st.session_state.full_df.empty
+        # --- Analysis and Reporting (only shown if data is loaded) ---
+        if st.session_state.get('full_df') is not None and not st.session_state.full_df.empty:
+            full_df_for_controls = st.session_state.full_df
+            with st.expander("📊 Analysis Controls", expanded=True):
+                view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.")
+                quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant of the panel.")
+                verification_options = ['All'] + sorted(full_df_for_controls['Verification'].unique().tolist())
+                verification_selection = st.radio(
+                    "Filter by Verification Status",
+                    options=verification_options,
+                    index=0,
+                    help="Select a single verification status to filter by, or 'All' to clear."
+                )
 
-            if st.button("Generate Report for Download", disabled=report_disabled):
-                with st.spinner("Generating Excel report..."):
-                    df = st.session_state.full_df
-                    params = st.session_state.analysis_params
-                    source_filenames = df['SOURCE_FILE'].unique().tolist()
+            st.divider()
 
-                    excel_bytes = generate_excel_report(
-                        full_df=df,
-                        panel_rows=params.get("panel_rows", 7),
-                        panel_cols=params.get("panel_cols", 7),
-                        source_filename=", ".join(source_filenames)
-                    )
-                    st.session_state.report_bytes = excel_bytes
-                    st.rerun()
+            with st.expander("📥 Reporting", expanded=True):
+                if st.button("Generate Report for Download"):
+                    with st.spinner("Generating Excel report..."):
+                        # Base data for the report is the full dataset
+                        report_df = st.session_state.full_df
 
-            st.download_button(
-                label="Download Full Report",
-                data=st.session_state.report_bytes if st.session_state.report_bytes is not None else b"",
-                file_name="full_defect_report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                disabled=st.session_state.report_bytes is None,
-                help="Click 'Generate Report' first to enable download."
-            )
+                        # 1. Apply Verification Status Filter
+                        if verification_selection != 'All':
+                            report_df = report_df[report_df['Verification'] == verification_selection]
+
+                        # 2. Apply Quadrant Filter
+                        if quadrant_selection != Quadrant.ALL.value:
+                            report_df = report_df[report_df['QUADRANT'] == quadrant_selection]
+
+                        params = st.session_state.analysis_params
+                        source_filenames = report_df['SOURCE_FILE'].unique().tolist()
+
+                        excel_bytes = generate_excel_report(
+                            full_df=report_df,
+                            panel_rows=params.get("panel_rows", 7),
+                            panel_cols=params.get("panel_cols", 7),
+                            source_filename=", ".join(source_filenames)
+                        )
+                        st.session_state.report_bytes = excel_bytes
+                        st.rerun()
+
+                st.download_button(
+                    label="Download Full Report",
+                    data=st.session_state.report_bytes if st.session_state.report_bytes is not None else b"",
+                    file_name="full_defect_report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    disabled=st.session_state.report_bytes is None,
+                    help="Click 'Generate Report' first to enable download."
+                )
+        else:
+            # Show disabled controls if no data is loaded
+            with st.expander("📊 Analysis Controls", expanded=True):
+                st.radio("Select View", ViewMode.values(), disabled=True)
+                st.selectbox("Select Quadrant", Quadrant.values(), disabled=True)
+                st.radio("Filter by Verification Status", ["All"], disabled=True)
+            st.divider()
+            with st.expander("📥 Reporting", expanded=True):
+                st.button("Generate Report for Download", disabled=True)
+                st.download_button("Download Full Report", b"", disabled=True)
+
 
     st.title("📊 Panel Defect Analysis Tool")
     st.markdown("<br>", unsafe_allow_html=True)
@@ -108,11 +139,10 @@ def main() -> None:
             full_df = load_data(uploaded_files, panel_rows, panel_cols)
             st.session_state.full_df = full_df
             st.session_state.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
-            # Reset report bytes on new analysis
             st.session_state.report_bytes = None
             st.rerun()
 
-    if st.session_state.full_df is not None:
+    if st.session_state.get('full_df') is not None:
         full_df = st.session_state.full_df
         params = st.session_state.analysis_params
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
@@ -122,14 +152,23 @@ def main() -> None:
             st.error("The loaded data is empty or invalid. Please check the source file and try again.")
             return
 
-        display_df = full_df[full_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else full_df
+        # --- Apply Filters ---
+        # The verification_selection is now defined directly in the sidebar
+        # and is available here for immediate use.
+        if verification_selection != 'All':
+            filtered_df = full_df[full_df['Verification'] == verification_selection]
+        else:
+            filtered_df = full_df # No filter applied
+
+        # 2. Apply Quadrant Filter on the already-filtered data
+        display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
 
         # --- VIEW 1: DEFECT MAP ---
         if view_mode == ViewMode.DEFECT.value:
             fig = go.Figure()
             defect_traces = create_defect_traces(display_df)
             for trace in defect_traces: fig.add_trace(trace)
-            
+
             plot_shapes = create_grid_shapes(panel_rows, panel_cols, quadrant_selection)
 
             # --- *** FIX STARTS HERE: Define ranges for all quadrants and conditionally set them *** ---
@@ -159,7 +198,7 @@ def main() -> None:
                     x_axis_range, y_axis_range = q3_x_range, q3_y_range
                 else: # Q4
                     x_axis_range, y_axis_range = q4_x_range, q4_y_range
-            
+
             # --- *** FIX ENDS HERE *** ---
 
             cell_width = QUADRANT_WIDTH / panel_cols
@@ -182,10 +221,40 @@ def main() -> None:
                 hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"),
                 height=800
             )
-            
+
             if lot_number and quadrant_selection == Quadrant.ALL.value:
                 fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
-            
+
+            # Add verification summary annotation
+            if not display_df.empty:
+                verification_counts = display_df['Verification'].value_counts()
+                true_count = int(verification_counts.get('T', 0))
+                false_count = int(verification_counts.get('F', 0))
+                ta_count = int(verification_counts.get('TA', 0))
+
+                annotation_text = (
+                    f"<b>Verification Summary</b><br>"
+                    f"True (T): {true_count}<br>"
+                    f"False (F): {false_count}<br>"
+                    f"Acceptable (TA): {ta_count}"
+                )
+
+                fig.add_annotation(
+                    text=annotation_text,
+                    align='left',
+                    showarrow=False,
+                    xref='paper',
+                    yref='paper',
+                    x=1.02, # Position slightly to the right of the plot
+                    y=0.8,  # Position below the legend
+                    xanchor='left',
+                    yanchor='top',
+                    bordercolor=TEXT_COLOR,
+                    borderwidth=1,
+                    bgcolor='rgba(40,40,40,0.8)',
+                    font=dict(color=TEXT_COLOR, size=12)
+                )
+
             st.plotly_chart(fig, use_container_width=True)
 
         # --- VIEW 2: PARETO CHART ---
@@ -223,17 +292,24 @@ def main() -> None:
                 return
 
             if quadrant_selection != Quadrant.ALL.value:
+                # Use display_df for view-specific counts
                 total_defects = len(display_df)
                 total_cells = panel_rows * panel_cols
-                defective_cells = len(display_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 defect_density = total_defects / total_cells if total_cells > 0 else 0
+
+                # ** Yield calculation must be independent of the verification filter **
+                # It should be based on the full data for the selected quadrant.
+                quad_yield_df = full_df[full_df['QUADRANT'] == quadrant_selection]
+                true_yield_defects = quad_yield_df[quad_yield_df['Verification'] == 'T']
+                defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                 yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
 
                 st.markdown("### Key Performance Indicators (KPIs)")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Defect Count", f"{total_defects:,}")
-                col2.metric("Defect Density", f"{defect_density:.2f} defects/cell")
-                col3.metric("Yield Estimate", f"{yield_estimate:.2%}")
+                col2.metric("True Defective Cells", f"{defective_cells:,}")
+                col3.metric("Defect Density", f"{defect_density:.2f} defects/cell")
+                col4.metric("Yield Estimate", f"{yield_estimate:.2%}")
 
                 st.divider()
                 st.markdown("### Top Defect Types")
@@ -249,37 +325,99 @@ def main() -> None:
                 )
 
             else:
+                # --- NEW: Panel-Wide KPIs ---
+                st.markdown("### Panel-Wide KPIs (Filtered)")
+                # Use display_df for view-specific counts
+                total_defects = len(display_df)
+                total_cells = (panel_rows * panel_cols) * 4
+                defect_density = total_defects / total_cells if total_cells > 0 else 0
+
+                # ** Yield calculation must be independent of the verification filter **
+                # It should be based on the full data for the entire panel.
+                true_yield_defects = full_df[full_df['Verification'] == 'T']
+                defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+                yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
+
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Filtered Defect Count", f"{total_defects:,}")
+                col2.metric("True Defective Cells", f"{defective_cells:,}")
+                col3.metric("Filtered Defect Density", f"{defect_density:.2f} defects/cell")
+                col4.metric("Filtered Yield Estimate", f"{yield_estimate:.2%}")
+                st.divider()
+                # --- END NEW ---
+
                 st.markdown("### Quarterly KPI Breakdown")
 
                 kpi_data = []
                 quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
-                for quad in quadrants:
-                    quad_df = full_df[full_df['QUADRANT'] == quad]
-                    total_defects = len(quad_df)
-                    density = total_defects / (panel_rows * panel_cols) if (panel_rows * panel_cols) > 0 else 0
-                    kpi_data.append({"Quadrant": quad, "Total Defects": total_defects, "Defect Density": f"{density:.2f}"})
+                total_cells_per_quad = panel_rows * panel_cols
 
-                kpi_df = pd.DataFrame(kpi_data)
-                st.dataframe(kpi_df, width='stretch')
+                # Note: For the breakdown, we use the 'filtered_df' which is only filtered by
+                # verification, not by quadrant, to get accurate per-quadrant counts.
+                for quad in quadrants:
+                    # Filtered data for T/F/TA counts
+                    quad_view_df = filtered_df[filtered_df['QUADRANT'] == quad]
+                    total_quad_defects = len(quad_view_df)
+
+                    # ** Yield calculation must be independent of the verification filter **
+                    # Use the full dataset, filtered only by the current quadrant
+                    quad_yield_df = full_df[full_df['QUADRANT'] == quad]
+                    true_yield_defects = quad_yield_df[quad_yield_df['Verification'] == 'T']
+                    defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+                    yield_estimate = (total_cells_per_quad - defective_cells) / total_cells_per_quad if total_cells_per_quad > 0 else 0
+
+                    # Get verification counts from the view-specific dataframe
+                    verification_counts = quad_view_df['Verification'].value_counts()
+                    true_count = int(verification_counts.get('T', 0))
+                    false_count = int(verification_counts.get('F', 0))
+                    ta_count = int(verification_counts.get('TA', 0))
+
+                    kpi_data.append({
+                        "Quadrant": quad,
+                        "Total Defects": total_quad_defects,
+                        "True (T)": true_count,
+                        "False (F)": false_count,
+                        "Acceptable (TA)": ta_count,
+                        "True Defective Cells": defective_cells,
+                        "Yield": f"{yield_estimate:.2%}"
+                    })
+
+                if kpi_data:
+                    kpi_df = pd.DataFrame(kpi_data)
+                    # Reorder columns for logical presentation
+                    kpi_df = kpi_df[['Quadrant', 'Total Defects', 'True (T)', 'False (F)', 'Acceptable (TA)', 'True Defective Cells', 'Yield']]
+                    st.dataframe(kpi_df, width='stretch')
+                else:
+                    st.info("No data to display for the quarterly breakdown based on current filters.")
 
                 st.divider()
-                st.markdown("### Defect Distribution by Quadrant")
-                fig = go.Figure()
-                grouped_traces = create_grouped_pareto_trace(full_df)
-                for trace in grouped_traces: 
-                    fig.add_trace(trace)
+                st.markdown("### Defect Verification Status by Quadrant")
 
-                fig.update_layout(
-                    title=dict(text="Defect Count by Type and Quadrant", font=dict(color=TEXT_COLOR)),
-                    barmode='group',
-                    xaxis=dict(title="Defect Type", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-                    yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-                    plot_bgcolor=PLOT_AREA_COLOR,
-                    paper_bgcolor=BACKGROUND_COLOR,
-                    legend=dict(font=dict(color=TEXT_COLOR)),
-                    height=600
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                # The chart should be based on the data as it is filtered by the controls
+                if not display_df.empty:
+                    fig = go.Figure()
+                    verification_traces = create_verification_status_chart(display_df)
+                    for trace in verification_traces:
+                        fig.add_trace(trace)
+
+                    fig.update_layout(
+                        title=dict(text="Verification Status by Defect Type and Quadrant", font=dict(color=TEXT_COLOR), x=0.5),
+                        barmode='stack',  # This creates the stacked effect for T/F/TA
+                        xaxis=dict(
+                            title="Defect Type & Quadrant",
+                            title_font=dict(color=TEXT_COLOR),
+                            tickfont=dict(color=TEXT_COLOR)
+                            # The multi-level category is handled by the data structure
+                        ),
+                        yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+                        plot_bgcolor=PLOT_AREA_COLOR,
+                        paper_bgcolor=BACKGROUND_COLOR,
+                        legend=dict(title="Verification Status", font=dict(color=TEXT_COLOR)),
+                        height=600
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No data to display for the verification status chart based on current filters.")
 
 
     else:

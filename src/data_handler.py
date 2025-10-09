@@ -31,11 +31,16 @@ def load_data(
         all_dfs = []
         for uploaded_file in uploaded_files:
             try:
-                df = pd.read_excel(uploaded_file, engine='openpyxl')
+                # Read only the sheet named "Defects"
+                df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='openpyxl')
                 df['SOURCE_FILE'] = uploaded_file.name
                 all_dfs.append(df)
+            except ValueError:
+                # This error occurs if the "Defects" sheet is not found
+                st.error(f"Error in '{uploaded_file.name}': A sheet named 'Defects' was not found. Please ensure the file contains a 'Defects' sheet.")
+                continue
             except Exception as e:
-                st.error(f"Error reading '{uploaded_file.name}': {e}")
+                st.error(f"An unexpected error occurred while reading '{uploaded_file.name}': {e}")
                 continue
 
         if not all_dfs:
@@ -45,12 +50,21 @@ def load_data(
         df = pd.concat(all_dfs, ignore_index=True)
         st.sidebar.success(f"{len(uploaded_files)} file(s) loaded successfully!")
         
+        # Handle the new 'Verification' column for backward compatibility
+        if 'Verification' not in df.columns:
+            df['Verification'] = 'T'
+        else:
+            # Clean up the verification column, filling NaNs with 'T'
+            df['Verification'] = df['Verification'].astype(str).fillna('T').str.strip()
+
         required_columns = ['DEFECT_ID', 'DEFECT_TYPE', 'UNIT_INDEX_X', 'UNIT_INDEX_Y']
         if not all(col in df.columns for col in required_columns):
             st.error(f"One or more uploaded files are missing required columns: {required_columns}")
             return pd.DataFrame()
             
-        df = df[required_columns + ['SOURCE_FILE']]
+        # No longer strictly filtering columns. This allows extra columns from the
+        # source file to be preserved in the dataframe. The required columns check
+        # above already ensures we have what we need.
         df.dropna(subset=required_columns, inplace=True)
         df['UNIT_INDEX_X'] = df['UNIT_INDEX_X'].astype(int)
         df['UNIT_INDEX_Y'] = df['UNIT_INDEX_Y'].astype(int)
@@ -67,6 +81,7 @@ def load_data(
             'UNIT_INDEX_X': np.random.randint(0, total_units_x, size=number_of_defects),
             'UNIT_INDEX_Y': np.random.randint(0, total_units_y, size=number_of_defects),
             'DEFECT_TYPE': np.random.choice([ 'Nick', 'Short', 'Missing Feature', 'Cut', 'Fine Short', 'Pad Violation', 'Island', 'Cut/Short', 'Nick/Protrusion' ], size=number_of_defects),
+            'Verification': np.random.choice(['T', 'F', 'TA'], size=number_of_defects, p=[0.7, 0.15, 0.15]),
             'SOURCE_FILE': ['Sample Data'] * number_of_defects
         }
         df = pd.DataFrame(defect_data)
