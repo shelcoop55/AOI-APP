@@ -5,11 +5,12 @@ UPDATED: Now includes an outer border frame and has been refactored for clarity.
 """
 import plotly.graph_objects as go
 import pandas as pd
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set, Tuple
 
 from src.config import (
     PANEL_COLOR, GRID_COLOR, defect_style_map, TEXT_COLOR,
-    PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE
+    PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE,
+    ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
 )
 from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT
 
@@ -213,3 +214,69 @@ def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:
         ))
 
     return traces
+
+def create_still_alive_map(
+    panel_rows: int,
+    panel_cols: int,
+    true_defect_coords: Set[Tuple[int, int]]
+) -> List[Dict[str, Any]]:
+    """
+    Creates the shapes for the 'Still Alive' map, coloring cells based on defects.
+
+    Args:
+        panel_rows: The number of rows in a single quadrant.
+        panel_cols: The number of columns in a single quadrant.
+        true_defect_coords: A set of (x, y) tuples for cells with true defects.
+
+    Returns:
+        A list of Plotly shape dictionaries for the colored grid.
+    """
+    shapes = []
+    total_cols = panel_cols * 2
+    total_rows = panel_rows * 2
+
+    all_origins = {
+        'Q1': (0, 0), 'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0),
+        'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE), 'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)
+    }
+    cell_width = QUADRANT_WIDTH / panel_cols
+    cell_height = QUADRANT_HEIGHT / panel_rows
+
+    # Iterate through every cell in the entire panel grid
+    for row in range(total_rows):
+        for col in range(total_cols):
+            # Determine the quadrant and local index for the current cell
+            quadrant_col = col // panel_cols
+            quadrant_row = row // panel_rows
+
+            if quadrant_col == 0 and quadrant_row == 0: quad_key = 'Q1'
+            elif quadrant_col == 1 and quadrant_row == 0: quad_key = 'Q2'
+            elif quadrant_col == 0 and quadrant_row == 1: quad_key = 'Q3'
+            else: quad_key = 'Q4'
+
+            x_origin, y_origin = all_origins[quad_key]
+
+            local_col = col % panel_cols
+            local_row = row % panel_rows
+
+            # Calculate the physical coordinates for the cell rectangle
+            x0 = x_origin + local_col * cell_width
+            y0 = y_origin + local_row * cell_height
+            x1 = x0 + cell_width
+            y1 = y0 + cell_height
+
+            # Determine the fill color
+            fill_color = DEFECTIVE_CELL_COLOR if (col, row) in true_defect_coords else ALIVE_CELL_COLOR
+
+            shapes.append({
+                'type': 'rect',
+                'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
+                'fillcolor': fill_color,
+                'line': {'width': 0},
+                'layer': 'below'
+            })
+
+    # Add the main grid lines on top of the colored cells
+    shapes.extend(create_grid_shapes(panel_rows, panel_cols))
+
+    return shapes

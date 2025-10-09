@@ -5,8 +5,10 @@ from src.plotting import (
     create_grid_shapes,
     create_defect_traces,
     create_pareto_trace,
-    create_grouped_pareto_trace
+    create_grouped_pareto_trace,
+    create_still_alive_map
 )
+from src.config import ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
 
 @pytest.fixture
 def sample_plot_df() -> pd.DataFrame:
@@ -44,3 +46,33 @@ def test_create_grouped_pareto_trace_smoke(sample_plot_df):
     traces = create_grouped_pareto_trace(sample_plot_df)
     assert isinstance(traces, list)
     assert all(isinstance(t, go.Bar) for t in traces)
+
+def test_create_still_alive_map():
+    """
+    Tests that the still alive map correctly colors cells based on defect coordinates.
+    """
+    # For a 1x1 grid per quadrant, the total grid is 2x2.
+    panel_rows, panel_cols = 1, 1
+    total_cells = (panel_rows * 2) * (panel_cols * 2)
+
+    # Define two cells as having "True" defects.
+    true_defect_coords = {(0, 0), (1, 1)}
+
+    # Generate the shapes for the map
+    shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
+
+    # The function should return a list of shapes (dictionaries)
+    assert isinstance(shapes, list)
+
+    # Extract just the colored cell rectangles (they don't have a 'line' key)
+    colored_cells = [s for s in shapes if s.get('type') == 'rect' and 'line' in s and s['line']['width'] == 0]
+
+    # There should be one rectangle for each cell in the grid
+    assert len(colored_cells) == total_cells, "Should be one shape per cell"
+
+    # Count how many cells are colored defective vs. alive
+    defective_count = sum(1 for s in colored_cells if s['fillcolor'] == DEFECTIVE_CELL_COLOR)
+    alive_count = sum(1 for s in colored_cells if s['fillcolor'] == ALIVE_CELL_COLOR)
+
+    assert defective_count == len(true_defect_coords), "Number of defective cells is incorrect"
+    assert alive_count == total_cells - len(true_defect_coords), "Number of alive cells is incorrect"

@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 from io import BytesIO
-from src.data_handler import load_data, QUADRANT_WIDTH, QUADRANT_HEIGHT
+from src.data_handler import load_data, get_true_defect_coordinates, QUADRANT_WIDTH, QUADRANT_HEIGHT
 from src.config import GAP_SIZE
 
 # To run tests, use `pytest` in the root directory.
@@ -144,7 +144,7 @@ def test_load_data_coordinate_calculation(test_excel_file, monkeypatch):
 
 def test_load_data_sample_generation(monkeypatch):
     """
-    Tests that sample data is generated correctly as a dictionary.
+    Tests that sample data is generated correctly for multiple layers.
     """
     monkeypatch.setattr(st, "cache_data", lambda func: func)
     monkeypatch.setattr(st.sidebar, "info", lambda *args, **kwargs: None)
@@ -153,15 +153,19 @@ def test_load_data_sample_generation(monkeypatch):
     layer_data = data_handler.load_data([], panel_rows=7, panel_cols=7)
 
     assert isinstance(layer_data, dict)
-    assert 1 in layer_data
-    df = layer_data[1]
+    assert set(layer_data.keys()) == {1, 2, 3}, "Should create sample data for layers 1, 2, and 3."
 
-    assert not df.empty
-    assert len(df) == 150
+    # Check properties for each layer
+    assert len(layer_data[1]) == 75
+    assert len(layer_data[2]) == 120
+    assert len(layer_data[3]) == 50
 
+    # Verify a specific layer's content
+    df_layer2 = layer_data[2]
+    assert not df_layer2.empty
     expected_cols = ['DEFECT_ID', 'DEFECT_TYPE', 'UNIT_INDEX_X', 'UNIT_INDEX_Y', 'QUADRANT', 'plot_x', 'plot_y']
-    assert all(col in df.columns for col in expected_cols)
-    assert df['SOURCE_FILE'].iloc[0] == 'Sample Data'
+    assert all(col in df_layer2.columns for col in expected_cols)
+    assert df_layer2['SOURCE_FILE'].iloc[0] == 'Sample Data Layer 2'
 
 def test_load_data_missing_columns(test_excel_file_missing_cols, monkeypatch):
     """
@@ -211,3 +215,45 @@ def test_load_data_invalid_filename(test_excel_file_invalid_name, monkeypatch):
     assert isinstance(layer_data, dict)
     assert not layer_data, "Expected an empty dictionary for invalid filename"
     mock_error.assert_called_once()
+
+def test_get_true_defect_coordinates():
+    """
+    Tests the aggregation of 'True' defect coordinates across multiple layers.
+    """
+    # Create sample data with overlapping defects and mixed verification statuses
+    layer_1 = pd.DataFrame({
+        'UNIT_INDEX_X': [1, 2, 3],
+        'UNIT_INDEX_Y': [1, 2, 3],
+        'Verification': ['T', 'F', 'T']
+    })
+    layer_2 = pd.DataFrame({
+        'UNIT_INDEX_X': [1, 4, 5],
+        'UNIT_INDEX_Y': [1, 4, 5],
+        'Verification': ['T', 'T', 'TA'] # (1,1) is a duplicate 'T'
+    })
+    layer_3 = pd.DataFrame({
+        'UNIT_INDEX_X': [2, 6],
+        'UNIT_INDEX_Y': [2, 6],
+        'Verification': ['T', 'T'] # (2,2) was 'F' but is now 'T'
+    })
+
+    layer_data = {
+        1: layer_1,
+        2: layer_2,
+        3: layer_3
+    }
+
+    # Execute the function
+    result = get_true_defect_coordinates(layer_data)
+
+    # Define the expected set of unique coordinates with "True" defects
+    expected = {
+        (1, 1), # From layer 1 & 2
+        (3, 3), # From layer 1
+        (4, 4), # From layer 2
+        (2, 2), # From layer 3 (overwrites 'F' from layer 1)
+        (6, 6)  # From layer 3
+    }
+
+    assert isinstance(result, set), "Function should return a set"
+    assert result == expected, "The set of true defect coordinates does not match the expected output"

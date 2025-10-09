@@ -3,16 +3,11 @@ Data Handling Module.
 This version calculates defect locations based on a true-to-scale simulation
 of a fixed-size 510x510mm physical panel.
 """
-"""
-Data Handling Module.
-This version calculates defect locations based on a true-to-scale simulation
-of a fixed-size 510x510mm physical panel.
-"""
 import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from typing import List, Dict
+from typing import List, Dict, Set, Tuple
 from io import BytesIO
 
 # Import constants from the configuration file
@@ -85,20 +80,32 @@ def load_data(
             st.sidebar.success(f"{len(layer_data)} layer(s) loaded successfully!")
 
     else:
-        st.sidebar.info("No file uploaded. Displaying sample data for Layer 1.")
+        st.sidebar.info("No file uploaded. Displaying sample data for 3 layers.")
         total_units_x = 2 * panel_cols
         total_units_y = 2 * panel_rows
-        number_of_defects = 150
-        defect_data = {
-            'DEFECT_ID': range(1001, 1001 + number_of_defects),
-            'UNIT_INDEX_X': np.random.randint(0, total_units_x, size=number_of_defects),
-            'UNIT_INDEX_Y': np.random.randint(0, total_units_y, size=number_of_defects),
-            'DEFECT_TYPE': np.random.choice([ 'Nick', 'Short', 'Missing Feature', 'Cut', 'Fine Short', 'Pad Violation', 'Island', 'Cut/Short', 'Nick/Protrusion' ], size=number_of_defects),
-            'Verification': np.random.choice(['T', 'F', 'TA'], size=number_of_defects, p=[0.7, 0.15, 0.15]),
-            'SOURCE_FILE': ['Sample Data'] * number_of_defects
+        layer_data = {}
+
+        # Define different properties for each sample layer
+        layer_properties = {
+            1: {'num_defects': 75, 'defect_types': ['Nick', 'Short', 'Cut']},
+            2: {'num_defects': 120, 'defect_types': ['Fine Short', 'Pad Violation', 'Island', 'Short']},
+            3: {'num_defects': 50, 'defect_types': ['Missing Feature', 'Cut/Short', 'Nick/Protrusion']}
         }
-        sample_df = pd.DataFrame(defect_data)
-        layer_data = {1: sample_df}
+
+        for layer_num, props in layer_properties.items():
+            number_of_defects = props['num_defects']
+            defect_types = props['defect_types']
+
+            defect_data = {
+                'DEFECT_ID': range(layer_num * 1000, layer_num * 1000 + number_of_defects),
+                'UNIT_INDEX_X': np.random.randint(0, total_units_x, size=number_of_defects),
+                'UNIT_INDEX_Y': np.random.randint(0, total_units_y, size=number_of_defects),
+                'DEFECT_TYPE': np.random.choice(defect_types, size=number_of_defects),
+                'Verification': np.random.choice(['T', 'F', 'TA'], size=number_of_defects, p=[0.7, 0.15, 0.15]),
+                'SOURCE_FILE': [f'Sample Data Layer {layer_num}'] * number_of_defects
+            }
+            sample_df = pd.DataFrame(defect_data)
+            layer_data[layer_num] = sample_df
 
     for layer_num, df in layer_data.items():
         conditions = [
@@ -131,3 +138,32 @@ def load_data(
         layer_data[layer_num] = df
     
     return layer_data
+
+def get_true_defect_coordinates(layer_data: Dict[int, pd.DataFrame]) -> Set[Tuple[int, int]]:
+    """
+    Aggregates all "True" defects from all layers to find unique defective cell coordinates.
+
+    Args:
+        layer_data: A dictionary where keys are layer numbers and values are DataFrames
+                    of defect data for that layer.
+
+    Returns:
+        A set of tuples, where each tuple is a (UNIT_INDEX_X, UNIT_INDEX_Y) coordinate
+        of a cell that has at least one "True" defect on any layer.
+    """
+    if not isinstance(layer_data, dict) or not layer_data:
+        return set()
+
+    all_layers_df = pd.concat(layer_data.values(), ignore_index=True)
+
+    if all_layers_df.empty or 'Verification' not in all_layers_df.columns:
+        return set()
+
+    true_defects_df = all_layers_df[all_layers_df['Verification'] == 'T']
+
+    if true_defects_df.empty:
+        return set()
+
+    defect_coords_df = true_defects_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates()
+
+    return set(map(tuple, defect_coords_df.to_numpy()))
