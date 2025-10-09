@@ -153,36 +153,48 @@ def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:
     """
     Creates traces for a grouped, stacked bar chart showing the verification
     status (T, F, TA) for each defect type, grouped by quadrant.
+    This is achieved by creating a multi-level x-axis and using barmode='stack'.
     """
     if df.empty:
         return []
 
-    # Group data by defect type, quadrant, and verification status
+    # 1. Prepare the data: Group by the three categories and get the size
     grouped = df.groupby(['DEFECT_TYPE', 'QUADRANT', 'Verification']).size().unstack(fill_value=0)
 
-    # Ensure all verification statuses exist as columns
+    # 2. Reindex to ensure all combinations are present for clean grouping.
+    # This prevents missing bars and ensures consistent group spacing.
+    all_defect_types = df['DEFECT_TYPE'].unique()
+    all_quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+    all_combinations = pd.MultiIndex.from_product(
+        [all_defect_types, all_quadrants],
+        names=['DEFECT_TYPE', 'QUADRANT']
+    )
+    grouped = grouped.reindex(all_combinations, fill_value=0)
+
+    # 3. Ensure T, F, TA columns exist even if there's no data for them
     for status in ['T', 'F', 'TA']:
         if status not in grouped.columns:
             grouped[status] = 0
 
     grouped = grouped.reset_index()
 
-    # Define the multi-level x-axis
+    # 4. Define the multi-level x-axis data for Plotly
     x_axis_data = [grouped['DEFECT_TYPE'], grouped['QUADRANT']]
 
-    # Define colors and names for the legend
+    # 5. Define colors and names for the legend
     status_map = {
-        'T': {'name': 'True', 'color': '#2ca02c'},  # Muted green
-        'F': {'name': 'False', 'color': '#d62728'}, # Muted red
-        'TA': {'name': 'Acceptable', 'color': '#8c564b'} # Muted brown/gray
+        'T': {'name': 'True', 'color': '#2ca02c'},
+        'F': {'name': 'False', 'color': '#d62728'},
+        'TA': {'name': 'Acceptable', 'color': '#8c564b'}
     }
 
+    # 6. Create a trace for each verification status
     traces = []
-    for status, details in status_map.items():
+    for status_code, details in status_map.items():
         traces.append(go.Bar(
             name=details['name'],
             x=x_axis_data,
-            y=grouped[status],
+            y=grouped[status_code],
             marker_color=details['color']
         ))
 

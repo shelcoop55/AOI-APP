@@ -246,7 +246,7 @@ def main() -> None:
                     xref='paper',
                     yref='paper',
                     x=1.02, # Position slightly to the right of the plot
-                    y=0.8,
+                    y=0.8,  # Position below the legend
                     xanchor='left',
                     yanchor='top',
                     bordercolor=TEXT_COLOR,
@@ -392,31 +392,32 @@ def main() -> None:
 
                 st.divider()
                 st.markdown("### Defect Verification Status by Quadrant")
-                fig = go.Figure()
 
-                # Use the new function to get traces for the grouped stacked chart
-                # The data should be based on the globally filtered data
-                verification_traces = create_verification_status_chart(display_df)
-                for trace in verification_traces:
-                    fig.add_trace(trace)
+                # The chart should be based on the data as it is filtered by the controls
+                if not display_df.empty:
+                    fig = go.Figure()
+                    verification_traces = create_verification_status_chart(display_df)
+                    for trace in verification_traces:
+                        fig.add_trace(trace)
 
-                fig.update_layout(
-                    title=dict(text="Verification Status by Defect Type and Quadrant", font=dict(color=TEXT_COLOR)),
-                    barmode='stack',  # Stack the T, F, TA values
-                    xaxis=dict(
-                        title="Defect Type & Quadrant",
-                        title_font=dict(color=TEXT_COLOR),
-                        tickfont=dict(color=TEXT_COLOR),
-                        categoryorder='array',
-                        categoryarray=sorted(display_df['DEFECT_TYPE'].unique())
-                    ),
-                    yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-                    plot_bgcolor=PLOT_AREA_COLOR,
-                    paper_bgcolor=BACKGROUND_COLOR,
-                    legend=dict(title="Verification Status", font=dict(color=TEXT_COLOR)),
-                    height=600
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                    fig.update_layout(
+                        title=dict(text="Verification Status by Defect Type and Quadrant", font=dict(color=TEXT_COLOR), x=0.5),
+                        barmode='stack',  # This creates the stacked effect for T/F/TA
+                        xaxis=dict(
+                            title="Defect Type & Quadrant",
+                            title_font=dict(color=TEXT_COLOR),
+                            tickfont=dict(color=TEXT_COLOR)
+                            # The multi-level category is handled by the data structure
+                        ),
+                        yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+                        plot_bgcolor=PLOT_AREA_COLOR,
+                        paper_bgcolor=BACKGROUND_COLOR,
+                        legend=dict(title="Verification Status", font=dict(color=TEXT_COLOR)),
+                        height=600
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No data to display for the verification status chart based on current filters.")
 
 
     else:
