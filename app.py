@@ -245,7 +245,7 @@ def main() -> None:
                     showarrow=False,
                     xref='paper',
                     yref='paper',
-                        x=0.8,
+                        x=0.2,
                         y=0,
                     xanchor='left',
                         yanchor='middle',
