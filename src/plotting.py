@@ -18,32 +18,28 @@ from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT
 # ==============================================================================
 
 def _draw_border_and_gaps() -> List[Dict[str, Any]]:
-    """Creates the shapes for the outer border and inner gaps of the panel."""
-    shapes = []
+    """
+    Creates a single background shape that serves as both the outer border
+    and the inner gaps for the panel grid.
+    """
     gap_color = '#A8652A'
     total_width_with_gap = PANEL_WIDTH + GAP_SIZE
     total_height_with_gap = PANEL_HEIGHT + GAP_SIZE
 
-    # Outer border frame
-    shapes.extend([
-        # Top Border
-        dict(type="rect", x0=0, y0=total_height_with_gap, x1=total_width_with_gap, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below'),
-        # Bottom Border
-        dict(type="rect", x0=0, y0=-GAP_SIZE, x1=total_width_with_gap, y1=0, fillcolor=gap_color, line_width=0, layer='below'),
-        # Left Border
-        dict(type="rect", x0=-GAP_SIZE, y0=-GAP_SIZE, x1=0, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below'),
-        # Right Border
-        dict(type="rect", x0=total_width_with_gap, y0=-GAP_SIZE, x1=total_width_with_gap + GAP_SIZE, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below')
-    ])
-
-    # Inner gaps
-    shapes.extend([
-        # Vertical inner gap
-        dict(type="rect", x0=QUADRANT_WIDTH, y0=0, x1=QUADRANT_WIDTH + GAP_SIZE, y1=total_height_with_gap, fillcolor=gap_color, line_width=0, layer='below'),
-        # Horizontal inner gap
-        dict(type="rect", x0=0, y0=QUADRANT_HEIGHT, x1=total_width_with_gap, y1=QUADRANT_HEIGHT + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below')
-    ])
-    return shapes
+    # A single background rectangle that creates the border and gap color.
+    # The quadrant panels will be drawn on top of this, and because they are
+    # spaced apart, the background color will show through as the gaps/border.
+    background_shape = dict(
+        type="rect",
+        x0=-GAP_SIZE,
+        y0=-GAP_SIZE,
+        x1=total_width_with_gap,
+        y1=total_height_with_gap,
+        fillcolor=gap_color,
+        line_width=0,
+        layer='below'
+    )
+    return [background_shape]
 
 def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int) -> List[Dict[str, Any]]:
     """Creates the shapes for the quadrant outlines and their internal grid lines."""

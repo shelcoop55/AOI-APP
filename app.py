@@ -219,8 +219,7 @@ def main() -> None:
                 plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=plot_shapes,
                 legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
                 hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"),
-                    height=800,
-                    margin=dict(t=100)  # Add top margin to prevent title from being cut off
+                height=800
             )
 
             if lot_number and quadrant_selection == Quadrant.ALL.value:
