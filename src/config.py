@@ -22,6 +22,10 @@ BACKGROUND_COLOR = '#212121' # A dark charcoal grey for the app background, mimi
 PLOT_AREA_COLOR = '#333333'  # A slightly lighter grey for the plot area to create subtle depth.
 TEXT_COLOR = '#FFFFFF'       # White text for readability on the dark background.
 
+# Colors for the "Still Alive" yield map
+ALIVE_CELL_COLOR = '#2ECC71' # A vibrant green for cells without "True" defects.
+DEFECTIVE_CELL_COLOR = '#E74C3C' # A strong red for cells with "True" defects.
+
 # --- Reporting Constants ---
 CRITICAL_DEFECT_TYPES = ["Short", "Cut/Short"]
 
