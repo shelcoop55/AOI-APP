@@ -246,7 +246,7 @@ def main() -> None:
                     xref='paper',
                     yref='paper',
                     x=1.02,  # Position slightly to the right of the plot
-                    y=0,     # Position at the bottom of the plot area
+                    y=0.5,     # Position at the bottom of the plot area
                     xanchor='left',
                     yanchor='bottom', # Anchor to the bottom
                     bordercolor=TEXT_COLOR,
