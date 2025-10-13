@@ -245,8 +245,8 @@ def main() -> None:
                     showarrow=False,
                     xref='paper',
                     yref='paper',
-                    x=1.02, # Position slightly to the right of the plot
-                    y=0.8,  # Position below the legend
+                    x=0.88, # Position slightly to the right of the plot
+                    y=0.99,  # Position below the legend
                     xanchor='left',
                     yanchor='top',
                     bordercolor=TEXT_COLOR,
