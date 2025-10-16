@@ -23,34 +23,33 @@ def load_data(
     uploaded_files: List[BytesIO],
     panel_rows: int,
     panel_cols: int,
-) -> Dict[int, pd.DataFrame]:
+) -> Dict[int, Dict[str, pd.DataFrame]]:
     """
-    Loads defect data from multiple build-up layer files, validates filenames,
-    and processes each layer's data separately.
-    Returns a dictionary mapping layer numbers to their corresponding DataFrames.
+    Loads defect data from multiple build-up layer files, validates filenames
+    (e.g., BU-01F..., BU-01B...), and processes each layer's data.
+    Returns a nested dictionary mapping layer numbers to sides ('F' or 'B')
+    to their corresponding DataFrames.
     """
     layer_data = {}
 
     if uploaded_files:
         for uploaded_file in uploaded_files:
             file_name = uploaded_file.name
-            match = re.match(r"BU-(\d{2})", file_name, re.IGNORECASE)
+            match = re.match(r"BU-(\d{2})\s*([FB])", file_name, re.IGNORECASE)
 
             if not match:
-                st.error(f"Invalid filename format: '{file_name}'. File was ignored. "
-                         f"Filename must start with 'BU-XX' (e.g., 'BU-01-...).")
+                st.warning(f"Skipping file: '{file_name}'. Name must follow 'BU-XXF' or 'BU-XXB' format (e.g., 'BU-01F-...).")
                 continue
 
-            layer_num = int(match.group(1))
+            layer_num, side = int(match.group(1)), match.group(2).upper()
 
             try:
                 df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='openpyxl')
                 df['SOURCE_FILE'] = file_name
+                df['SIDE'] = side
 
-                if 'Verification' not in df.columns:
-                    df['Verification'] = 'T'
-                else:
-                    df['Verification'] = df['Verification'].astype(str).fillna('T').str.strip()
+                if 'Verification' not in df.columns: df['Verification'] = 'T'
+                else: df['Verification'] = df['Verification'].astype(str).fillna('T').str.strip()
 
                 required_columns = ['DEFECT_ID', 'DEFECT_TYPE', 'UNIT_INDEX_X', 'UNIT_INDEX_Y']
                 if not all(col in df.columns for col in required_columns):
@@ -58,55 +57,64 @@ def load_data(
                     continue
 
                 df.dropna(subset=required_columns, inplace=True)
-                df['UNIT_INDEX_X'] = df['UNIT_INDEX_X'].astype(int)
-                df['UNIT_INDEX_Y'] = df['UNIT_INDEX_Y'].astype(int)
+                for col in ['UNIT_INDEX_X', 'UNIT_INDEX_Y']: df[col] = df[col].astype(int)
                 df['DEFECT_TYPE'] = df['DEFECT_TYPE'].str.strip()
 
-                if layer_num in layer_data:
-                    layer_data[layer_num] = pd.concat([layer_data[layer_num], df], ignore_index=True)
-                else:
-                    layer_data[layer_num] = df
+                if layer_num not in layer_data: layer_data[layer_num] = {}
+                if side not in layer_data[layer_num]: layer_data[layer_num][side] = []
+
+                layer_data[layer_num][side].append(df)
 
             except ValueError:
-                st.error(f"Error in '{uploaded_file.name}': A sheet named 'Defects' was not found. Please ensure the file contains a 'Defects' sheet.")
+                st.error(f"Error in '{file_name}': A sheet named 'Defects' was not found.")
                 continue
             except Exception as e:
-                st.error(f"An unexpected error occurred while reading '{uploaded_file.name}': {e}")
+                st.error(f"An unexpected error occurred while reading '{file_name}': {e}")
                 continue
         
+        # Consolidate dataframes for each layer/side
+        for layer_num, sides in layer_data.items():
+            for side, dfs in sides.items():
+                layer_data[layer_num][side] = pd.concat(dfs, ignore_index=True)
+
         if layer_data:
             st.sidebar.success(f"{len(layer_data)} layer(s) loaded successfully!")
 
     else:
-        st.sidebar.info("No file uploaded. Displaying sample data for 3 layers.")
+        st.sidebar.info("No file uploaded. Displaying sample data for 3 layers (Layer 2 has Front/Back).")
         total_units_x = 2 * panel_cols
         total_units_y = 2 * panel_rows
         layer_data = {}
 
-        layer_properties = {
-            1: {'num_defects': 75, 'defect_types': ['Nick', 'Short', 'Cut']},
-            2: {'num_defects': 120, 'defect_types': ['Fine Short', 'Pad Violation', 'Island', 'Short']},
-            3: {'num_defects': 50, 'defect_types': ['Missing Feature', 'Cut/Short', 'Nick/Protrusion']}
+        # Define properties for sample layers, including sides
+        sample_layers = {
+            1: {'F': {'num_defects': 75, 'defect_types': ['Nick', 'Short', 'Cut']}},
+            2: {
+                'F': {'num_defects': 120, 'defect_types': ['Fine Short', 'Pad Violation', 'Island', 'Short']},
+                'B': {'num_defects': 40, 'defect_types': ['Backside Scratch', 'Contamination']}
+            },
+            3: {'F': {'num_defects': 50, 'defect_types': ['Missing Feature', 'Cut/Short', 'Nick/Protrusion']}}
         }
 
-        for layer_num, props in layer_properties.items():
-            number_of_defects = props['num_defects']
-            defect_types = props['defect_types']
+        for layer_num, sides in sample_layers.items():
+            layer_data[layer_num] = {}
+            for side, props in sides.items():
+                defect_data = {
+                    'DEFECT_ID': range(layer_num * 1000 + (0 if side == 'F' else 500), layer_num * 1000 + (0 if side == 'F' else 500) + props['num_defects']),
+                    'UNIT_INDEX_X': np.random.randint(0, total_units_x, size=props['num_defects']),
+                    'UNIT_INDEX_Y': np.random.randint(0, total_units_y, size=props['num_defects']),
+                    'DEFECT_TYPE': np.random.choice(props['defect_types'], size=props['num_defects']),
+                    'Verification': np.random.choice(['T', 'F', 'TA'], size=props['num_defects'], p=[0.7, 0.15, 0.15]),
+                    'SOURCE_FILE': [f'Sample Data Layer {layer_num}{side}'] * props['num_defects'],
+                    'SIDE': side
+                }
+                layer_data[layer_num][side] = pd.DataFrame(defect_data)
 
-            defect_data = {
-                'DEFECT_ID': range(layer_num * 1000, layer_num * 1000 + number_of_defects),
-                'UNIT_INDEX_X': np.random.randint(0, total_units_x, size=number_of_defects),
-                'UNIT_INDEX_Y': np.random.randint(0, total_units_y, size=number_of_defects),
-                'DEFECT_TYPE': np.random.choice(defect_types, size=number_of_defects),
-                'Verification': np.random.choice(['T', 'F', 'TA'], size=number_of_defects, p=[0.7, 0.15, 0.15]),
-                'SOURCE_FILE': [f'Sample Data Layer {layer_num}'] * number_of_defects
-            }
-            sample_df = pd.DataFrame(defect_data)
-            layer_data[layer_num] = sample_df
-
-    for layer_num, df in layer_data.items():
-        conditions = [
-            (df['UNIT_INDEX_X'] < panel_cols) & (df['UNIT_INDEX_Y'] < panel_rows),
+    # Post-process all dataframes
+    for layer_num, sides in layer_data.items():
+        for side, df in sides.items():
+            conditions = [
+                (df['UNIT_INDEX_X'] < panel_cols) & (df['UNIT_INDEX_Y'] < panel_rows),
             (df['UNIT_INDEX_X'] >= panel_cols) & (df['UNIT_INDEX_Y'] < panel_rows),
             (df['UNIT_INDEX_X'] < panel_cols) & (df['UNIT_INDEX_Y'] >= panel_rows),
             (df['UNIT_INDEX_X'] >= panel_cols) & (df['UNIT_INDEX_Y'] >= panel_rows)
@@ -132,18 +140,27 @@ def load_data(
         df['plot_x'] = plot_x_base + x_offset + jitter_x
         df['plot_y'] = plot_y_base + y_offset + jitter_y
 
-        layer_data[layer_num] = df
+        layer_data[layer_num][side] = df
     
     return layer_data
 
-def get_true_defect_coordinates(layer_data: Dict[int, pd.DataFrame]) -> Set[Tuple[int, int]]:
+def get_true_defect_coordinates(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> Set[Tuple[int, int]]:
     """
-    Aggregates all "True" defects from all layers to find unique defective cell coordinates.
+    Aggregates all "True" defects from all layers and sides to find unique
+    defective cell coordinates for the Still Alive map.
     """
     if not isinstance(layer_data, dict) or not layer_data:
         return set()
 
-    all_layers_df = pd.concat(layer_data.values(), ignore_index=True)
+    all_dfs = []
+    for layer, sides in layer_data.items():
+        for side, df in sides.items():
+            all_dfs.append(df)
+
+    if not all_dfs:
+        return set()
+
+    all_layers_df = pd.concat(all_dfs, ignore_index=True)
 
     if all_layers_df.empty or 'Verification' not in all_layers_df.columns:
         return set()

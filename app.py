@@ -52,6 +52,7 @@ def main() -> None:
     if 'report_bytes' not in st.session_state: st.session_state.report_bytes = None
     if 'layer_data' not in st.session_state: st.session_state.layer_data = {}
     if 'selected_layer' not in st.session_state: st.session_state.selected_layer = None
+    if 'selected_side' not in st.session_state: st.session_state.selected_side = 'F'
     if 'analysis_params' not in st.session_state: st.session_state.analysis_params = {}
     if 'active_view' not in st.session_state: st.session_state.active_view = 'layer'
 
@@ -71,7 +72,13 @@ def main() -> None:
         is_still_alive_view = st.session_state.active_view == 'still_alive'
 
         if st.session_state.get('layer_data'):
-            active_df = st.session_state.layer_data.get(st.session_state.selected_layer, pd.DataFrame())
+
+            # --- Get the active dataframe based on selected layer and side ---
+            active_df = pd.DataFrame()
+            selected_layer_num = st.session_state.get('selected_layer')
+            if selected_layer_num:
+                layer_info = st.session_state.layer_data.get(selected_layer_num, {})
+                active_df = layer_info.get(st.session_state.selected_side, pd.DataFrame())
 
             with st.expander("📊 Analysis Controls", expanded=True):
                 view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.", disabled=is_still_alive_view)
@@ -85,14 +92,26 @@ def main() -> None:
             with st.expander("📥 Reporting", expanded=True):
                 if st.button("Generate Report for Download", disabled=is_still_alive_view, help="Reporting is disabled for the Still Alive view."):
                     with st.spinner("Generating Excel report..."):
-                        report_base_df = st.session_state.layer_data.get(st.session_state.selected_layer)
-                        if report_base_df is not None and not report_base_df.empty:
-                            report_df = report_base_df
+                        # For reporting, we want to combine both Front and Back data if available
+                        layer_info = st.session_state.layer_data.get(st.session_state.selected_layer, {})
+                        if layer_info:
+                            all_sides_df = pd.concat(layer_info.values(), ignore_index=True)
+
+                            report_df = all_sides_df
                             if verification_selection != 'All': report_df = report_df[report_df['Verification'] == verification_selection]
                             if quadrant_selection != Quadrant.ALL.value: report_df = report_df[report_df['QUADRANT'] == quadrant_selection]
+
                             params = st.session_state.analysis_params
                             source_filenames = report_df['SOURCE_FILE'].unique().tolist()
-                            excel_bytes = generate_excel_report(full_df=report_df, panel_rows=params.get("panel_rows", 7), panel_cols=params.get("panel_cols", 7), source_filename=", ".join(source_filenames))
+
+                            excel_bytes = generate_excel_report(
+                                full_df=report_df,
+                                panel_rows=params.get("panel_rows", 7),
+                                panel_cols=params.get("panel_cols", 7),
+                                source_filename=", ".join(source_filenames),
+                                quadrant_selection=quadrant_selection,
+                                verification_selection=verification_selection
+                            )
                             st.session_state.report_bytes = excel_bytes
                             st.rerun()
 
@@ -128,12 +147,13 @@ def main() -> None:
 
         with st.expander("Select View", expanded=True):
             layer_keys = sorted(st.session_state.layer_data.keys())
-            # Create a mapping from layer number to a representative BU name
-            bu_names = {
-                num: get_bu_name_from_filename(st.session_state.layer_data[num]['SOURCE_FILE'].iloc[0])
-                for num in layer_keys
-            }
+            bu_names = {}
+            for num in layer_keys:
+                # Get a representative BU name from the first side ('F' or 'B') found
+                first_side_key = next(iter(st.session_state.layer_data[num]))
+                bu_names[num] = get_bu_name_from_filename(st.session_state.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0])
 
+            # --- Layer Selection Buttons ---
             num_buttons = len(layer_keys) + 1
             cols = st.columns(num_buttons)
             for i, layer_num in enumerate(layer_keys):
@@ -143,12 +163,31 @@ def main() -> None:
                     if st.button(bu_name, key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
                         st.session_state.active_view = 'layer'
                         st.session_state.selected_layer = layer_num
+                        # Default to 'F' side when switching layers, if available
+                        if 'F' in st.session_state.layer_data.get(layer_num, {}):
+                            st.session_state.selected_side = 'F'
                         st.rerun()
             with cols[num_buttons - 1]:
                 is_active = st.session_state.active_view == 'still_alive'
                 if st.button("Still Alive", key="still_alive_btn", use_container_width=True, type="primary" if is_active else "secondary"):
                     st.session_state.active_view = 'still_alive'
                     st.rerun()
+
+            # --- Side Selection Buttons (only if a layer is selected and has multiple sides) ---
+            selected_layer_num = st.session_state.get('selected_layer')
+            if selected_layer_num and st.session_state.active_view == 'layer':
+                layer_info = st.session_state.layer_data.get(selected_layer_num, {})
+                if len(layer_info) > 1: # More than one side available
+                    side_cols = st.columns(len(layer_info))
+                    sorted_sides = sorted(layer_info.keys())
+                    for i, side in enumerate(sorted_sides):
+                        with side_cols[i]:
+                            side_name = "Front" if side == 'F' else "Back"
+                            is_side_active = st.session_state.selected_side == side
+                            if st.button(side_name, key=f"side_btn_{side}", use_container_width=True, type="primary" if is_side_active else "secondary"):
+                                st.session_state.selected_side = side
+                                st.rerun()
+
         st.divider()
 
         if st.session_state.active_view == 'still_alive':
@@ -223,15 +262,21 @@ def main() -> None:
                 st.markdown(legend_html, unsafe_allow_html=True)
         
         elif st.session_state.active_view == 'layer':
-            full_df = st.session_state.layer_data.get(st.session_state.selected_layer)
-            if full_df is None:
+            selected_layer_num = st.session_state.get('selected_layer')
+            layer_info = st.session_state.layer_data.get(selected_layer_num, {})
+
+            if not selected_layer_num or not layer_info:
                 st.info("Please select a build-up layer to view its defect map.")
                 return
-            if full_df.empty:
-                st.warning(f"No defect data found for Layer {st.session_state.selected_layer}.")
+
+            # Get the dataframe for the selected side
+            side_df = layer_info.get(st.session_state.selected_side)
+            if side_df is None or side_df.empty:
+                side_name = "Front" if st.session_state.selected_side == 'F' else "Back"
+                st.warning(f"No defect data found for Layer {selected_layer_num} - {side_name} Side.")
                 return
 
-            filtered_df = full_df[full_df['Verification'] == verification_selection] if verification_selection != 'All' else full_df
+            filtered_df = side_df[side_df['Verification'] == verification_selection] if verification_selection != 'All' else side_df
             display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
 
             if view_mode == ViewMode.DEFECT.value:
@@ -277,10 +322,14 @@ def main() -> None:
                     total_defects = len(display_df)
                     total_cells = panel_rows * panel_cols
                     defect_density = total_defects / total_cells if total_cells > 0 else 0
-                    quad_yield_df = full_df[full_df['QUADRANT'] == quadrant_selection]
+
+                    # For yield calculations, we need the full layer data (all sides)
+                    full_layer_df = pd.concat(layer_info.values(), ignore_index=True)
+                    quad_yield_df = full_layer_df[full_layer_df['QUADRANT'] == quadrant_selection]
                     true_yield_defects = quad_yield_df[quad_yield_df['Verification'] == 'T']
                     defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                     yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
+
                     st.markdown("### Key Performance Indicators (KPIs)")
                     col1, col2, col3, col4 = st.columns(4)
                     col1.metric("Total Defect Count", f"{total_defects:,}")
@@ -299,9 +348,13 @@ def main() -> None:
                     total_defects = len(display_df)
                     total_cells = (panel_rows * panel_cols) * 4
                     defect_density = total_defects / total_cells if total_cells > 0 else 0
-                    true_yield_defects = full_df[full_df['Verification'] == 'T']
+
+                    # For yield calculations, we need the full layer data (all sides)
+                    full_layer_df = pd.concat(layer_info.values(), ignore_index=True)
+                    true_yield_defects = full_layer_df[full_layer_df['Verification'] == 'T']
                     defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                     yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
+
                     col1, col2, col3, col4 = st.columns(4)
                     col1.metric("Filtered Defect Count", f"{total_defects:,}")
                     col2.metric("True Defective Cells", f"{defective_cells:,}")
@@ -315,10 +368,14 @@ def main() -> None:
                     for quad in quadrants:
                         quad_view_df = filtered_df[filtered_df['QUADRANT'] == quad]
                         total_quad_defects = len(quad_view_df)
-                        quad_yield_df = full_df[full_df['QUADRANT'] == quad]
+
+                        # For yield calculations, we need the full layer data (all sides)
+                        full_layer_df = pd.concat(layer_info.values(), ignore_index=True)
+                        quad_yield_df = full_layer_df[full_layer_df['QUADRANT'] == quad]
                         true_yield_defects = quad_yield_df[quad_yield_df['Verification'] == 'T']
                         defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
                         yield_estimate = (total_cells_per_quad - defective_cells) / total_cells_per_quad if total_cells_per_quad > 0 else 0
+
                         verification_counts = quad_view_df['Verification'].value_counts()
                         kpi_data.append({"Quadrant": quad, "Total Defects": total_quad_defects, "True (T)": int(verification_counts.get('T', 0)), "False (F)": int(verification_counts.get('F', 0)), "Acceptable (TA)": int(verification_counts.get('TA', 0)), "True Defective Cells": defective_cells, "Yield": f"{yield_estimate:.2%}"})
                     if kpi_data:
