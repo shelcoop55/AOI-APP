@@ -136,11 +136,15 @@ def load_data(
     
     return layer_data
 
-def get_true_defect_coordinates(layer_data: Dict[int, pd.DataFrame]) -> Set[Tuple[int, int]]:
+def get_defective_coordinates_by_status(
+    layer_data: Dict[int, pd.DataFrame],
+    statuses: List[str]
+) -> Set[Tuple[int, int]]:
     """
-    Aggregates all "True" defects from all layers to find unique defective cell coordinates.
+    Aggregates defects by specified verification statuses from all layers
+    to find unique defective cell coordinates.
     """
-    if not isinstance(layer_data, dict) or not layer_data:
+    if not isinstance(layer_data, dict) or not layer_data or not statuses:
         return set()
 
     all_layers_df = pd.concat(layer_data.values(), ignore_index=True)
@@ -148,11 +152,13 @@ def get_true_defect_coordinates(layer_data: Dict[int, pd.DataFrame]) -> Set[Tupl
     if all_layers_df.empty or 'Verification' not in all_layers_df.columns:
         return set()
 
-    true_defects_df = all_layers_df[all_layers_df['Verification'] == 'T']
+    # Filter by the provided list of verification statuses
+    defects_df = all_layers_df[all_layers_df['Verification'].isin(statuses)]
 
-    if true_defects_df.empty:
+    if defects_df.empty:
         return set()
 
-    defect_coords_df = true_defects_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates()
+    # Get unique coordinates of the filtered defects
+    defect_coords_df = defects_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates()
 
     return set(map(tuple, defect_coords_df.to_numpy()))

@@ -14,7 +14,7 @@ from src.config import (
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
 )
 from src.data_handler import (
-    load_data, get_true_defect_coordinates,
+    load_data, get_defective_coordinates_by_status,
     QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
 )
 from src.plotting import (
@@ -73,6 +73,20 @@ def main() -> None:
             active_df = st.session_state.layer_data.get(st.session_state.selected_layer, pd.DataFrame())
 
             with st.expander("📊 Analysis Controls", expanded=True):
+                # --- Still Alive View Controls ---
+                if is_still_alive_view:
+                    all_statuses = ['T', 'F', 'TA']
+                    st.session_state.selected_statuses = st.multiselect(
+                        "Select Defect Statuses for Still Alive Map",
+                        options=all_statuses,
+                        default=['T'],
+                        help="Choose which defect verification statuses to include in the 'Still Alive' calculation."
+                    )
+                else:
+                    st.session_state.selected_statuses = ['T']
+
+
+                # --- Layer View Controls ---
                 view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.", disabled=is_still_alive_view)
                 quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant.", disabled=is_still_alive_view)
 
@@ -145,27 +159,35 @@ def main() -> None:
 
         if st.session_state.active_view == 'still_alive':
             st.header("Still Alive Panel Yield Map")
+
+            # Get the selected statuses from session state, default to ['T'] if not found
+            selected_statuses = st.session_state.get('selected_statuses', ['T'])
+
+            # Generate a dynamic title based on the selected statuses
+            status_str = ", ".join(selected_statuses) if selected_statuses else "None"
+            title_text = f"Still Alive Map (Defect types: {status_str})"
+
             map_col, summary_col = st.columns([2.5, 1])
             with map_col:
-                true_defect_coords = get_true_defect_coordinates(st.session_state.layer_data)
+                defective_coords = get_defective_coordinates_by_status(st.session_state.layer_data, selected_statuses)
                 fig = go.Figure()
-                map_shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
+                map_shapes = create_still_alive_map(panel_rows, panel_cols, defective_coords)
                 fig.update_layout(
-                    title=dict(text=f"Still Alive Map ({len(true_defect_coords)} Defective Cells)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
-                    xaxis=dict(range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], showgrid=False, zeroline=False, showticklabels=False, title=""),
-                    yaxis=dict(range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)], scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showticklabels=False, title=""),
+                    title=dict(text=title_text, font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
+                    xaxis=dict(range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE*2)], showgrid=False, zeroline=False, showticklabels=False, title=""),
+                    yaxis=dict(range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE*2)], scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showticklabels=False, title=""),
                     plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=map_shapes, height=800, margin=dict(l=20, r=20, t=80, b=20)
                 )
                 st.plotly_chart(fig, use_container_width=True)
             with summary_col:
                 total_cells = (panel_rows * 2) * (panel_cols * 2)
-                defective_cell_count = len(true_defect_coords)
+                defective_cell_count = len(defective_coords)
                 alive_cell_count = total_cells - defective_cell_count
                 yield_percentage = (alive_cell_count / total_cells) * 100 if total_cells > 0 else 0
                 st.subheader("Yield Summary")
                 st.metric("Panel Yield", f"{yield_percentage:.2f}%")
                 st.metric("Surviving Cells", f"{alive_cell_count:,} / {total_cells:,}")
-                st.metric("Defective Cells", f"{defective_cell_count:,}")
+                st.metric(f"Defective Cells ({status_str})", f"{defective_cell_count:,}")
                 st.divider()
                 st.subheader("Legend")
                 legend_html = f'''
