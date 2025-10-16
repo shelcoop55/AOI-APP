@@ -14,17 +14,17 @@ from src.config import (
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
 )
 from src.data_handler import (
-    load_data, get_defective_coordinates_by_status,
+    load_data, get_true_defect_coordinates,
     QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
 )
 from src.plotting import (
     create_grid_shapes, create_defect_traces,
     create_pareto_trace, create_grouped_pareto_trace,
-    create_verification_status_chart, create_still_alive_map
+    create_verification_status_chart, create_still_alive_map,
+    get_color_map_for_defects
 )
 from src.reporting import generate_excel_report
 from src.enums import ViewMode, Quadrant
-from src.utils import get_bu_name_from_filename
 
 def load_css(file_path: str) -> None:
     """Loads a CSS file and injects it into the Streamlit app."""
@@ -74,20 +74,6 @@ def main() -> None:
             active_df = st.session_state.layer_data.get(st.session_state.selected_layer, pd.DataFrame())
 
             with st.expander("📊 Analysis Controls", expanded=True):
-                # --- Still Alive View Controls ---
-                if is_still_alive_view:
-                    all_statuses = ['T', 'F', 'TA']
-                    st.session_state.selected_statuses = st.multiselect(
-                        "Select Defect Statuses for Still Alive Map",
-                        options=all_statuses,
-                        default=['T'],
-                        help="Choose which defect verification statuses to include in the 'Still Alive' calculation."
-                    )
-                else:
-                    st.session_state.selected_statuses = ['T']
-
-
-                # --- Layer View Controls ---
                 view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.", disabled=is_still_alive_view)
                 quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant.", disabled=is_still_alive_view)
 
@@ -142,19 +128,12 @@ def main() -> None:
 
         with st.expander("Select View", expanded=True):
             layer_keys = sorted(st.session_state.layer_data.keys())
-            # Create a mapping from layer number to a representative BU name
-            bu_names = {
-                num: get_bu_name_from_filename(st.session_state.layer_data[num]['SOURCE_FILE'].iloc[0])
-                for num in layer_keys
-            }
-
             num_buttons = len(layer_keys) + 1
             cols = st.columns(num_buttons)
             for i, layer_num in enumerate(layer_keys):
                 with cols[i]:
-                    bu_name = bu_names.get(layer_num, f"Layer {layer_num}")
                     is_active = st.session_state.active_view == 'layer' and st.session_state.selected_layer == layer_num
-                    if st.button(bu_name, key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
+                    if st.button(f"Layer {layer_num}", key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
                         st.session_state.active_view = 'layer'
                         st.session_state.selected_layer = layer_num
                         st.rerun()
@@ -167,55 +146,27 @@ def main() -> None:
 
         if st.session_state.active_view == 'still_alive':
             st.header("Still Alive Panel Yield Map")
-
-            # Get the selected statuses from session state, default to ['T'] if not found
-            selected_statuses = st.session_state.get('selected_statuses', ['T'])
-
-            # Generate a dynamic title based on the selected statuses
-            status_str = ", ".join(selected_statuses) if selected_statuses else "None"
-            title_text = f"Still Alive Map (Defect types: {status_str})"
-
             map_col, summary_col = st.columns([2.5, 1])
             with map_col:
-                defective_coords = get_defective_coordinates_by_status(st.session_state.layer_data, selected_statuses)
+                true_defect_coords = get_true_defect_coordinates(st.session_state.layer_data)
                 fig = go.Figure()
-                map_shapes = create_still_alive_map(panel_rows, panel_cols, defective_coords)
-
-                # Define axis ticks and labels for clarity
-                cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
-                x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-                x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-                y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-                y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-                x_tick_text = list(range(panel_cols * 2))
-                y_tick_text = list(range(panel_rows * 2))
-
+                map_shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
                 fig.update_layout(
-                    title=dict(text=title_text, font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
-                    xaxis=dict(
-                        title="Unit Column Index", range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE*2)],
-                        tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text,
-                        showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor=GRID_COLOR, mirror=True,
-                        title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
-                    ),
-                    yaxis=dict(
-                        title="Unit Row Index", range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE*2)],
-                        tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text,
-                        scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor=GRID_COLOR, mirror=True,
-                        title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
-                    ),
+                    title=dict(text=f"Still Alive Map ({len(true_defect_coords)} Defective Cells)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
+                    xaxis=dict(range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], showgrid=False, zeroline=False, showticklabels=False, title=""),
+                    yaxis=dict(range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)], scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showticklabels=False, title=""),
                     plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=map_shapes, height=800, margin=dict(l=20, r=20, t=80, b=20)
                 )
                 st.plotly_chart(fig, use_container_width=True)
             with summary_col:
                 total_cells = (panel_rows * 2) * (panel_cols * 2)
-                defective_cell_count = len(defective_coords)
+                defective_cell_count = len(true_defect_coords)
                 alive_cell_count = total_cells - defective_cell_count
                 yield_percentage = (alive_cell_count / total_cells) * 100 if total_cells > 0 else 0
                 st.subheader("Yield Summary")
                 st.metric("Panel Yield", f"{yield_percentage:.2f}%")
                 st.metric("Surviving Cells", f"{alive_cell_count:,} / {total_cells:,}")
-                st.metric(f"Defective Cells ({status_str})", f"{defective_cell_count:,}")
+                st.metric("Defective Cells", f"{defective_cell_count:,}")
                 st.divider()
                 st.subheader("Legend")
                 legend_html = f'''
@@ -244,8 +195,11 @@ def main() -> None:
             filtered_df = full_df[full_df['Verification'] == verification_selection] if verification_selection != 'All' else full_df
             display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
 
+            # Generate the dynamic color map based on the full dataset for consistency
+            color_map = get_color_map_for_defects(full_df)
+
             if view_mode == ViewMode.DEFECT.value:
-                fig = go.Figure(data=create_defect_traces(display_df))
+                fig = go.Figure(data=create_defect_traces(display_df, color_map))
                 fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection))
                 cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
                 x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
@@ -272,11 +226,22 @@ def main() -> None:
                 st.subheader(f"Defect Pareto - Layer {st.session_state.selected_layer} - Quadrant: {quadrant_selection}")
                 fig = go.Figure()
                 if quadrant_selection == Quadrant.ALL.value:
-                    for trace in create_grouped_pareto_trace(display_df): fig.add_trace(trace)
+                    # For the grouped view, we need to ensure the barmode is 'stack'
+                    traces = create_grouped_pareto_trace(display_df, color_map)
+                    for trace in traces:
+                        fig.add_trace(trace)
                     fig.update_layout(barmode='stack')
                 else:
-                    fig.add_trace(create_pareto_trace(display_df))
-                fig.update_layout(xaxis=dict(title="Defect Type", categoryorder='total descending'), plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, height=600)
+                    # For the simple view, just add the single trace
+                    fig.add_trace(create_pareto_trace(display_df, color_map))
+
+                fig.update_layout(
+                    xaxis=dict(title="Defect Type", categoryorder='total descending'),
+                    plot_bgcolor=PLOT_AREA_COLOR,
+                    paper_bgcolor=BACKGROUND_COLOR,
+                    height=600,
+                    legend=dict(traceorder="normal") # Ensure legend follows color map order
+                )
                 st.plotly_chart(fig, use_container_width=True)
             elif view_mode == ViewMode.SUMMARY.value:
                 st.header(f"Statistical Summary for Layer {st.session_state.selected_layer}, Quadrant: {quadrant_selection}")
