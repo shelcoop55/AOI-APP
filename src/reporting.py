@@ -157,7 +157,7 @@ def generate_visual_map_report(
         defective_format = workbook.add_format({'bg_color': defective_color})
 
         # Set column widths to be small and square-like
-        worksheet.set_default_column(2, 2)
+        worksheet.set_column(0, total_cols - 1, 2)
 
         # Write the data, coloring cells based on defect status
         for r in range(total_rows):
