@@ -22,7 +22,7 @@ from src.plotting import (
     create_pareto_trace, create_grouped_pareto_trace,
     create_verification_status_chart, create_still_alive_map
 )
-from src.reporting import generate_excel_report
+from src.reporting import generate_excel_report, generate_visual_map_report, generate_coordinate_list_report
 from src.enums import ViewMode, Quadrant
 from src.utils import get_bu_name_from_filename
 
@@ -193,6 +193,34 @@ def main() -> None:
                 st.metric("Panel Yield", f"{yield_percentage:.2f}%")
                 st.metric("Surviving Cells", f"{alive_cell_count:,} / {total_cells:,}")
                 st.metric("Defective Cells", f"{defective_cell_count:,}")
+                st.divider()
+
+                st.subheader("Download Reports")
+
+                # Button for the visual map report
+                visual_report_bytes = generate_visual_map_report(
+                    defective_coords=true_defect_coords,
+                    panel_rows=panel_rows,
+                    panel_cols=panel_cols,
+                    alive_color=ALIVE_CELL_COLOR,
+                    defective_color=DEFECTIVE_CELL_COLOR
+                )
+                st.download_button(
+                    label="Download Visual Map Report",
+                    data=visual_report_bytes,
+                    file_name="still_alive_visual_map.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+                # Button for the coordinate list report
+                coordinate_report_bytes = generate_coordinate_list_report(true_defect_coords)
+                st.download_button(
+                    label="Download Coordinate List",
+                    data=coordinate_report_bytes,
+                    file_name="still_alive_coordinate_list.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
                 st.divider()
                 st.subheader("Legend")
                 legend_html = f'''
