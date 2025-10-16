@@ -44,3 +44,29 @@ def test_create_grouped_pareto_trace_smoke(sample_plot_df):
     traces = create_grouped_pareto_trace(sample_plot_df)
     assert isinstance(traces, list)
     assert all(isinstance(t, go.Bar) for t in traces)
+
+def test_create_defect_traces_handles_unknown_defects(sample_plot_df):
+    """
+    Tests that create_defect_traces correctly handles defect types that are
+    not in the predefined style map.
+    """
+    # 1. Add a new, unknown defect type to the sample data
+    new_defect = pd.DataFrame({
+        'DEFECT_ID': [105],
+        'DEFECT_TYPE': ['New Defect'],
+        'UNIT_INDEX_X': [2], 'UNIT_INDEX_Y': [2],
+        'QUADRANT': ['Q1'], 'plot_x': [30], 'plot_y': [30],
+    })
+    df_with_unknown = pd.concat([sample_plot_df, new_defect], ignore_index=True)
+
+    # 2. Generate the traces
+    traces = create_defect_traces(df_with_unknown)
+
+    # 3. Assert that all unique defect types have been plotted
+    unique_types_in_data = df_with_unknown['DEFECT_TYPE'].unique()
+    assert len(traces) == len(unique_types_in_data), "Should create one trace per unique defect type"
+
+    # 4. Find the trace for the new defect and check its color
+    new_defect_trace = next((t for t in traces if t.name == 'New Defect'), None)
+    assert new_defect_trace is not None, "A trace for 'New Defect' should exist"
+    assert new_defect_trace.marker.color == '#808080', "Unknown defects should be assigned the default grey color"

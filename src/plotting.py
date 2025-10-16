@@ -93,38 +93,44 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All') 
 
 def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     """
-    Creates a list of scatter traces, one for each defect type in the dataframe.
+    Creates a list of scatter traces, one for each unique defect type in the dataframe.
+    This function is now fully dynamic and will plot any defect type found in the data.
     """
     traces = []
-
-    # Check if the 'Verification' column exists to make the hovertemplate robust
     has_verification = 'Verification' in df.columns
 
-    for dtype, color in defect_style_map.items():
+    # Get all unique defect types present in the filtered dataframe
+    unique_defect_types = df['DEFECT_TYPE'].unique()
+
+    for dtype in unique_defect_types:
         dff = df[df['DEFECT_TYPE'] == dtype]
-        if not dff.empty:
-            # Base custom data and hover template
-            custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']
-            hovertemplate = (
-                "<b>Type: %{customdata[2]}</b><br>"
-                "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
-                "Defect ID: %{customdata[3]}"
-            )
 
-            # Add verification info only if the column exists
-            if has_verification:
-                custom_data_cols.append('Verification')
-                hovertemplate += "<br>Verification: %{customdata[4]}"
+        # Determine the color for the defect type, using a default if not in the map
+        color = defect_style_map.get(dtype, '#808080') # Grey for unknown defects
 
-            hovertemplate += "<extra></extra>"
+        # Base custom data and hover template
+        custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']
+        hovertemplate = (
+            "<b>Type: %{customdata[2]}</b><br>"
+            "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
+            "Defect ID: %{customdata[3]}"
+        )
 
-            traces.append(go.Scatter(
-                x=dff['plot_x'], y=dff['plot_y'], mode='markers',
-                marker=dict(color=color, size=8, line=dict(width=1, color='black')),
-                name=dtype,
-                customdata=dff[custom_data_cols],
-                hovertemplate=hovertemplate
-            ))
+        # Add verification info only if the column exists
+        if has_verification:
+            custom_data_cols.append('Verification')
+            hovertemplate += "<br>Verification: %{customdata[4]}"
+
+        hovertemplate += "<extra></extra>"
+
+        traces.append(go.Scatter(
+            x=dff['plot_x'], y=dff['plot_y'], mode='markers',
+            marker=dict(color=color, size=8, line=dict(width=1, color='black')),
+            name=dtype, # The legend will now show the actual defect type
+            customdata=dff[custom_data_cols],
+            hovertemplate=hovertemplate
+        ))
+
     return traces
     
 def create_pareto_trace(df: pd.DataFrame) -> go.Bar:
