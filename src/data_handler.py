@@ -125,3 +125,39 @@ def load_data(
     df['plot_y'] = plot_y_base + y_offset + jitter_y
     
     return df
+
+def calculate_yield_metrics(df: pd.DataFrame, total_cells: int) -> tuple[int, float]:
+    """
+    Calculates the number of defective cells and the yield estimate based on 'T' defects.
+
+    A cell is defined as a unique combination of 'UNIT_INDEX_X' and 'UNIT_INDEX_Y'.
+    It is considered defective if it contains at least one defect with a 'Verification'
+    status of 'T'.
+
+    Args:
+        df: The input DataFrame containing defect data. Must include 'Verification',
+            'UNIT_INDEX_X', and 'UNIT_INDEX_Y' columns.
+        total_cells: The total number of cells in the area being analyzed.
+
+    Returns:
+        A tuple containing:
+        - defective_cells (int): The count of unique cells with 'T' defects.
+        - yield_estimate (float): The calculated yield (e.g., 0.95 for 95%).
+    """
+    if df.empty or total_cells <= 0:
+        return 0, 1.0  # No defects and perfect yield if no data or no cells
+
+    # Filter for defects that are verified as "True"
+    true_defects = df[df['Verification'] == 'T']
+
+    # Identify unique cells with at least one "True" defect
+    if true_defects.empty:
+        defective_cells = 0
+    else:
+        # Count the number of unique (X, Y) pairs
+        defective_cells = len(true_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+
+    # Calculate yield estimate
+    yield_estimate = (total_cells - defective_cells) / total_cells
+
+    return defective_cells, yield_estimate
