@@ -135,37 +135,6 @@ def _create_full_defect_list_sheet(writer, formats, full_df):
 # --- Public API Function ---
 # ==============================================================================
 
-def generate_still_alive_report(defective_coords: set) -> bytes:
-    """
-    Generates a simple Excel report of unique defective cell coordinates.
-
-    Args:
-        defective_coords (set): A set of tuples, where each tuple is a
-                                (UNIT_INDEX_X, UNIT_INDEX_Y) coordinate.
-
-    Returns:
-        bytes: The content of the Excel file as a bytes object.
-    """
-    output = io.BytesIO()
-
-    # Convert the set of tuples to a DataFrame
-    if defective_coords:
-        df = pd.DataFrame(list(defective_coords), columns=['UNIT_INDEX_X', 'UNIT_INDEX_Y'])
-        df.sort_values(by=['UNIT_INDEX_Y', 'UNIT_INDEX_X'], inplace=True)
-    else:
-        df = pd.DataFrame(columns=['UNIT_INDEX_X', 'UNIT_INDEX_Y'])
-
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Defective_Cell_Locations')
-
-        # Auto-adjust column widths for better readability
-        worksheet = writer.sheets['Defective_Cell_Locations']
-        for i, col in enumerate(df.columns):
-            width = max(df[col].astype(str).map(len).max(), len(col)) + 2
-            worksheet.set_column(i, i, width)
-
-    return output.getvalue()
-
 def generate_excel_report(
     full_df: pd.DataFrame,
     panel_rows: int,

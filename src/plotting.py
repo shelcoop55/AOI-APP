@@ -8,38 +8,11 @@ import pandas as pd
 from typing import List, Dict, Any, Set, Tuple
 
 from src.config import (
-    PANEL_COLOR, GRID_COLOR, TEXT_COLOR,
+    PANEL_COLOR, GRID_COLOR, defect_style_map, TEXT_COLOR,
     PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE,
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
 )
-import plotly.express as px
 from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT
-
-def get_color_map_for_defects(df: pd.DataFrame) -> Dict[str, str]:
-    """
-    Generates a dynamic color map for all unique defect types found in the DataFrame.
-
-    Args:
-        df (pd.DataFrame): The DataFrame containing defect data. It must have
-                           a 'DEFECT_TYPE' column.
-
-    Returns:
-        Dict[str, str]: A dictionary mapping each unique defect type to a
-                        distinct color from a high-contrast palette.
-    """
-    if 'DEFECT_TYPE' not in df.columns or df['DEFECT_TYPE'].empty:
-        return {}
-
-    unique_defects = sorted(df['DEFECT_TYPE'].unique())
-    # Use a built-in, high-contrast color sequence from Plotly
-    color_sequence = px.colors.qualitative.Plotly
-
-    # Create a mapping, cycling through colors if there are more defects than colors
-    color_map = {
-        defect: color_sequence[i % len(color_sequence)]
-        for i, defect in enumerate(unique_defects)
-    }
-    return color_map
 
 # ==============================================================================
 # --- Private Helper Functions for Grid Creation ---
@@ -107,77 +80,41 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', 
     shapes.extend(_draw_quadrant_grids(origins_to_draw, panel_rows, panel_cols, fill=fill))
     return shapes
 
-def create_defect_traces(df: pd.DataFrame, color_map: Dict[str, str]) -> List[go.Scatter]:
-    """
-    Creates a list of Scatter traces for each defect type, using a dynamic color map.
-    """
+def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
+    # ... (omitted for brevity, same as before)
     traces = []
     has_verification = 'Verification' in df.columns
-
-    # Use the dynamically generated color map
-    for defect_type, color in color_map.items():
-        dff = df[df['DEFECT_TYPE'] == defect_type]
+    for dtype, color in defect_style_map.items():
+        dff = df[df['DEFECT_TYPE'] == dtype]
         if not dff.empty:
             custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']
-            hovertemplate = ("<b>Type: %{customdata[2]}</b><br>"
-                             "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
-                             "Defect ID: %{customdata[3]}")
+            hovertemplate = ("<b>Type: %{customdata[2]}</b><br>" "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>" "Defect ID: %{customdata[3]}")
             if has_verification:
                 custom_data_cols.append('Verification')
                 hovertemplate += "<br>Verification: %{customdata[4]}"
             hovertemplate += "<extra></extra>"
-
-            traces.append(go.Scatter(
-                x=dff['plot_x'],
-                y=dff['plot_y'],
-                mode='markers',
-                marker=dict(color=color, size=8, line=dict(width=1, color='black')),
-                name=defect_type,
-                customdata=dff[custom_data_cols],
-                hovertemplate=hovertemplate
-            ))
+            traces.append(go.Scatter(x=dff['plot_x'], y=dff['plot_y'], mode='markers', marker=dict(color=color, size=8, line=dict(width=1, color='black')), name=dtype, customdata=dff[custom_data_cols], hovertemplate=hovertemplate))
     return traces
     
-def create_pareto_trace(df: pd.DataFrame, color_map: Dict[str, str]) -> go.Bar:
-    """
-    Creates a single Bar trace for a Pareto chart with dynamically assigned colors.
-    """
-    if df.empty:
-        return go.Bar(name='Pareto')
-
+def create_pareto_trace(df: pd.DataFrame) -> go.Bar:
+    # ... (omitted for brevity, same as before)
+    if df.empty: return go.Bar(name='Pareto')
     pareto_data = df['DEFECT_TYPE'].value_counts().reset_index()
     pareto_data.columns = ['Defect Type', 'Count']
+    return go.Bar(x=pareto_data['Defect Type'], y=pareto_data['Count'], name='Pareto', marker_color=[defect_style_map.get(dtype, 'grey') for dtype in pareto_data['Defect Type']])
 
-    # Apply colors from the dynamic map
-    marker_colors = [color_map.get(dtype, '#808080') for dtype in pareto_data['Defect Type']]
-
-    return go.Bar(
-        x=pareto_data['Defect Type'],
-        y=pareto_data['Count'],
-        name='Pareto',
-        marker_color=marker_colors
-    )
-
-def create_grouped_pareto_trace(df: pd.DataFrame, color_map: Dict[str, str]) -> List[go.Bar]:
-    """
-    Creates a list of Bar traces for a grouped Pareto chart, with one trace per quadrant,
-    using a consistent, dynamic color map.
-    """
-    if df.empty:
-        return []
-
-    grouped_data = df.groupby(['DEFECT_TYPE', 'QUADRANT']).size().unstack(fill_value=0)
-
+def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
+    # ... (omitted for brevity, same as before)
+    if df.empty: return []
+    grouped_data = df.groupby(['QUADRANT', 'DEFECT_TYPE']).size().reset_index(name='Count')
+    top_defects = df['DEFECT_TYPE'].value_counts().index.tolist()
     traces = []
-    for defect_type, color in color_map.items():
-        if defect_type in grouped_data.columns:
-            traces.append(go.Bar(
-                name=defect_type,
-                x=grouped_data.index,
-                y=grouped_data[defect_type],
-                marker_color=color
-            ))
-
+    quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+    for quadrant in quadrants:
+        quadrant_data = grouped_data[grouped_data['QUADRANT'] == quadrant]
+        pivot = quadrant_data.pivot(index='DEFECT_TYPE', columns='QUADRANT', values='Count').reindex(top_defects).fillna(0)
+        if not pivot.empty:
+            traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant]))
     return traces
 
 def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:

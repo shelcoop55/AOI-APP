@@ -38,25 +38,20 @@ def test_create_grid_shapes_without_fill(sample_plot_df):
     quadrant_rect = next((s for s in shapes if s.get('type') == 'rect' and 'fillcolor' in s and s['fillcolor'] == PANEL_COLOR), None)
     assert quadrant_rect is None, "No filled quadrant rectangle should be present"
 
-from src.plotting import get_color_map_for_defects
-
 def test_create_defect_traces_smoke(sample_plot_df):
     """Smoke test to ensure create_defect_traces runs without errors."""
-    color_map = get_color_map_for_defects(sample_plot_df)
-    traces = create_defect_traces(sample_plot_df, color_map)
+    traces = create_defect_traces(sample_plot_df)
     assert isinstance(traces, list)
     assert all(isinstance(t, go.Scatter) for t in traces)
 
 def test_create_pareto_trace_smoke(sample_plot_df):
     """Smoke test to ensure create_pareto_trace runs without errors."""
-    color_map = get_color_map_for_defects(sample_plot_df)
-    trace = create_pareto_trace(sample_plot_df, color_map)
+    trace = create_pareto_trace(sample_plot_df)
     assert isinstance(trace, go.Bar)
 
 def test_create_grouped_pareto_trace_smoke(sample_plot_df):
     """Smoke test to ensure create_grouped_pareto_trace runs without errors."""
-    color_map = get_color_map_for_defects(sample_plot_df)
-    traces = create_grouped_pareto_trace(sample_plot_df, color_map)
+    traces = create_grouped_pareto_trace(sample_plot_df)
     assert isinstance(traces, list)
     assert all(isinstance(t, go.Bar) for t in traces)
 
