@@ -6,9 +6,10 @@ UPDATED: Now includes an outer border frame and has been refactored for clarity.
 import plotly.graph_objects as go
 import pandas as pd
 from typing import List, Dict, Any
+import plotly.colors
 
 from src.config import (
-    PANEL_COLOR, GRID_COLOR, defect_style_map, TEXT_COLOR,
+    PANEL_COLOR, GRID_COLOR, TEXT_COLOR,
     PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE
 )
 from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT
@@ -91,6 +92,18 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All') 
 
     return shapes
 
+def get_color_map_for_defects(defect_types: List[str]) -> Dict[str, str]:
+    """
+    Creates a dynamic color map for a list of defect types.
+    It uses a high-contrast palette and cycles through it if there are more
+    defect types than available colors.
+    """
+    color_palette = plotly.colors.qualitative.Plotly
+    color_map = {}
+    for i, defect_type in enumerate(defect_types):
+        color_map[defect_type] = color_palette[i % len(color_palette)]
+    return color_map
+
 def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     """
     Creates a list of scatter traces, one for each unique defect type in the dataframe.
@@ -99,14 +112,13 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     traces = []
     has_verification = 'Verification' in df.columns
 
-    # Get all unique defect types present in the filtered dataframe
+    # Get all unique defect types and generate the dynamic color map
     unique_defect_types = df['DEFECT_TYPE'].unique()
+    color_map = get_color_map_for_defects(unique_defect_types)
 
     for dtype in unique_defect_types:
         dff = df[df['DEFECT_TYPE'] == dtype]
-
-        # Determine the color for the defect type, using a default if not in the map
-        color = defect_style_map.get(dtype, '#808080') # Grey for unknown defects
+        color = color_map[dtype]
 
         # Base custom data and hover template
         custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']
@@ -133,40 +145,47 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
 
     return traces
     
-def create_pareto_trace(df: pd.DataFrame) -> go.Bar:
+def create_pareto_trace(df: pd.DataFrame, color_map: Dict[str, str]) -> go.Bar:
     """
-    Creates a single bar trace for a Pareto chart.
+    Creates a single bar trace for a Pareto chart using a dynamic color map.
     """
     if df.empty:
         return go.Bar(name='Pareto')
     pareto_data = df['DEFECT_TYPE'].value_counts().reset_index()
     pareto_data.columns = ['Defect Type', 'Count']
+
+    # Apply the dynamic color map
+    bar_colors = [color_map.get(dtype, '#808080') for dtype in pareto_data['Defect Type']]
+
     return go.Bar(
         x=pareto_data['Defect Type'],
         y=pareto_data['Count'],
         name='Pareto',
-        marker_color=[defect_style_map.get(dtype, 'grey') for dtype in pareto_data['Defect Type']]
+        marker_color=bar_colors
     )
 
-def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
+def create_grouped_pareto_trace(df: pd.DataFrame, color_map: Dict[str, str]) -> List[go.Bar]:
     """
     Creates a list of bar traces for a grouped Pareto chart (by quadrant).
     """
     if df.empty:
         return []
-    grouped_data = df.groupby(['QUADRANT', 'DEFECT_TYPE']).size().reset_index(name='Count')
+
+    # We now iterate by defect type to assign colors correctly
     top_defects = df['DEFECT_TYPE'].value_counts().index.tolist()
     traces = []
-    quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
-    for quadrant in quadrants:
-        quadrant_data = grouped_data[grouped_data['QUADRANT'] == quadrant]
-        pivot = quadrant_data.pivot(index='DEFECT_TYPE', columns='QUADRANT', values='Count').reindex(top_defects).fillna(0)
-        if not pivot.empty:
-            traces.append(go.Bar(
-                name=quadrant,
-                x=pivot.index,
-                y=pivot[quadrant]
-            ))
+
+    for defect_type in top_defects:
+        defect_df = df[df['DEFECT_TYPE'] == defect_type]
+        quadrant_counts = defect_df.groupby('QUADRANT').size().reindex(['Q1', 'Q2', 'Q3', 'Q4'], fill_value=0)
+
+        traces.append(go.Bar(
+            name=defect_type,
+            x=['Q1', 'Q2', 'Q3', 'Q4'],
+            y=quadrant_counts.values,
+            marker_color=color_map.get(defect_type, '#808080')
+        ))
+
     return traces
 
 def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:

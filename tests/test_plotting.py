@@ -5,7 +5,8 @@ from src.plotting import (
     create_grid_shapes,
     create_defect_traces,
     create_pareto_trace,
-    create_grouped_pareto_trace
+    create_grouped_pareto_trace,
+    get_color_map_for_defects
 )
 
 @pytest.fixture
@@ -36,37 +37,30 @@ def test_create_defect_traces_smoke(sample_plot_df):
 
 def test_create_pareto_trace_smoke(sample_plot_df):
     """Smoke test to ensure create_pareto_trace runs without errors."""
-    trace = create_pareto_trace(sample_plot_df)
+    color_map = get_color_map_for_defects(sample_plot_df['DEFECT_TYPE'].unique())
+    trace = create_pareto_trace(sample_plot_df, color_map)
     assert isinstance(trace, go.Bar)
 
 def test_create_grouped_pareto_trace_smoke(sample_plot_df):
     """Smoke test to ensure create_grouped_pareto_trace runs without errors."""
-    traces = create_grouped_pareto_trace(sample_plot_df)
+    color_map = get_color_map_for_defects(sample_plot_df['DEFECT_TYPE'].unique())
+    traces = create_grouped_pareto_trace(sample_plot_df, color_map)
     assert isinstance(traces, list)
     assert all(isinstance(t, go.Bar) for t in traces)
 
-def test_create_defect_traces_handles_unknown_defects(sample_plot_df):
+def test_dynamic_color_assignment(sample_plot_df):
     """
-    Tests that create_defect_traces correctly handles defect types that are
-    not in the predefined style map.
+    Tests that different defect types are assigned unique colors dynamically.
     """
-    # 1. Add a new, unknown defect type to the sample data
-    new_defect = pd.DataFrame({
-        'DEFECT_ID': [105],
-        'DEFECT_TYPE': ['New Defect'],
-        'UNIT_INDEX_X': [2], 'UNIT_INDEX_Y': [2],
-        'QUADRANT': ['Q1'], 'plot_x': [30], 'plot_y': [30],
-    })
-    df_with_unknown = pd.concat([sample_plot_df, new_defect], ignore_index=True)
+    # 1. Generate traces from the sample data
+    traces = create_defect_traces(sample_plot_df)
 
-    # 2. Generate the traces
-    traces = create_defect_traces(df_with_unknown)
-
-    # 3. Assert that all unique defect types have been plotted
-    unique_types_in_data = df_with_unknown['DEFECT_TYPE'].unique()
+    # 2. Assert that the correct number of traces were created
+    unique_types_in_data = sample_plot_df['DEFECT_TYPE'].unique()
     assert len(traces) == len(unique_types_in_data), "Should create one trace per unique defect type"
 
-    # 4. Find the trace for the new defect and check its color
-    new_defect_trace = next((t for t in traces if t.name == 'New Defect'), None)
-    assert new_defect_trace is not None, "A trace for 'New Defect' should exist"
-    assert new_defect_trace.marker.color == '#808080', "Unknown defects should be assigned the default grey color"
+    # 3. Extract the colors assigned to each trace
+    assigned_colors = [t.marker.color for t in traces]
+
+    # 4. Assert that all assigned colors are unique
+    assert len(assigned_colors) == len(set(assigned_colors)), "Each unique defect type should have a unique color"

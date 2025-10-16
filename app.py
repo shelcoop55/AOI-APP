@@ -13,7 +13,7 @@ import matplotlib.colors as mcolors
 from src.config import BACKGROUND_COLOR, PLOT_AREA_COLOR, GRID_COLOR, TEXT_COLOR, PANEL_COLOR, GAP_SIZE
 from src.data_handler import load_data, calculate_yield_metrics, QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
 from src.plotting import (
-    create_grid_shapes, create_defect_traces,
+    create_grid_shapes, create_defect_traces, get_color_map_for_defects,
     create_pareto_trace, create_grouped_pareto_trace, create_verification_status_chart
 )
 from src.reporting import generate_excel_report
@@ -261,20 +261,25 @@ def main() -> None:
         elif view_mode == ViewMode.PARETO.value:
             st.subheader(f"Defect Pareto - Quadrant: {quadrant_selection}")
             fig = go.Figure()
+
+            # Generate the dynamic color map based on all defects in the filtered view
+            all_defect_types = display_df['DEFECT_TYPE'].unique()
+            color_map = get_color_map_for_defects(all_defect_types)
             
             if quadrant_selection == Quadrant.ALL.value:
                 # Show grouped pareto for the full panel view
-                pareto_traces = create_grouped_pareto_trace(display_df)
+                pareto_traces = create_grouped_pareto_trace(display_df, color_map)
                 for trace in pareto_traces:
                     fig.add_trace(trace)
-                fig.update_layout(barmode='stack')
+                fig.update_layout(barmode='group', xaxis_title="Quadrant")
             else:
                 # Show a simple pareto for a single quadrant
-                pareto_trace = create_pareto_trace(display_df)
+                pareto_trace = create_pareto_trace(display_df, color_map)
                 fig.add_trace(pareto_trace)
+                fig.update_layout(xaxis_title="Defect Type")
 
             fig.update_layout(
-                xaxis=dict(title="Defect Type", categoryorder='total descending', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+                xaxis=dict(categoryorder='total descending', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
                 yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
                 plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR,
                 legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR)),
