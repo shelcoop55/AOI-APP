@@ -5,7 +5,8 @@ from src.plotting import (
     create_grid_shapes,
     create_defect_traces,
     create_pareto_trace,
-    create_grouped_pareto_trace
+    create_grouped_pareto_trace,
+    get_color_map_for_defects
 )
 
 @pytest.fixture
@@ -36,11 +37,30 @@ def test_create_defect_traces_smoke(sample_plot_df):
 
 def test_create_pareto_trace_smoke(sample_plot_df):
     """Smoke test to ensure create_pareto_trace runs without errors."""
-    trace = create_pareto_trace(sample_plot_df)
+    color_map = get_color_map_for_defects(sample_plot_df['DEFECT_TYPE'].unique())
+    trace = create_pareto_trace(sample_plot_df, color_map)
     assert isinstance(trace, go.Bar)
 
 def test_create_grouped_pareto_trace_smoke(sample_plot_df):
     """Smoke test to ensure create_grouped_pareto_trace runs without errors."""
-    traces = create_grouped_pareto_trace(sample_plot_df)
+    color_map = get_color_map_for_defects(sample_plot_df['DEFECT_TYPE'].unique())
+    traces = create_grouped_pareto_trace(sample_plot_df, color_map)
     assert isinstance(traces, list)
     assert all(isinstance(t, go.Bar) for t in traces)
+
+def test_dynamic_color_assignment(sample_plot_df):
+    """
+    Tests that different defect types are assigned unique colors dynamically.
+    """
+    # 1. Generate traces from the sample data
+    traces = create_defect_traces(sample_plot_df)
+
+    # 2. Assert that the correct number of traces were created
+    unique_types_in_data = sample_plot_df['DEFECT_TYPE'].unique()
+    assert len(traces) == len(unique_types_in_data), "Should create one trace per unique defect type"
+
+    # 3. Extract the colors assigned to each trace
+    assigned_colors = [t.marker.color for t in traces]
+
+    # 4. Assert that all assigned colors are unique
+    assert len(assigned_colors) == len(set(assigned_colors)), "Each unique defect type should have a unique color"
