@@ -20,10 +20,9 @@ from src.data_handler import (
 from src.plotting import (
     create_grid_shapes, create_defect_traces,
     create_pareto_trace, create_grouped_pareto_trace,
-    create_verification_status_chart, create_still_alive_map,
-    get_color_map_for_defects
+    create_verification_status_chart, create_still_alive_map
 )
-from src.reporting import generate_excel_report
+from src.reporting import generate_excel_report, generate_still_alive_report
 from src.enums import ViewMode, Quadrant
 
 def load_css(file_path: str) -> None:
@@ -168,6 +167,16 @@ def main() -> None:
                 st.metric("Surviving Cells", f"{alive_cell_count:,} / {total_cells:,}")
                 st.metric("Defective Cells", f"{defective_cell_count:,}")
                 st.divider()
+
+                # Add a download button for the defective cell report
+                report_bytes = generate_still_alive_report(true_defect_coords)
+                st.download_button(
+                    label="Download Defective Cell Report",
+                    data=report_bytes,
+                    file_name="still_alive_defective_cells.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
                 st.subheader("Legend")
                 legend_html = f'''
                 <div style="display: flex; flex-direction: column; align-items: flex-start;">
@@ -195,11 +204,8 @@ def main() -> None:
             filtered_df = full_df[full_df['Verification'] == verification_selection] if verification_selection != 'All' else full_df
             display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
 
-            # Generate the dynamic color map based on the full dataset for consistency
-            color_map = get_color_map_for_defects(full_df)
-
             if view_mode == ViewMode.DEFECT.value:
-                fig = go.Figure(data=create_defect_traces(display_df, color_map))
+                fig = go.Figure(data=create_defect_traces(display_df))
                 fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection))
                 cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
                 x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
@@ -226,22 +232,11 @@ def main() -> None:
                 st.subheader(f"Defect Pareto - Layer {st.session_state.selected_layer} - Quadrant: {quadrant_selection}")
                 fig = go.Figure()
                 if quadrant_selection == Quadrant.ALL.value:
-                    # For the grouped view, we need to ensure the barmode is 'stack'
-                    traces = create_grouped_pareto_trace(display_df, color_map)
-                    for trace in traces:
-                        fig.add_trace(trace)
+                    for trace in create_grouped_pareto_trace(display_df): fig.add_trace(trace)
                     fig.update_layout(barmode='stack')
                 else:
-                    # For the simple view, just add the single trace
-                    fig.add_trace(create_pareto_trace(display_df, color_map))
-
-                fig.update_layout(
-                    xaxis=dict(title="Defect Type", categoryorder='total descending'),
-                    plot_bgcolor=PLOT_AREA_COLOR,
-                    paper_bgcolor=BACKGROUND_COLOR,
-                    height=600,
-                    legend=dict(traceorder="normal") # Ensure legend follows color map order
-                )
+                    fig.add_trace(create_pareto_trace(display_df))
+                fig.update_layout(xaxis=dict(title="Defect Type", categoryorder='total descending'), plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, height=600)
                 st.plotly_chart(fig, use_container_width=True)
             elif view_mode == ViewMode.SUMMARY.value:
                 st.header(f"Statistical Summary for Layer {st.session_state.selected_layer}, Quadrant: {quadrant_selection}")

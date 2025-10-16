@@ -6,13 +6,13 @@ UPDATED: Now includes an outer border frame and has been refactored for clarity.
 import plotly.graph_objects as go
 import pandas as pd
 from typing import List, Dict, Any, Set, Tuple
-import plotly.express as px
 
 from src.config import (
     PANEL_COLOR, GRID_COLOR, TEXT_COLOR,
     PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE,
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR
 )
+import plotly.express as px
 from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT
 
 def get_color_map_for_defects(df: pd.DataFrame) -> Dict[str, str]:
