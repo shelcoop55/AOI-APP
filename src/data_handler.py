@@ -45,6 +45,7 @@ def load_data(
 
             try:
                 df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='openpyxl')
+                df.rename(columns={'VERIFICATION': 'Verification'}, inplace=True)
                 df['SOURCE_FILE'] = file_name
                 df['SIDE'] = side
 
