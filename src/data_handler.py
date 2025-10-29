@@ -49,7 +49,7 @@ def load_data(
 
         df = pd.concat(all_dfs, ignore_index=True)
         st.sidebar.success(f"{len(uploaded_files)} file(s) loaded successfully!")
-        
+        df.rename(columns={'VERIFICATION': 'Verification'}, inplace=True)
         # Handle the new 'Verification' column for backward compatibility
         if 'Verification' not in df.columns:
             df['Verification'] = 'T'
