@@ -1,170 +1,222 @@
 """
 Plotting and Visualization Module.
 This version draws a true-to-scale simulation of a 510x510mm physical panel.
-UPDATED: Now includes an outer border frame.
+UPDATED: Now includes an outer border frame and has been refactored for clarity.
 """
 import plotly.graph_objects as go
 import pandas as pd
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set, Tuple
 
 from src.config import (
     PANEL_COLOR, GRID_COLOR, defect_style_map, TEXT_COLOR,
-    PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE
+    PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE,
+    ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, FALLBACK_COLORS
 )
-# --- The physical dimensions are now imported directly from config ---
 from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT
 
-def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All') -> List[Dict[str, Any]]:
-    """
-    Creates the visual shapes for the panel grid in a fixed 510x510mm coordinate system.
-    The grid lines are scaled based on the number of rows/cols to fit the fixed quadrant size.
-    """
+# ==============================================================================
+# --- Private Helper Functions for Grid Creation ---
+# ==============================================================================
+
+def _draw_border_and_gaps() -> List[Dict[str, Any]]:
+    """Creates the shapes for the outer border and inner gaps of the panel."""
     shapes = []
-    
-    # --- NEW LOGIC: Calculate the physical size of each grid cell for drawing ---
+    gap_color = '#A8652A'
+    total_width_with_gap = PANEL_WIDTH + GAP_SIZE
+    total_height_with_gap = PANEL_HEIGHT + GAP_SIZE
+
+    # Outer border frame
+    shapes.extend([
+        dict(type="rect", x0=0, y0=total_height_with_gap, x1=total_width_with_gap, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below'),
+        dict(type="rect", x0=0, y0=-GAP_SIZE, x1=total_width_with_gap, y1=0, fillcolor=gap_color, line_width=0, layer='below'),
+        dict(type="rect", x0=-GAP_SIZE, y0=-GAP_SIZE, x1=0, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below'),
+        dict(type="rect", x0=total_width_with_gap, y0=-GAP_SIZE, x1=total_width_with_gap + GAP_SIZE, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below')
+    ])
+
+    # Inner gaps
+    shapes.extend([
+        dict(type="rect", x0=QUADRANT_WIDTH, y0=0, x1=QUADRANT_WIDTH + GAP_SIZE, y1=total_height_with_gap, fillcolor=gap_color, line_width=0, layer='below'),
+        dict(type="rect", x0=0, y0=QUADRANT_HEIGHT, x1=total_width_with_gap, y1=QUADRANT_HEIGHT + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below')
+    ])
+    return shapes
+
+def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int, fill: bool = True) -> List[Dict[str, Any]]:
+    """Creates the shapes for the quadrant outlines and their internal grid lines."""
+    shapes = []
     cell_width = QUADRANT_WIDTH / panel_cols
     cell_height = QUADRANT_HEIGHT / panel_rows
 
-    # --- The origins are now defined by the fixed physical dimensions ---
-    all_origins = {
-        'Q1': (0, 0),
-        'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0),
-        'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE),
-        'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)
-    }
-    
-    origins_to_draw = all_origins if quadrant == 'All' else {quadrant: all_origins[quadrant]}
-    
-    # --- Draw the gap/saw street shapes if showing the full panel ---
-    if quadrant == 'All':
-        gap_color = '#A8652A' # A color for the gap and border
-        total_width_with_gap = PANEL_WIDTH + GAP_SIZE
-        total_height_with_gap = PANEL_HEIGHT + GAP_SIZE
-        
-        # --- NEW CODE BLOCK STARTS HERE ---
-        # --- Draw the outer border frame ---
-        
-        # Top Border
-        shapes.append(dict(
-            type="rect", x0=0, y0=total_height_with_gap, x1=total_width_with_gap, y1=total_height_with_gap + GAP_SIZE,
-            fillcolor=gap_color, line_width=0, layer='below'
-        ))
-        # Bottom Border
-        shapes.append(dict(
-            type="rect", x0=0, y0=-GAP_SIZE, x1=total_width_with_gap, y1=0,
-            fillcolor=gap_color, line_width=0, layer='below'
-        ))
-        # Left Border
-        shapes.append(dict(
-            type="rect", x0=-GAP_SIZE, y0=-GAP_SIZE, x1=0, y1=total_height_with_gap + GAP_SIZE,
-            fillcolor=gap_color, line_width=0, layer='below'
-        ))
-        # Right Border
-        shapes.append(dict(
-            type="rect", x0=total_width_with_gap, y0=-GAP_SIZE, x1=total_width_with_gap + GAP_SIZE, y1=total_height_with_gap + GAP_SIZE,
-            fillcolor=gap_color, line_width=0, layer='below'
-        ))
-        
-        # --- NEW CODE BLOCK ENDS HERE ---
-
-        # Vertical inner gap
-        shapes.append(dict(
-            type="rect", x0=QUADRANT_WIDTH, y0=0, x1=QUADRANT_WIDTH + GAP_SIZE, y1=total_height_with_gap,
-            fillcolor=gap_color, line_width=0, layer='below'
-        ))
-        # Horizontal inner gap
-        shapes.append(dict(
-            type="rect", x0=0, y0=QUADRANT_HEIGHT, x1=total_width_with_gap, y1=QUADRANT_HEIGHT + GAP_SIZE,
-            fillcolor=gap_color, line_width=0, layer='below'
-        ))
-
-    # --- Draw the quadrants and their internal grid lines ---
     for x_start, y_start in origins_to_draw.values():
-        # Draw the main quadrant rectangle outline
-        shapes.append(dict(
-            type="rect",
-            x0=x_start, y0=y_start,
-            x1=x_start + QUADRANT_WIDTH, y1=y_start + QUADRANT_HEIGHT,
-            line=dict(color=GRID_COLOR, width=2),
-            fillcolor=PANEL_COLOR,
-            layer='below'
-        ))
-        
-        # Draw vertical grid lines based on calculated cell_width
+        if fill:
+            shapes.append(dict(
+                type="rect", x0=x_start, y0=y_start, x1=x_start + QUADRANT_WIDTH, y1=y_start + QUADRANT_HEIGHT,
+                line=dict(color=GRID_COLOR, width=2), fillcolor=PANEL_COLOR, layer='below'
+            ))
         for i in range(1, panel_cols):
             line_x = x_start + (i * cell_width)
-            shapes.append(dict(
-                type="line", x0=line_x, y0=y_start, x1=line_x, y1=y_start + QUADRANT_HEIGHT,
-                line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'
-            ))
-        
-        # Draw horizontal grid lines based on calculated cell_height
+            shapes.append(dict(type="line", x0=line_x, y0=y_start, x1=line_x, y1=y_start + QUADRANT_HEIGHT, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
         for i in range(1, panel_rows):
             line_y = y_start + (i * cell_height)
-            shapes.append(dict(
-                type="line", x0=x_start, y0=line_y, x1=x_start + QUADRANT_WIDTH, y1=line_y,
-                line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'
-            ))
+            shapes.append(dict(type="line", x0=x_start, y0=line_y, x1=x_start + QUADRANT_WIDTH, y1=line_y, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
             
     return shapes
 
-# --- The functions below are unchanged ---
+# ==============================================================================
+# --- Public API Functions ---
+# ==============================================================================
+
+def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', fill: bool = True) -> List[Dict[str, Any]]:
+    """
+    Creates the visual shapes for the panel grid in a fixed 510x510mm coordinate system.
+    """
+    all_origins = {
+        'Q1': (0, 0), 'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0),
+        'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE), 'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)
+    }
+    origins_to_draw = all_origins if quadrant == 'All' else {quadrant: all_origins[quadrant]}
+    shapes = []
+    if quadrant == 'All':
+        shapes.extend(_draw_border_and_gaps())
+    shapes.extend(_draw_quadrant_grids(origins_to_draw, panel_rows, panel_cols, fill=fill))
+    return shapes
 
 def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     """
-    Creates a list of scatter traces, one for each defect type in the dataframe.
-    This function is unchanged as it plots the pre-calculated 'plot_x' and 'plot_y'.
+    Generates scatter plot traces.
+
+    SWITCHING LOGIC:
+    - If real verification data exists (HAS_VERIFICATION_DATA=True), group by 'Verification'.
+    - If NO verification data, group by 'DEFECT_TYPE'.
     """
     traces = []
-    for dtype, color in defect_style_map.items():
-        dff = df[df['DEFECT_TYPE'] == dtype]
+    if df.empty: return traces
+
+    # Check the flag. If mixed (some rows T, some F), default to True if any are True
+    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
+
+    # Determine what column to group by
+    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
+
+    unique_groups = df[group_col].unique()
+
+    # --- COLOR MAPPING ---
+    # We need a dynamic color map for whatever column we are grouping by.
+    local_style_map = {}
+
+    if group_col == 'DEFECT_TYPE':
+        # Use the standard defect style map + fallback
+        local_style_map = defect_style_map.copy()
+        fallback_index = 0
+        for dtype in unique_groups:
+            if dtype not in local_style_map:
+                color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
+                local_style_map[dtype] = color
+                fallback_index += 1
+    else:
+        # For Verification codes (CU22, N, etc.), generate a map on the fly
+        # We can reuse the FALLBACK_COLORS or define specific ones if needed.
+        # Simple approach: Assign distinct colors from the fallback list.
+        fallback_index = 0
+        for code in unique_groups:
+            # If we want specific colors for 'N' (Green) or 'False Alarm', we could add logic here.
+            # For now, purely dynamic to handle ANY code.
+            color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
+            local_style_map[code] = color
+            fallback_index += 1
+
+    # Generate traces
+    for group_val, color in local_style_map.items():
+        dff = df[df[group_col] == group_val]
         if not dff.empty:
+            custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification']
+            hovertemplate = ("<b>Type: %{customdata[2]}</b><br>"
+                             "Status: %{customdata[4]}<br>"
+                             "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
+                             "Defect ID: %{customdata[3]}"
+                             "<extra></extra>")
+
             traces.append(go.Scatter(
-                x=dff['plot_x'], y=dff['plot_y'], mode='markers',
+                x=dff['plot_x'],
+                y=dff['plot_y'],
+                mode='markers',
                 marker=dict(color=color, size=8, line=dict(width=1, color='black')),
-                name=dtype,
-                customdata=dff[['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']],
-                hovertemplate=(
-                    "<b>Type: %{customdata[2]}</b><br>"
-                    "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
-                    "Defect ID: %{customdata[3]}"
-                    "<extra></extra>"
-                )
+                name=group_val, # Legend shows 'CU22' or 'Nick' depending on mode
+                customdata=dff[custom_data_cols],
+                hovertemplate=hovertemplate
             ))
+
     return traces
     
 def create_pareto_trace(df: pd.DataFrame) -> go.Bar:
-    """
-    This function is unchanged. It operates on categorical data only.
-    """
-    if df.empty:
-        return go.Bar(name='Pareto')
-    pareto_data = df['DEFECT_TYPE'].value_counts().reset_index()
-    pareto_data.columns = ['Defect Type', 'Count']
-    return go.Bar(
-        x=pareto_data['Defect Type'],
-        y=pareto_data['Count'],
-        name='Pareto',
-        marker_color=[defect_style_map.get(dtype, 'grey') for dtype in pareto_data['Defect Type']]
-    )
+    if df.empty: return go.Bar(name='Pareto')
+
+    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
+    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
+
+    pareto_data = df[group_col].value_counts().reset_index()
+    pareto_data.columns = ['Label', 'Count']
+
+    # Simple color logic (grey) since we don't have a persistent map for dynamic verification codes in this scope easily,
+    # or we can reuse the logic. For simplicity, we use a default color.
+    return go.Bar(x=pareto_data['Label'], y=pareto_data['Count'], name='Pareto', marker_color='#4682B4')
 
 def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
-    """
-    This function is unchanged. It operates on categorical data only.
-    """
-    if df.empty:
-        return []
-    grouped_data = df.groupby(['QUADRANT', 'DEFECT_TYPE']).size().reset_index(name='Count')
-    top_defects = df['DEFECT_TYPE'].value_counts().index.tolist()
+    if df.empty: return []
+
+    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
+    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
+
+    grouped_data = df.groupby(['QUADRANT', group_col]).size().reset_index(name='Count')
+    top_items = df[group_col].value_counts().index.tolist()
+
     traces = []
     quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
     for quadrant in quadrants:
         quadrant_data = grouped_data[grouped_data['QUADRANT'] == quadrant]
-        pivot = quadrant_data.pivot(index='DEFECT_TYPE', columns='QUADRANT', values='Count').reindex(top_defects).fillna(0)
+        pivot = quadrant_data.pivot(index=group_col, columns='QUADRANT', values='Count').reindex(top_items).fillna(0)
         if not pivot.empty:
-            traces.append(go.Bar(
-                name=quadrant,
-                x=pivot.index,
-                y=pivot[quadrant]
-            ))
+            traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant]))
     return traces
+
+def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:
+    # ... (omitted for brevity, same as before)
+    if df.empty: return []
+    grouped = df.groupby(['DEFECT_TYPE', 'QUADRANT', 'Verification']).size().unstack(fill_value=0)
+    all_defect_types = df['DEFECT_TYPE'].unique()
+    all_quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+    all_combinations = pd.MultiIndex.from_product([all_defect_types, all_quadrants], names=['DEFECT_TYPE', 'QUADRANT'])
+    grouped = grouped.reindex(all_combinations, fill_value=0)
+    for status in ['T', 'F', 'TA']:
+        if status not in grouped.columns: grouped[status] = 0
+    grouped = grouped.reset_index()
+    x_axis_data = [grouped['DEFECT_TYPE'], grouped['QUADRANT']]
+    status_map = {'T': {'name': 'True', 'color': '#FF0000'}, 'F': {'name': 'False', 'color': '#2ca02c'}, 'TA': {'name': 'Acceptable', 'color': '#FFBF00'}}
+    traces = []
+    for status_code, details in status_map.items():
+        traces.append(go.Bar(name=details['name'], x=x_axis_data, y=grouped[status_code], marker_color=details['color']))
+    return traces
+
+def create_still_alive_map(panel_rows: int, panel_cols: int, true_defect_coords: Set[Tuple[int, int]]) -> List[Dict[str, Any]]:
+    """
+    Creates the shapes for the 'Still Alive' map by drawing colored cells and an overlay grid.
+    """
+    shapes = []
+    total_cols, total_rows = panel_cols * 2, panel_rows * 2
+    all_origins = {'Q1': (0, 0), 'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0), 'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE), 'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)}
+    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+
+    # 1. Draw the colored cells first (without borders)
+    for row in range(total_rows):
+        for col in range(total_cols):
+            quadrant_col, local_col = divmod(col, panel_cols)
+            quadrant_row, local_row = divmod(row, panel_rows)
+            quad_key = f"Q{quadrant_row * 2 + quadrant_col + 1}"
+            x_origin, y_origin = all_origins[quad_key]
+            x0, y0 = x_origin + local_col * cell_width, y_origin + local_row * cell_height
+            fill_color = DEFECTIVE_CELL_COLOR if (col, row) in true_defect_coords else ALIVE_CELL_COLOR
+            shapes.append({'type': 'rect', 'x0': x0, 'y0': y0, 'x1': x0 + cell_width, 'y1': y0 + cell_height, 'fillcolor': fill_color, 'line': {'width': 0}, 'layer': 'below'})
+
+    # 2. Draw grid lines over the colored cells by calling create_grid_shapes with fill=False
+    shapes.extend(create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False))
+
+    return shapes

@@ -22,6 +22,42 @@ BACKGROUND_COLOR = '#212121' # A dark charcoal grey for the app background, mimi
 PLOT_AREA_COLOR = '#333333'  # A slightly lighter grey for the plot area to create subtle depth.
 TEXT_COLOR = '#FFFFFF'       # White text for readability on the dark background.
 
+# Colors for the "Still Alive" yield map
+ALIVE_CELL_COLOR = '#2ECC71' # A vibrant green for cells without "True" defects.
+DEFECTIVE_CELL_COLOR = '#E74C3C' # A strong red for cells with "True" defects.
+
+# --- Fallback Color Palette ---
+# A list of visually distinct colors to be used for new, unrecognized defect types.
+# This ensures that any defect from an uploaded file will get a color for plotting.
+FALLBACK_COLORS = [
+    '#FF6347',  # Tomato
+    '#4682B4',  # SteelBlue
+    '#32CD32',  # LimeGreen
+    '#FFD700',  # Gold
+    '#6A5ACD',  # SlateBlue
+    '#40E0D0',  # Turquoise
+    '#DA70D6',  # Orchid
+    '#FFA500',  # Orange
+    '#20B2AA',  # LightSeaGreen
+    '#8A2BE2'   # BlueViolet
+]
+
+# --- Reporting Constants ---
+CRITICAL_DEFECT_TYPES = ["Short", "Cut/Short"]
+
+# --- Verification Logic ---
+# Values in the 'Verification' column that are considered "Safe" (Non-Defects).
+# Any value NOT in this list is treated as a "True Defect" that impacts yield.
+# Comparisons should be case-insensitive.
+SAFE_VERIFICATION_VALUES = [
+    'GE57',
+    'N',
+    'TA',
+    'FALSE',
+    'FALSE ALARM',
+    'F'
+]
+
 # --- Defect Styling (Loaded from JSON) ---
 import json
 from pathlib import Path
