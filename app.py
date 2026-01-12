@@ -134,6 +134,17 @@ def main() -> None:
         if st.session_state.layer_data:
             st.session_state.selected_layer = max(st.session_state.layer_data.keys())
             st.session_state.active_view = 'layer'
+
+            # Ensure valid side selection after loading new data
+            layer_info = st.session_state.layer_data.get(st.session_state.selected_layer, {})
+            if 'F' in layer_info:
+                st.session_state.selected_side = 'F'
+            elif 'B' in layer_info:
+                st.session_state.selected_side = 'B'
+            elif layer_info:
+                # Fallback to whatever side is available if neither F nor B (unlikely but safe)
+                st.session_state.selected_side = next(iter(layer_info.keys()))
+
         else:
             st.session_state.selected_layer = None
         st.session_state.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
@@ -163,9 +174,16 @@ def main() -> None:
                     if st.button(bu_name, key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
                         st.session_state.active_view = 'layer'
                         st.session_state.selected_layer = layer_num
-                        # Default to 'F' side when switching layers, if available
-                        if 'F' in st.session_state.layer_data.get(layer_num, {}):
+
+                        # Default to 'F' side when switching layers, if available; otherwise 'B'
+                        layer_info = st.session_state.layer_data.get(layer_num, {})
+                        if 'F' in layer_info:
                             st.session_state.selected_side = 'F'
+                        elif 'B' in layer_info:
+                            st.session_state.selected_side = 'B'
+                        elif layer_info:
+                             st.session_state.selected_side = next(iter(layer_info.keys()))
+
                         st.rerun()
             with cols[num_buttons - 1]:
                 is_active = st.session_state.active_view == 'still_alive'
@@ -173,12 +191,13 @@ def main() -> None:
                     st.session_state.active_view = 'still_alive'
                     st.rerun()
 
-            # --- Side Selection Buttons (only if a layer is selected and has multiple sides) ---
+            # --- Side Selection Buttons (only if a layer is selected) ---
             selected_layer_num = st.session_state.get('selected_layer')
             if selected_layer_num and st.session_state.active_view == 'layer':
                 layer_info = st.session_state.layer_data.get(selected_layer_num, {})
-                if len(layer_info) > 1: # More than one side available
-                    side_cols = st.columns(len(layer_info))
+                # Show side buttons even if only one side is available, so the user knows what they are looking at
+                if len(layer_info) >= 1:
+                    side_cols = st.columns(max(len(layer_info), 2)) # Use at least 2 columns for spacing if only 1 side
                     sorted_sides = sorted(layer_info.keys())
                     for i, side in enumerate(sorted_sides):
                         with side_cols[i]:
