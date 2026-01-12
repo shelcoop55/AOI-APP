@@ -383,24 +383,22 @@ def main() -> None:
             elif view_mode == ViewMode.INSIGHTS.value:
                 st.header(f"Insights & Flow Analysis - Layer {st.session_state.selected_layer} - Quadrant: {quadrant_selection}")
 
-                col1, col2 = st.columns(2)
+                # 1. Sunburst Chart
+                st.subheader("1. Defect Composition Hierarchy")
+                st.markdown("Breakdown: Defect Type → Verification Status")
+                sunburst_fig = create_defect_sunburst(display_df)
+                st.plotly_chart(sunburst_fig, use_container_width=True)
 
-                with col1:
-                    # 1. Sunburst Chart
-                    st.subheader("1. Defect Composition Hierarchy")
-                    st.markdown("Breakdown: Defect Type → Verification Status")
-                    sunburst_fig = create_defect_sunburst(display_df)
-                    st.plotly_chart(sunburst_fig, use_container_width=True)
+                st.divider()
 
-                with col2:
-                    # 2. Sankey Diagram (Only if verification data exists)
-                    st.subheader("2. Defect Verification Flow")
-                    st.markdown("Flow from **Defect Type** to **Verification Status**. Helps tune AOI sensitivity.")
-                    sankey_fig = create_defect_sankey(display_df)
-                    if sankey_fig:
-                        st.plotly_chart(sankey_fig, use_container_width=True)
-                    else:
-                        st.info("Sankey diagram requires Verification data. Please upload data with a 'Verification' column.")
+                # 2. Sankey Diagram (Only if verification data exists)
+                st.subheader("2. Defect Verification Flow")
+                st.markdown("Flow from **Defect Type** to **Verification Status**. Helps tune AOI sensitivity.")
+                sankey_fig = create_defect_sankey(display_df)
+                if sankey_fig:
+                    st.plotly_chart(sankey_fig, use_container_width=True)
+                else:
+                    st.info("Sankey diagram requires Verification data. Please upload data with a 'Verification' column.")
 
             elif view_mode == ViewMode.SUMMARY.value:
                 st.header(f"Statistical Summary for Layer {st.session_state.selected_layer}, Quadrant: {quadrant_selection}")
