@@ -61,6 +61,14 @@ def load_data(
                 for col in ['UNIT_INDEX_X', 'UNIT_INDEX_Y']: df[col] = df[col].astype(int)
                 df['DEFECT_TYPE'] = df['DEFECT_TYPE'].str.strip()
 
+                # --- BACK SIDE COORDINATE FLIP ---
+                # Back side data is physically mirrored horizontally relative to the front.
+                # Transform coordinates to align with the Front-side view (0,0 is top-left).
+                # New_X = (Total_Panel_Width - 1) - Original_X
+                if side == 'B':
+                    total_width_units = 2 * panel_cols
+                    df['UNIT_INDEX_X'] = (total_width_units - 1) - df['UNIT_INDEX_X']
+
                 if layer_num not in layer_data: layer_data[layer_num] = {}
                 if side not in layer_data[layer_num]: layer_data[layer_num][side] = []
 
