@@ -8,7 +8,8 @@ from src.plotting import (
     create_grouped_pareto_trace,
     create_still_alive_map,
     create_defect_sankey,
-    create_defect_sunburst
+    create_defect_sunburst,
+    create_hexbin_density_map
 )
 from src.config import ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, PANEL_COLOR, TEXT_COLOR, BACKGROUND_COLOR
 
@@ -115,8 +116,15 @@ def test_create_defect_sankey_overlap():
     # Verif unique: ['N', 'Short']
     # Combined: ['Cut', 'Short', 'N', 'Short']
 
-    expected_labels = ['Cut', 'Short', 'N', 'Short']
-    assert list(node_labels) == expected_labels
+    # Updated: Labels now include counts and percentages, e.g., "Cut (1 - 50.0%)"
+    # We verify that the base strings are present in the correct order
+
+    labels_list = list(node_labels)
+    assert len(labels_list) == 4
+    assert labels_list[0].startswith("Cut")
+    assert labels_list[1].startswith("Short")
+    assert labels_list[2].startswith("N")
+    assert labels_list[3].startswith("Short")
 
     # Check connections based on above indices:
     # Cut (Defect) is index 0
@@ -161,3 +169,22 @@ def test_create_defect_sunburst_styles(sample_plot_df):
     trace = fig.data[0]
     # Check if root label contains "Total<br>"
     assert any("Total<br>" in label for label in trace.labels)
+
+def test_create_hexbin_density_map_hybrid(sample_plot_df):
+    """
+    Tests that the new hybrid map (create_hexbin_density_map) generates
+    both Heatmap traces (for density) and Scatter traces (for defects).
+    """
+    fig = create_hexbin_density_map(sample_plot_df, panel_rows=2, panel_cols=2)
+
+    # We expect 4 Heatmap traces (one per quadrant)
+    heatmaps = [t for t in fig.data if isinstance(t, go.Heatmap)]
+    assert len(heatmaps) == 4, "Should have 4 Heatmap traces (one per quadrant)"
+
+    # We expect Scatter traces (one per defect type)
+    # The sample df has 'Nick', 'Short', 'Cut'
+    scatters = [t for t in fig.data if isinstance(t, go.Scatter)]
+    assert len(scatters) > 0, "Should have Scatter traces for defects"
+
+    # Check Layout Title
+    assert "Unit Density & Defect Distribution" in fig.layout.title.text

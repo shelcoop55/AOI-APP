@@ -362,32 +362,40 @@ def main() -> None:
                 st.plotly_chart(fig, use_container_width=True)
 
             elif view_mode == ViewMode.HEATMAP.value:
-                st.header(f"True Defect Heatmap Analysis - Layer {st.session_state.selected_layer}")
-                st.info("These heatmaps visualize the density of 'True Defects' across the ENTIRE panel, ignoring quadrant filters.")
+                st.header(f"Global Panel Density - Cumulative Stack Analysis")
+                st.info("These heatmaps visualize the accumulated density of 'True Defects' from **ALL Layers and ALL Sides**, ignoring current layer/quadrant filters. This highlights persistent trouble spots across the entire build-up process.")
 
-                # Always use the full side dataframe for heatmaps, ignoring quadrant selection
-                full_side_df = side_df
+                # Aggregate ALL data from ALL layers and ALL sides
+                all_data_frames = []
+                for layer_num, sides in st.session_state.layer_data.items():
+                    for side_key, df_part in sides.items():
+                        all_data_frames.append(df_part)
+
+                if all_data_frames:
+                    global_df = pd.concat(all_data_frames, ignore_index=True)
+                else:
+                    global_df = pd.DataFrame()
 
                 # 1. Grid Density Map
-                st.subheader("1. Unit Grid Density (Yield Loss)")
-                st.markdown("Visualizes defect counts per logical unit cell. Darker cells indicate higher yield loss.")
-                fig_grid = create_unit_grid_heatmap(full_side_df, panel_rows, panel_cols)
+                st.subheader("1. Global Unit Grid Density (Yield Loss)")
+                st.markdown("Visualizes accumulated defect counts per logical unit cell across the entire stack. Darker cells indicate repeat failures in the same physical location.")
+                fig_grid = create_unit_grid_heatmap(global_df, panel_rows, panel_cols)
                 st.plotly_chart(fig_grid, use_container_width=True)
 
                 st.divider()
 
                 # 2. Contour / Hotspot Map
-                st.subheader("2. Smoothed Defect Density (Hotspots)")
-                st.markdown("Identifies high-density clusters using physical coordinates. Good for seeing 'clouds' of defects.")
-                fig_hex = create_density_contour_map(full_side_df, panel_rows, panel_cols)
+                st.subheader("2. Global Smoothed Defect Density (Hotspots)")
+                st.markdown("Identifies high-density clusters using physical coordinates across all layers.")
+                fig_hex = create_density_contour_map(global_df, panel_rows, panel_cols)
                 st.plotly_chart(fig_hex, use_container_width=True)
 
                 st.divider()
 
                 # 3. High-Res Coordinate Density
-                st.subheader("3. Coordinate Density Raster")
-                st.markdown("A pixelated view of defect accumulation based on precise X/Y coordinates.")
-                fig_raster = create_hexbin_density_map(full_side_df, panel_rows, panel_cols)
+                st.subheader("3. Global Coordinate Density Raster")
+                st.markdown("A pixelated view of defect accumulation based on precise X/Y coordinates from all layers.")
+                fig_raster = create_hexbin_density_map(global_df, panel_rows, panel_cols)
                 st.plotly_chart(fig_raster, use_container_width=True)
 
             elif view_mode == ViewMode.INSIGHTS.value:

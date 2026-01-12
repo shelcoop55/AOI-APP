@@ -142,7 +142,7 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
                 x=dff['plot_x'],
                 y=dff['plot_y'],
                 mode='markers',
-                marker=dict(color=color, size=8, line=dict(width=1, color='black')),
+                marker=dict(color=color, size=8, line=dict(width=1, color='white')),
                 name=group_val,
                 customdata=dff[custom_data_cols],
                 hovertemplate=hovertemplate
@@ -467,6 +467,7 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
     """
     1. Grid Density Heatmap (Chessboard).
     Filters for TRUE DEFECTS only.
+    CORRECTED LOGIC: Uses Global Indices directly without redundant shifting.
     """
     if df.empty:
         return go.Figure()
@@ -484,25 +485,14 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
             paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=PLOT_AREA_COLOR
         ))
 
-    # Map to Global Indices
-    global_indices = []
-    for _, row in df_true.iterrows():
-        q = row['QUADRANT']
-        u_x = int(row['UNIT_INDEX_X'])
-        u_y = int(row['UNIT_INDEX_Y'])
-
-        g_x = u_x + (panel_cols if q in ['Q2', 'Q4'] else 0)
-        g_y = u_y + (panel_rows if q in ['Q3', 'Q4'] else 0)
-        global_indices.append((g_x, g_y))
-
-    heatmap_df = pd.DataFrame(global_indices, columns=['Global_X', 'Global_Y'])
-    heatmap_data = heatmap_df.groupby(['Global_X', 'Global_Y']).size().reset_index(name='Count')
+    # Use Global Indices directly (UNIT_INDEX_X is already 0-13)
+    heatmap_data = df_true.groupby(['UNIT_INDEX_X', 'UNIT_INDEX_Y']).size().reset_index(name='Count')
 
     # Create Heatmap
     # Use 'Reds' or 'Magma' for high impact
     fig = go.Figure(data=go.Heatmap(
-        x=heatmap_data['Global_X'],
-        y=heatmap_data['Global_Y'],
+        x=heatmap_data['UNIT_INDEX_X'],
+        y=heatmap_data['UNIT_INDEX_Y'],
         z=heatmap_data['Count'],
         colorscale='Magma', # Darker theme
         xgap=2, ygap=2,     # Clear separation
@@ -515,7 +505,7 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
     total_global_rows = panel_rows * 2
 
     fig.update_layout(
-        title=dict(text="1. Unit Grid Density (Yield Loss Map)", font=dict(color=TEXT_COLOR, size=18)),
+        title=dict(text="1. Global Unit Grid Density (Yield Loss)", font=dict(color=TEXT_COLOR, size=18)),
         xaxis=dict(
             title="Global Unit Column",
             tickmode='linear', dtick=1,
@@ -583,49 +573,112 @@ def create_density_contour_map(df: pd.DataFrame, panel_rows: int, panel_cols: in
 
 def create_hexbin_density_map(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> go.Figure:
     """
-    3. True Hexagonal Binning Density Map.
-    Simulates hexbin using a high-res Histogram2d or Scatter if needed,
-    but since Plotly JS has specific hexbin limitations, we'll use a styled Histogram2d
-    that looks techy, or rely on aggregation.
-
-    Actually, to get a TRUE Hexbin look without Scipy, we can use a scatter plot
-    where we round coordinates to a hex grid manually.
-
-    Simplified approach for robustness: Use a pixelated 'Density Heatmap' (Histogram2d)
-    with a distinct look from the Contour map.
+    3. Unit Density & Defect Distribution (Hybrid View).
+    Combines a Discrete Unit-Based Heatmap (Yield Map) with overlaid Defect Scatter points.
+    - Background: Heatmap showing defect count per Unit Cell.
+    - Foreground: Scatter plot of individual defects.
     """
     if df.empty:
         return go.Figure()
 
+    # Filter for True Defects for the Heatmap density
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
     if 'Verification' in df.columns:
         df_true = df[~df['Verification'].str.upper().isin(safe_values_upper)].copy()
     else:
         df_true = df.copy()
 
-    if df_true.empty:
-        return go.Figure()
+    # Calculate Physical Unit Dimensions
+    cell_width = QUADRANT_WIDTH / panel_cols
+    cell_height = QUADRANT_HEIGHT / panel_rows
 
-    # We will use Histogram2d (Rectangular bins) but styled to look like a "Tech Raster"
-    # This differentiates it from the Grid (Unit based) and Contour (Smooth).
-    # This is a "Physical Coordinate Raster".
+    # Quadrant Offsets for Physical Coordinates
+    q_offsets = {
+        'Q1': (0, 0),
+        'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0),
+        'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE),
+        'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)
+    }
 
-    fig = go.Figure(go.Histogram2d(
-        x=df_true['plot_x'],
-        y=df_true['plot_y'],
-        colorscale='Viridis',
-        zsmooth=False, # Pixelated look
-        nbinsx=50,     # High resolution
-        nbinsy=50,
-        colorbar=dict(title='Density', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
-    ))
+    # Prepare Heatmap Data (One for each quadrant to handle gaps)
+    fig = go.Figure()
 
+    # Pre-calculate global max for consistent colorscale
+    # Group by Quadrant, X, Y
+    counts = df_true.groupby(['QUADRANT', 'UNIT_INDEX_X', 'UNIT_INDEX_Y']).size()
+    max_count = counts.max() if not counts.empty else 1
+
+    quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+
+    # We want to iterate through all quadrants to draw the full grid, even if empty
+    for i, q in enumerate(quadrants):
+        x_offset, y_offset = q_offsets[q]
+
+        # 1. Generate Physical Center Coordinates for this Quadrant
+        # Note: UNIT_INDEX_X is 0-indexed column, Y is 0-indexed row
+        x_centers = [x_offset + (c * cell_width) + (cell_width / 2) for c in range(panel_cols)]
+        y_centers = [y_offset + (r * cell_height) + (cell_height / 2) for r in range(panel_rows)]
+
+        # 2. Build Z-Matrix (Rows x Cols)
+        # Initialize with 0
+        z_matrix = np.zeros((panel_rows, panel_cols))
+
+        # Fill with counts if data exists for this quadrant
+        if not counts.empty:
+            q_counts = counts.get(q)
+            if q_counts is not None:
+                # q_counts is indexed by (UNIT_INDEX_X, UNIT_INDEX_Y)
+                # CORRECTION: UNIT_INDEX is Global (e.g. 13). We must use modulo to map to Local Matrix (0-6).
+                for (u_x, u_y), count in q_counts.items():
+                    local_x = int(u_x % panel_cols)
+                    local_y = int(u_y % panel_rows)
+
+                    if 0 <= local_y < panel_rows and 0 <= local_x < panel_cols:
+                        z_matrix[local_y, local_x] = count
+
+        # 3. Create Heatmap Trace
+        # showscale only for the first one to avoid 4 colorbars
+        fig.add_trace(go.Heatmap(
+            x=x_centers,
+            y=y_centers,
+            z=z_matrix,
+            zmin=0,
+            zmax=max_count,
+            colorscale='Turbo', # Vibrant engineering palette
+            xgap=1, ygap=1,     # Slight gap to emphasize discrete units
+            showscale=(i == 0),
+            colorbar=dict(title='Defect Count', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+            hovertemplate=(
+                '<b>Unit Cell</b><br>' +
+                'Physical Coord: (%{x:.1f}, %{y:.1f})<br>' +
+                'Defect Count: %{z}<br>' +
+                f'Quadrant: {q}' +
+                '<extra></extra>'
+            )
+        ))
+
+    # 4. Add Scatter Traces (Foreground)
+    # This uses the original dataframe (all defects, not just true, or filtered?)
+    # Usually we want to see what we are analyzing.
+    # If the user filtered by "Verification Status", df is already filtered in app.py.
+    # So we pass 'df' to create_defect_traces.
+
+    scatter_traces = create_defect_traces(df)
+    for trace in scatter_traces:
+        fig.add_trace(trace)
+
+    # 5. Final Layout
+    x_start, x_end = -GAP_SIZE, PANEL_WIDTH + GAP_SIZE * 2
+    y_start, y_end = -GAP_SIZE, PANEL_HEIGHT + GAP_SIZE * 2
+
+    # We don't strictly need create_grid_shapes because the Heatmap with xgap/ygap creates the grid visual.
+    # But adding the quadrant borders is nice.
     shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False)
 
     fig.update_layout(
-        title=dict(text="3. High-Res Coordinate Density (Raster)", font=dict(color=TEXT_COLOR, size=18)),
-        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], tickfont=dict(color=TEXT_COLOR)),
-        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
+        title=dict(text="3. Unit Density & Defect Distribution", font=dict(color=TEXT_COLOR, size=18)),
+        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[x_start, x_end], tickfont=dict(color=TEXT_COLOR)),
+        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[y_start, y_end], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
         shapes=shapes,
         plot_bgcolor=PLOT_AREA_COLOR,
         paper_bgcolor=BACKGROUND_COLOR,

@@ -123,7 +123,11 @@ def load_data(
                 # New_X = (Total_Panel_Width - 1) - Original_X
                 if side == 'B':
                     total_width_units = 2 * panel_cols
-                    df['UNIT_INDEX_X'] = (total_width_units - 1) - df['UNIT_INDEX_X']
+                    # Calculate flipped coordinate
+                    flipped_x = (total_width_units - 1) - df['UNIT_INDEX_X']
+                    # SAFEGUARD: Clamp negative values to 0 to prevent crashes or weird artifacts
+                    # This handles cases where input data might slightly exceed the expected panel width
+                    df['UNIT_INDEX_X'] = flipped_x.clip(lower=0)
 
                 if layer_num not in layer_data: layer_data[layer_num] = {}
                 if side not in layer_data[layer_num]: layer_data[layer_num][side] = []
