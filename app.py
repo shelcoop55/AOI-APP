@@ -22,7 +22,8 @@ from src.plotting import (
     create_pareto_trace, create_grouped_pareto_trace,
     create_verification_status_chart, create_still_alive_map,
     create_defect_sankey, create_defect_sunburst,
-    create_still_alive_figure, create_defect_map_figure, create_pareto_figure
+    create_still_alive_figure, create_defect_map_figure, create_pareto_figure,
+    create_unit_grid_heatmap, create_hexbin_heatmap
 )
 from src.reporting import generate_excel_report, generate_coordinate_list_report, generate_zip_package
 from src.enums import ViewMode, Quadrant
@@ -359,6 +360,25 @@ def main() -> None:
                 st.subheader(f"Defect Pareto - Layer {st.session_state.selected_layer} - Quadrant: {quadrant_selection}")
                 fig = create_pareto_figure(display_df, quadrant_selection)
                 st.plotly_chart(fig, use_container_width=True)
+
+            elif view_mode == ViewMode.HEATMAP.value:
+                st.header(f"True Defect Heatmap Analysis - Layer {st.session_state.selected_layer}")
+                st.info("These heatmaps visualize the density of 'True Defects' across the ENTIRE panel, ignoring quadrant filters.")
+
+                # Always use the full side dataframe for heatmaps, ignoring quadrant selection
+                full_side_df = side_df
+
+                # 1. Grid Density Map
+                st.subheader("1. Unit Grid Density")
+                fig_grid = create_unit_grid_heatmap(full_side_df, panel_rows, panel_cols)
+                st.plotly_chart(fig_grid, use_container_width=True)
+
+                st.divider()
+
+                # 2. Hexbin / Hotspot Map
+                st.subheader("2. Defect Hotspots (Physical Coordinates)")
+                fig_hex = create_hexbin_heatmap(full_side_df, panel_rows, panel_cols)
+                st.plotly_chart(fig_hex, use_container_width=True)
 
             elif view_mode == ViewMode.INSIGHTS.value:
                 st.header(f"Insights & Flow Analysis - Layer {st.session_state.selected_layer} - Quadrant: {quadrant_selection}")

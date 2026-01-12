@@ -403,19 +403,20 @@ def create_defect_sankey(df: pd.DataFrame) -> go.Sankey:
 
     fig = go.Figure(data=[go.Sankey(
         node=dict(
-            pad=20,          # Increased padding for elegance
-            thickness=10,    # Thinner nodes for elegance
-            line=dict(color="black", width=0.5),
+            pad=20,
+            thickness=20,    # Thicker nodes for better visibility (Task 2)
+            line=dict(color="#444444", width=0.5), # Subtle dark grey border (Task 2)
             label=all_labels,
             color=node_colors,
+            hovertemplate='Total Defects: %{value}<extra></extra>' # Cleaner tooltip
         ),
         link=dict(
             source=sources,
             target=targets,
             value=values,
-            color=link_colors # Apply dynamic link colors
+            color=[hex_to_rgba(c, opacity=0.6) for c in link_colors] # Increased opacity (Task 3)
         ),
-        textfont=dict(size=14, color=TEXT_COLOR, family="Arial Black") # Global font setting for the trace
+        textfont=dict(size=14, color=TEXT_COLOR, family="Roboto") # Modern Font (Task 1)
     )])
 
     # Set background color explicitly to match the app theme
@@ -432,47 +433,137 @@ def create_defect_sankey(df: pd.DataFrame) -> go.Sankey:
     )
     return fig
 
-def create_defect_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int, quadrant_selection: str) -> go.Figure:
+def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> go.Figure:
     """
-    Creates a density heatmap (Histogram2dContour) of defect locations.
+    Creates a 'Chessboard' style Grid Density Heatmap using UNIT INDICES.
+    Filters for TRUE DEFECTS only.
     """
     if df.empty:
         return go.Figure()
 
-    # Create the density plot
-    fig = go.Figure(go.Histogram2dContour(
-        x=df['plot_x'],
-        y=df['plot_y'],
-        colorscale='Hot',
-        reversescale=True,
-        xaxis='x',
-        yaxis='y',
-        ncontours=20
+    # Filter for True Defects (exclude Safe Values)
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+    if 'Verification' in df.columns:
+        df_true = df[~df['Verification'].str.upper().isin(safe_values_upper)].copy()
+    else:
+        df_true = df.copy()
+
+    if df_true.empty:
+        return go.Figure(layout=dict(
+            title=dict(text="No True Defects Found for Heatmap", font=dict(color=TEXT_COLOR)),
+            paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=PLOT_AREA_COLOR
+        ))
+
+    # Aggregate counts per unit index
+    # Note: We need to handle Quadrant offsets for indices to make a global map
+    # UNIT_INDEX_X and UNIT_INDEX_Y are usually local to the quadrant in the raw data?
+    # Let's check how 'plot_x' is derived. 'plot_x' is physical.
+    # For a purely logical map, we should map everything to a global row/col index.
+
+    # Logic:
+    # Global Col = (Quadrant Col Offset) + UNIT_INDEX_X
+    # Global Row = (Quadrant Row Offset) + UNIT_INDEX_Y
+    # Q1: (0,0), Q2: (cols, 0), Q3: (0, rows), Q4: (cols, rows)
+
+    global_indices = []
+    for _, row in df_true.iterrows():
+        q = row['QUADRANT']
+        u_x = int(row['UNIT_INDEX_X'])
+        u_y = int(row['UNIT_INDEX_Y'])
+
+        g_x = u_x + (panel_cols if q in ['Q2', 'Q4'] else 0)
+        g_y = u_y + (panel_rows if q in ['Q3', 'Q4'] else 0)
+        global_indices.append((g_x, g_y))
+
+    heatmap_df = pd.DataFrame(global_indices, columns=['Global_X', 'Global_Y'])
+    heatmap_data = heatmap_df.groupby(['Global_X', 'Global_Y']).size().reset_index(name='Count')
+
+    # Create the Heatmap
+    # Using 'Reds' colorscale for serious yield impact
+    fig = go.Figure(data=go.Heatmap(
+        x=heatmap_data['Global_X'],
+        y=heatmap_data['Global_Y'],
+        z=heatmap_data['Count'],
+        colorscale='Reds',
+        xgap=1, ygap=1, # Create the grid look
+        colorbar=dict(title='Defects', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
     ))
 
-    # Overlay the grid for context
-    shapes = create_grid_shapes(panel_rows, panel_cols, quadrant_selection, fill=False)
-
-    # Define axes ranges similar to the main defect map
-    x_axis_range = [-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)]
-    y_axis_range = [-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)]
-
-    if quadrant_selection != 'All':
-         ranges = {
-            'Q1': ([0, QUADRANT_WIDTH], [0, QUADRANT_HEIGHT]),
-            'Q2': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [0, QUADRANT_HEIGHT]),
-            'Q3': ([0, QUADRANT_WIDTH], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]),
-            'Q4': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE])
-        }
-         x_axis_range, y_axis_range = ranges[quadrant_selection]
+    # Layout improvements
+    total_global_cols = panel_cols * 2
+    total_global_rows = panel_rows * 2
 
     fig.update_layout(
-        xaxis=dict(range=x_axis_range, showgrid=False, zeroline=False, showline=True, mirror=True),
-        yaxis=dict(range=y_axis_range, showgrid=False, zeroline=False, showline=True, mirror=True, scaleanchor="x", scaleratio=1),
+        title=dict(text="True Defect Grid Density (Yield Loss Map)", font=dict(color=TEXT_COLOR, size=18)),
+        xaxis=dict(
+            title="Global Unit Column",
+            tickmode='linear', dtick=1,
+            showgrid=False, zeroline=False,
+            range=[-0.5, total_global_cols - 0.5],
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        yaxis=dict(
+            title="Global Unit Row",
+            tickmode='linear', dtick=1,
+            showgrid=False, zeroline=False,
+            range=[-0.5, total_global_rows - 0.5],
+            scaleanchor="x", scaleratio=1, # Keep squares square
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        plot_bgcolor=PLOT_AREA_COLOR,
+        paper_bgcolor=BACKGROUND_COLOR,
+        height=700
+    )
+
+    return fig
+
+def create_hexbin_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> go.Figure:
+    """
+    Creates a Hexbin/Point Density Heatmap using Physical Coordinates.
+    Filters for TRUE DEFECTS only.
+    """
+    if df.empty:
+        return go.Figure()
+
+    # Filter for True Defects
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+    if 'Verification' in df.columns:
+        df_true = df[~df['Verification'].str.upper().isin(safe_values_upper)].copy()
+    else:
+        df_true = df.copy()
+
+    if df_true.empty:
+        return go.Figure(layout=dict(title="No True Defects Found"))
+
+    # Use Histogram2d (Rectangular bins look cleaner than Hexbin in Plotly sometimes,
+    # but let's try to mimic the Hex look or smooth density)
+
+    # Option 3 was "Hexbin / Point Density". Plotly's Histogram2dContour is the "Weather Map".
+    # Plotly's Histogram2d is the pixelated one.
+    # To get a "Point Density" look, we can use a high-resolution contour or a density heatmap.
+
+    fig = go.Figure(go.Histogram2dContour(
+        x=df_true['plot_x'],
+        y=df_true['plot_y'],
+        colorscale='Viridis', # Distinct from the Red grid map
+        reversescale=False,
+        xaxis='x',
+        yaxis='y',
+        ncontours=25,
+        contours=dict(coloring='heatmap', showlabels=True)
+    ))
+
+    # Overlay Grid for reference
+    shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False)
+
+    fig.update_layout(
+        title=dict(text="True Defect Density Clusters (Hotspots)", font=dict(color=TEXT_COLOR, size=18)),
+        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], tickfont=dict(color=TEXT_COLOR)),
+        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
         shapes=shapes,
-        plot_bgcolor=PANEL_COLOR,
-        height=700,
-        title_text="Defect Density Heatmap"
+        plot_bgcolor=PLOT_AREA_COLOR,
+        paper_bgcolor=BACKGROUND_COLOR,
+        height=700
     )
     return fig
 
