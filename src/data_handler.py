@@ -51,6 +51,13 @@ DEFECT_DEFINITIONS = [
     ("HO12", "Hole Shift")
 ]
 
+# Simple Defect Types to be used as descriptions/types
+SIMPLE_DEFECT_TYPES = [
+    'Nick', 'Short', 'Cut', 'Island', 'Space',
+    'Minimum Line', 'Line Nick', 'Deformation',
+    'Protrusion', 'Added Feature'
+]
+
 FALSE_ALARMS = ["N", "FALSE"]
 
 
@@ -146,19 +153,18 @@ def load_data(
         total_units_y = 2 * panel_rows
         layer_data = {}
 
-        # Configuration for sample layers: ~280 points per layer (200 Front, 80 Back)
-        sample_layers = {
-            1: {'F': 200, 'B': 80},
-            2: {'F': 200, 'B': 80},
-            3: {'F': 200, 'B': 80}
-        }
+        # 3 Layers
+        layers_to_generate = [1, 2, 3]
 
-        # Probabilities: 80% True Defect, 20% False Alarm
-        FALSE_ALARM_RATE = 0.2
-
-        for layer_num, sides in sample_layers.items():
+        for layer_num in layers_to_generate:
             layer_data[layer_num] = {}
-            for side, num_points in sides.items():
+
+            # Random False Alarm Rate for this layer (50% - 60%)
+            false_alarm_rate = np.random.uniform(0.5, 0.6)
+
+            for side in ['F', 'B']:
+                # Random number of points (100 - 150) for both sides
+                num_points = np.random.randint(100, 151)
 
                 # Generate random indices
                 unit_x = np.random.randint(0, total_units_x, size=num_points)
@@ -169,17 +175,18 @@ def load_data(
                 verifications = []
 
                 for _ in range(num_points):
-                    # Pick a base defect scenario
-                    code, desc = DEFECT_DEFINITIONS[np.random.randint(len(DEFECT_DEFINITIONS))]
+                    # Always use Simple Defect Types for the "Machine" view (DEFECT_TYPE)
+                    desc = np.random.choice(SIMPLE_DEFECT_TYPES)
+                    defect_types.append(desc)
 
-                    # Decide if it's a false alarm
-                    if np.random.rand() < FALSE_ALARM_RATE:
-                        # False Alarm: Machine saw 'desc', but verification is 'N' or 'FALSE'
-                        defect_types.append(desc)
+                    # Decide Verification Status
+                    if np.random.rand() < false_alarm_rate:
+                        # False Alarm: Machine saw 'desc', verification is 'N' or 'FALSE'
                         verifications.append(np.random.choice(FALSE_ALARMS))
                     else:
-                        # True Defect: Machine saw 'desc', verification confirms 'code'
-                        defect_types.append(desc)
+                        # True Defect: Verification confirms a specific Code (e.g., CU10)
+                        # We pick a random code from the definitions
+                        code, _ = DEFECT_DEFINITIONS[np.random.randint(len(DEFECT_DEFINITIONS))]
                         verifications.append(code)
 
                 defect_data = {
