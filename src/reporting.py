@@ -10,7 +10,16 @@ import pandas as pd
 import io
 import plotly.graph_objects as go
 from datetime import datetime
+from typing import Dict, Any, Optional
+import zipfile
+import json
 from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR
+from src.plotting import (
+    create_defect_traces, create_defect_sankey, create_defect_sunburst,
+    create_grid_shapes, create_still_alive_figure, create_defect_map_figure,
+    create_pareto_figure
+)
+from src.enums import Quadrant
 
 # ==============================================================================
 # --- Private Helper Functions for Report Generation ---
@@ -256,10 +265,6 @@ def generate_excel_report(
     excel_bytes = output_buffer.getvalue()
     return excel_bytes
 
-import zipfile
-import json
-from src.plotting import create_defect_traces, create_defect_sankey, create_defect_sunburst, create_grid_shapes
-
 def generate_zip_package(
     full_df: pd.DataFrame,
     panel_rows: int,
@@ -271,11 +276,15 @@ def generate_zip_package(
     include_excel: bool = True,
     include_coords: bool = True,
     include_map: bool = True,
-    include_insights: bool = True
+    include_insights: bool = True,
+    include_png_all_layers: bool = False,
+    include_pareto_png: bool = False,
+    layer_data: Optional[Dict] = None
 ) -> bytes:
     """
     Generates a ZIP file containing selected report components.
     Includes Excel reports, coordinate lists, and interactive HTML charts.
+    Also optionally includes PNG images for all layers/sides.
     """
     zip_buffer = io.BytesIO()
 
@@ -293,30 +302,75 @@ def generate_zip_package(
             coord_bytes = generate_coordinate_list_report(true_defect_coords)
             zip_file.writestr("Defective_Cell_Coordinates.xlsx", coord_bytes)
 
-        # 3. Defect Map (Interactive HTML)
+        # 3. Defect Map (Interactive HTML) - CURRENT VIEW
         if include_map:
-            # Recreate figure logic briefly
-            # Note: We duplicate some logic from app.py here to ensure standalone generation
-            # Ideally, refactor create_defect_map_figure in plotting.py, but for now we construct it.
-            fig = go.Figure(data=create_defect_traces(full_df))
-            fig.update_layout(
-                shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection),
-                title=f"Panel Defect Map - {quadrant_selection}",
-                height=800,
-                plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR
+            fig = create_defect_map_figure(
+                full_df, panel_rows, panel_cols, quadrant_selection,
+                title=f"Panel Defect Map - {quadrant_selection}"
             )
             html_content = fig.to_html(full_html=True, include_plotlyjs='cdn')
             zip_file.writestr("Defect_Map.html", html_content)
 
-        # 4. Insights Charts (Interactive HTML)
+        # 4. Insights Charts (Interactive HTML) - CURRENT VIEW
         if include_insights:
-            # Sunburst
             sunburst_fig = create_defect_sunburst(full_df)
             zip_file.writestr("Insights_Sunburst.html", sunburst_fig.to_html(full_html=True, include_plotlyjs='cdn'))
 
-            # Sankey (if applicable)
             sankey_fig = create_defect_sankey(full_df)
             if sankey_fig:
                 zip_file.writestr("Insights_Sankey.html", sankey_fig.to_html(full_html=True, include_plotlyjs='cdn'))
+
+        # 5. PNG Images (All Layers/Sides) - OPTIONAL
+        if (include_png_all_layers or include_pareto_png) and layer_data:
+            # Iterate through all layers in layer_data
+            for layer_num, layer_sides in layer_data.items():
+                for side, df in layer_sides.items():
+                    side_name = "Front" if side == 'F' else "Back"
+
+                    # Apply filters roughly consistent with the request, but usually "All Layers" export implies full data or current filter?
+                    # The user said "Defect Map for all Layers Front and Back".
+                    # Usually this means raw data, but let's respect the user's current Verification filter if sensible.
+                    # However, verification filters might hide data the user wants in a "full export".
+                    # Let's adhere to the current verification filter if it's set, but maybe Quadrant should be ALL for map images.
+
+                    filtered_df = df
+                    if verification_selection != 'All':
+                        filtered_df = filtered_df[filtered_df['Verification'] == verification_selection]
+
+                    if filtered_df.empty:
+                        continue
+
+                    # Generate Defect Map PNG
+                    if include_png_all_layers:
+                        # For maps, usually we want the full view (All Quadrants)
+                        fig_map = create_defect_map_figure(
+                            filtered_df, panel_rows, panel_cols, Quadrant.ALL.value,
+                            title=f"Layer {layer_num} - {side_name} - Defect Map"
+                        )
+                        try:
+                            img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2)
+                            zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_DefectMap.png", img_bytes)
+                        except Exception as e:
+                            print(f"Failed to generate map PNG for Layer {layer_num} {side}: {e}")
+
+                    # Generate Pareto PNG
+                    if include_pareto_png:
+                        fig_pareto = create_pareto_figure(filtered_df, Quadrant.ALL.value)
+                        fig_pareto.update_layout(title=f"Layer {layer_num} - {side_name} - Pareto")
+                        try:
+                            img_bytes = fig_pareto.to_image(format="png", engine="kaleido", scale=2)
+                            zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_Pareto.png", img_bytes)
+                        except Exception as e:
+                            print(f"Failed to generate pareto PNG for Layer {layer_num} {side}: {e}")
+
+        # 6. Still Alive Map PNG
+        # If user requests maps, it makes sense to include the Still Alive map if data exists
+        if include_png_all_layers and true_defect_coords:
+             fig_alive = create_still_alive_figure(panel_rows, panel_cols, true_defect_coords)
+             try:
+                img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2)
+                zip_file.writestr("Images/Still_Alive_Map.png", img_bytes)
+             except Exception as e:
+                print(f"Failed to generate Still Alive Map PNG: {e}")
 
     return zip_buffer.getvalue()
