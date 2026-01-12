@@ -5,7 +5,7 @@ UPDATED: Now includes an outer border frame and has been refactored for clarity.
 """
 import plotly.graph_objects as go
 import pandas as pd
-from typing import List, Dict, Any, Set, Tuple
+from typing import List, Dict, Any, Set, Tuple, Optional
 
 from src.config import (
     PANEL_COLOR, GRID_COLOR, defect_style_map, TEXT_COLOR, BACKGROUND_COLOR, PLOT_AREA_COLOR,
@@ -15,6 +15,7 @@ from src.config import (
 )
 from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT
 from src.documentation import VERIFICATION_DESCRIPTIONS
+from src.enums import Quadrant
 
 # ==============================================================================
 # --- Private Helper Functions for Grid Creation ---
@@ -85,10 +86,6 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', 
 def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     """
     Generates scatter plot traces.
-
-    SWITCHING LOGIC:
-    - If real verification data exists (HAS_VERIFICATION_DATA=True), group by 'Verification'.
-    - If NO verification data, group by 'DEFECT_TYPE'.
     """
     traces = []
     if df.empty: return traces
@@ -102,7 +99,6 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     unique_groups = df[group_col].unique()
 
     # --- COLOR MAPPING ---
-    # We need a dynamic color map for whatever column we are grouping by.
     local_style_map = {}
 
     if group_col == 'DEFECT_TYPE':
@@ -116,12 +112,8 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
                 fallback_index += 1
     else:
         # For Verification codes (CU22, N, etc.), generate a map on the fly
-        # We can reuse the FALLBACK_COLORS or define specific ones if needed.
-        # Simple approach: Assign distinct colors from the fallback list.
         fallback_index = 0
         for code in unique_groups:
-            # If we want specific colors for 'N' (Green) or 'False Alarm', we could add logic here.
-            # For now, purely dynamic to handle ANY code.
             color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
             local_style_map[code] = color
             fallback_index += 1
@@ -130,21 +122,14 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     for group_val, color in local_style_map.items():
         dff = df[df[group_col] == group_val]
         if not dff.empty:
-            # Map descriptions if available
-            # If group_col is Verification, use that code. Else use Verification col if it exists.
-
-            # We want to create a Description column for customdata
-            # Assuming 'Verification' column holds the code (e.g., 'CU22')
             if 'Verification' in dff.columns:
-                 dff = dff.copy() # Avoid SettingWithCopyWarning
+                 dff = dff.copy()
                  dff['Description'] = dff['Verification'].map(VERIFICATION_DESCRIPTIONS).fillna("Unknown Code")
             else:
                  dff['Description'] = "N/A"
 
             custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description']
 
-            # Hover Template: Verification Status -> Description -> Defect Type -> Unit Index -> Defect ID
-            # Requested format: "Description : Short on Surface (AOI)"
             hovertemplate = ("<b>Status: %{customdata[4]}</b><br>"
                              "Description : %{customdata[5]}<br>"
                              "Type: %{customdata[2]}<br>"
@@ -157,13 +142,54 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
                 y=dff['plot_y'],
                 mode='markers',
                 marker=dict(color=color, size=8, line=dict(width=1, color='black')),
-                name=group_val, # Legend shows 'CU22' or 'Nick' depending on mode
+                name=group_val,
                 customdata=dff[custom_data_cols],
                 hovertemplate=hovertemplate
             ))
 
     return traces
     
+def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int, quadrant_selection: str = Quadrant.ALL.value, lot_number: Optional[str] = None, title: Optional[str] = None) -> go.Figure:
+    """
+    Creates the full Defect Map Figure (Traces + Grid + Layout).
+    """
+    fig = go.Figure(data=create_defect_traces(df))
+    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection))
+
+    # Calculate ticks and ranges
+    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
+    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
+    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
+    x_axis_range, y_axis_range, show_ticks = [-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], [-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)], True
+
+    if quadrant_selection != Quadrant.ALL.value:
+        show_ticks = False
+        ranges = {
+            'Q1': ([0, QUADRANT_WIDTH], [0, QUADRANT_HEIGHT]),
+            'Q2': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [0, QUADRANT_HEIGHT]),
+            'Q3': ([0, QUADRANT_WIDTH], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]),
+            'Q4': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE])
+        }
+        x_axis_range, y_axis_range = ranges[quadrant_selection]
+
+    final_title = title if title else f"Panel Defect Map - Quadrant: {quadrant_selection}"
+
+    fig.update_layout(
+        title=dict(text=final_title, font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
+        xaxis=dict(title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=x_tick_vals_q1 + x_tick_vals_q2 if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
+        yaxis=dict(title="Unit Row Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=y_tick_vals_q1 + y_tick_vals_q3 if show_ticks else [], ticktext=y_tick_text if show_ticks else [], range=y_axis_range, scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
+        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
+        hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"), height=800
+    )
+
+    if lot_number and quadrant_selection == Quadrant.ALL.value:
+        fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
+
+    return fig
+
 def create_pareto_trace(df: pd.DataFrame) -> go.Bar:
     if df.empty: return go.Bar(name='Pareto')
 
@@ -173,8 +199,6 @@ def create_pareto_trace(df: pd.DataFrame) -> go.Bar:
     pareto_data = df[group_col].value_counts().reset_index()
     pareto_data.columns = ['Label', 'Count']
 
-    # Simple color logic (grey) since we don't have a persistent map for dynamic verification codes in this scope easily,
-    # or we can reuse the logic. For simplicity, we use a default color.
     return go.Bar(x=pareto_data['Label'], y=pareto_data['Count'], name='Pareto', marker_color='#4682B4')
 
 def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
@@ -194,6 +218,26 @@ def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
         if not pivot.empty:
             traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant]))
     return traces
+
+def create_pareto_figure(df: pd.DataFrame, quadrant_selection: str = Quadrant.ALL.value) -> go.Figure:
+    """
+    Creates the Pareto Figure (Traces + Layout).
+    """
+    fig = go.Figure()
+    if quadrant_selection == Quadrant.ALL.value:
+        for trace in create_grouped_pareto_trace(df): fig.add_trace(trace)
+        fig.update_layout(barmode='stack')
+    else:
+        fig.add_trace(create_pareto_trace(df))
+
+    fig.update_layout(
+        title=dict(text=f"Defect Pareto - Quadrant: {quadrant_selection}", font=dict(color=TEXT_COLOR)),
+        xaxis=dict(title="Defect Type", categoryorder='total descending', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+        yaxis=dict(title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, height=600,
+        legend=dict(font=dict(color=TEXT_COLOR))
+    )
+    return fig
 
 def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:
     # ... (omitted for brevity, same as before)
@@ -237,6 +281,39 @@ def create_still_alive_map(panel_rows: int, panel_cols: int, true_defect_coords:
     shapes.extend(create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False))
 
     return shapes
+
+def create_still_alive_figure(panel_rows: int, panel_cols: int, true_defect_coords: Set[Tuple[int, int]]) -> go.Figure:
+    """
+    Creates the Still Alive Map Figure (Shapes + Layout).
+    """
+    fig = go.Figure()
+    map_shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
+
+    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
+    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
+    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    x_tick_text = list(range(panel_cols * 2))
+    y_tick_text = list(range(panel_rows * 2))
+
+    fig.update_layout(
+        title=dict(text=f"Still Alive Map ({len(true_defect_coords)} Defective Cells)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
+        xaxis=dict(
+            title="Unit Column Index", range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)],
+            tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text,
+            showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor=GRID_COLOR, mirror=True,
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        yaxis=dict(
+            title="Unit Row Index", range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)],
+            tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text,
+            scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor=GRID_COLOR, mirror=True,
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=map_shapes, height=800, margin=dict(l=20, r=20, t=80, b=20)
+    )
+    return fig
 
 def hex_to_rgba(hex_color: str, opacity: float = 0.5) -> str:
     """Helper to convert hex color to rgba string for Plotly without matplotlib dependency."""
