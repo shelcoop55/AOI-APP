@@ -50,14 +50,20 @@ def load_data(
                 df['SIDE'] = side
 
                 # --- VERIFICATION LOGIC UPDATE ---
+                # Check if we have real verification data
+                has_verification_data = 'Verification' in df.columns
+
                 # 1. If 'Verification' column is missing, create it and mark as "Under Verification".
                 # 2. If it exists, fill NaN/Blanks with 'N' (Safe).
-                if 'Verification' not in df.columns:
+                if not has_verification_data:
                     df['Verification'] = 'Under Verification'
                 else:
                     df['Verification'] = df['Verification'].fillna('N').astype(str).str.strip()
                     # Also handle empty strings that might result from stripping
                     df['Verification'] = df['Verification'].replace('', 'N')
+
+                # Store the flag in the DataFrame for use in plotting
+                df['HAS_VERIFICATION_DATA'] = has_verification_data
 
                 required_columns = ['DEFECT_ID', 'DEFECT_TYPE', 'UNIT_INDEX_X', 'UNIT_INDEX_Y']
                 if not all(col in df.columns for col in required_columns):

@@ -82,47 +82,65 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', 
 
 def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     """
-    Generates scatter plot traces for each defect type in the dataframe.
-    It dynamically assigns colors to defect types not present in the predefined
-    style map by using a fallback color list. This ensures all defects are plotted.
+    Generates scatter plot traces.
+
+    SWITCHING LOGIC:
+    - If real verification data exists (HAS_VERIFICATION_DATA=True), group by 'Verification'.
+    - If NO verification data, group by 'DEFECT_TYPE'.
     """
     traces = []
-    has_verification = 'Verification' in df.columns
+    if df.empty: return traces
 
-    # Get all unique defect types from the current data
-    unique_defect_types = df['DEFECT_TYPE'].unique()
+    # Check the flag. If mixed (some rows T, some F), default to True if any are True
+    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
 
-    # Create a mutable copy of the defect style map
-    local_style_map = defect_style_map.copy()
+    # Determine what column to group by
+    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
 
-    # Assign fallback colors to new defect types
-    fallback_color_index = 0
-    for dtype in unique_defect_types:
-        if dtype not in local_style_map:
-            color = FALLBACK_COLORS[fallback_color_index % len(FALLBACK_COLORS)]
-            local_style_map[dtype] = color
-            fallback_color_index += 1
-            print(f"INFO: New defect type '{dtype}' found. Assigned fallback color '{color}'.")
+    unique_groups = df[group_col].unique()
 
-    # Generate traces for each defect type using the updated map
-    for dtype, color in local_style_map.items():
-        dff = df[df['DEFECT_TYPE'] == dtype]
+    # --- COLOR MAPPING ---
+    # We need a dynamic color map for whatever column we are grouping by.
+    local_style_map = {}
+
+    if group_col == 'DEFECT_TYPE':
+        # Use the standard defect style map + fallback
+        local_style_map = defect_style_map.copy()
+        fallback_index = 0
+        for dtype in unique_groups:
+            if dtype not in local_style_map:
+                color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
+                local_style_map[dtype] = color
+                fallback_index += 1
+    else:
+        # For Verification codes (CU22, N, etc.), generate a map on the fly
+        # We can reuse the FALLBACK_COLORS or define specific ones if needed.
+        # Simple approach: Assign distinct colors from the fallback list.
+        fallback_index = 0
+        for code in unique_groups:
+            # If we want specific colors for 'N' (Green) or 'False Alarm', we could add logic here.
+            # For now, purely dynamic to handle ANY code.
+            color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
+            local_style_map[code] = color
+            fallback_index += 1
+
+    # Generate traces
+    for group_val, color in local_style_map.items():
+        dff = df[df[group_col] == group_val]
         if not dff.empty:
-            custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']
+            custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification']
             hovertemplate = ("<b>Type: %{customdata[2]}</b><br>"
+                             "Status: %{customdata[4]}<br>"
                              "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
-                             "Defect ID: %{customdata[3]}")
-            if has_verification:
-                custom_data_cols.append('Verification')
-                hovertemplate += "<br>Verification: %{customdata[4]}"
-            hovertemplate += "<extra></extra>"
+                             "Defect ID: %{customdata[3]}"
+                             "<extra></extra>")
 
             traces.append(go.Scatter(
                 x=dff['plot_x'],
                 y=dff['plot_y'],
                 mode='markers',
                 marker=dict(color=color, size=8, line=dict(width=1, color='black')),
-                name=dtype,
+                name=group_val, # Legend shows 'CU22' or 'Nick' depending on mode
                 customdata=dff[custom_data_cols],
                 hovertemplate=hovertemplate
             ))
@@ -130,22 +148,32 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     return traces
     
 def create_pareto_trace(df: pd.DataFrame) -> go.Bar:
-    # ... (omitted for brevity, same as before)
     if df.empty: return go.Bar(name='Pareto')
-    pareto_data = df['DEFECT_TYPE'].value_counts().reset_index()
-    pareto_data.columns = ['Defect Type', 'Count']
-    return go.Bar(x=pareto_data['Defect Type'], y=pareto_data['Count'], name='Pareto', marker_color=[defect_style_map.get(dtype, 'grey') for dtype in pareto_data['Defect Type']])
+
+    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
+    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
+
+    pareto_data = df[group_col].value_counts().reset_index()
+    pareto_data.columns = ['Label', 'Count']
+
+    # Simple color logic (grey) since we don't have a persistent map for dynamic verification codes in this scope easily,
+    # or we can reuse the logic. For simplicity, we use a default color.
+    return go.Bar(x=pareto_data['Label'], y=pareto_data['Count'], name='Pareto', marker_color='#4682B4')
 
 def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
-    # ... (omitted for brevity, same as before)
     if df.empty: return []
-    grouped_data = df.groupby(['QUADRANT', 'DEFECT_TYPE']).size().reset_index(name='Count')
-    top_defects = df['DEFECT_TYPE'].value_counts().index.tolist()
+
+    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
+    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
+
+    grouped_data = df.groupby(['QUADRANT', group_col]).size().reset_index(name='Count')
+    top_items = df[group_col].value_counts().index.tolist()
+
     traces = []
     quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
     for quadrant in quadrants:
         quadrant_data = grouped_data[grouped_data['QUADRANT'] == quadrant]
-        pivot = quadrant_data.pivot(index='DEFECT_TYPE', columns='QUADRANT', values='Count').reindex(top_defects).fillna(0)
+        pivot = quadrant_data.pivot(index=group_col, columns='QUADRANT', values='Count').reindex(top_items).fillna(0)
         if not pivot.empty:
             traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant]))
     return traces
