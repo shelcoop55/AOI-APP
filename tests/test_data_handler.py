@@ -80,12 +80,12 @@ def test_load_data_sample_generation(monkeypatch):
         assert set(layer_data[i].keys()) == {'F', 'B'}
 
     # Check counts for a few examples
-    assert len(layer_data[1]['F']) == 75
-    assert len(layer_data[1]['B']) == 30
-    assert len(layer_data[2]['F']) == 120
-    assert len(layer_data[2]['B']) == 40
-    assert len(layer_data[3]['F']) == 50
-    assert len(layer_data[3]['B']) == 25
+    assert len(layer_data[1]['F']) == 200
+    assert len(layer_data[1]['B']) == 80
+    assert len(layer_data[2]['F']) == 200
+    assert len(layer_data[2]['B']) == 80
+    assert len(layer_data[3]['F']) == 200
+    assert len(layer_data[3]['B']) == 80
     assert 'plot_x' in layer_data[1]['F'].columns
     assert 'SIDE' in layer_data[2]['B'].columns
 

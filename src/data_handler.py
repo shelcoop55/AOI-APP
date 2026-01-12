@@ -18,6 +18,42 @@ from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUE
 QUADRANT_WIDTH = PANEL_WIDTH / 2
 QUADRANT_HEIGHT = PANEL_HEIGHT / 2
 
+# --- DEFECT DEFINITIONS ---
+# List of (Code, Description) tuples for data generation
+DEFECT_DEFINITIONS = [
+    # Copper-related (CU)
+    ("CU10", "Copper Void (Nick)"),
+    ("CU14", "Copper Void on Copper Ground"),
+    ("CU18", "Short on the Surface (AOI)"),
+    ("CU17", "Plating Under Resist (Fine Short)"),
+    ("CU22", "Copper Residue"),
+    ("CU16", "Open on the Surface (AOI)"),
+    ("CU54", "Copper Distribution Not Even / Nodule"),
+    ("CU25", "Rough Trace"),
+    ("CU15", "Fine Short (Burr)"),
+    ("CU94", "Global Copper Thickness Out of Spec – Copper Sting"),
+    ("CU19", "Eless Remaining (Chemical Copper Residue)"),
+    ("CU20", "Circle Defect"),
+    ("CU41", "Copper Coloration or Spots"),
+    ("CU80", "Risk to Via Integrity (Core)"),
+    # Base Material (BM)
+    ("BM31", "Base Material Defect (Irregular Shape)"),
+    ("BM01", "Base Material Defect (Crack)"),
+    ("BM10", "Base Material Defect (Round Shape)"),
+    ("BM34", "Measling / Crazing (White Spots)"),
+    # General (GE)
+    ("GE01", "Scratch"),
+    ("GE32", "ABF Wrinkle"),
+    ("GE57", "Foreign Material"),
+    ("GE22", "Process Residue"),
+    # Hole-related (HO)
+    ("HO31", "Via Not Completely Filled"),
+    ("HO12", "Hole Shift")
+]
+
+FALSE_ALARMS = ["N", "FALSE"]
+
+
 @st.cache_data
 def load_data(
     uploaded_files: List[BytesIO],
@@ -110,34 +146,53 @@ def load_data(
         total_units_y = 2 * panel_rows
         layer_data = {}
 
-        # Define properties for sample layers, including sides for all layers
+        # Configuration for sample layers: ~280 points per layer (200 Front, 80 Back)
         sample_layers = {
-            1: {
-                'F': {'num_defects': 75, 'defect_types': ['Nick', 'Short', 'Cut']},
-                'B': {'num_defects': 30, 'defect_types': ['Backside Nick', 'Handling Scratch']}
-            },
-            2: {
-                'F': {'num_defects': 120, 'defect_types': ['Fine Short', 'Pad Violation', 'Island', 'Short']},
-                'B': {'num_defects': 40, 'defect_types': ['Backside Scratch', 'Contamination']}
-            },
-            3: {
-                'F': {'num_defects': 50, 'defect_types': ['Missing Feature', 'Cut/Short', 'Nick/Protrusion']},
-                'B': {'num_defects': 25, 'defect_types': ['Backside Residue', 'Epoxy Smear']}
-            }
+            1: {'F': 200, 'B': 80},
+            2: {'F': 200, 'B': 80},
+            3: {'F': 200, 'B': 80}
         }
+
+        # Probabilities: 80% True Defect, 20% False Alarm
+        FALSE_ALARM_RATE = 0.2
 
         for layer_num, sides in sample_layers.items():
             layer_data[layer_num] = {}
-            for side, props in sides.items():
+            for side, num_points in sides.items():
+
+                # Generate random indices
+                unit_x = np.random.randint(0, total_units_x, size=num_points)
+                unit_y = np.random.randint(0, total_units_y, size=num_points)
+
+                # Generate Defect Types and Verification statuses
+                defect_types = []
+                verifications = []
+
+                for _ in range(num_points):
+                    # Pick a base defect scenario
+                    code, desc = DEFECT_DEFINITIONS[np.random.randint(len(DEFECT_DEFINITIONS))]
+
+                    # Decide if it's a false alarm
+                    if np.random.rand() < FALSE_ALARM_RATE:
+                        # False Alarm: Machine saw 'desc', but verification is 'N' or 'FALSE'
+                        defect_types.append(desc)
+                        verifications.append(np.random.choice(FALSE_ALARMS))
+                    else:
+                        # True Defect: Machine saw 'desc', verification confirms 'code'
+                        defect_types.append(desc)
+                        verifications.append(code)
+
                 defect_data = {
-                    'DEFECT_ID': range(layer_num * 1000 + (0 if side == 'F' else 500), layer_num * 1000 + (0 if side == 'F' else 500) + props['num_defects']),
-                    'UNIT_INDEX_X': np.random.randint(0, total_units_x, size=props['num_defects']),
-                    'UNIT_INDEX_Y': np.random.randint(0, total_units_y, size=props['num_defects']),
-                    'DEFECT_TYPE': np.random.choice(props['defect_types'], size=props['num_defects']),
-                    'Verification': np.random.choice(['T', 'F', 'TA'], size=props['num_defects'], p=[0.7, 0.15, 0.15]),
-                    'SOURCE_FILE': [f'Sample Data Layer {layer_num}{side}'] * props['num_defects'],
-                    'SIDE': side
+                    'DEFECT_ID': range(layer_num * 1000 + (0 if side == 'F' else 500), layer_num * 1000 + (0 if side == 'F' else 500) + num_points),
+                    'UNIT_INDEX_X': unit_x,
+                    'UNIT_INDEX_Y': unit_y,
+                    'DEFECT_TYPE': defect_types,
+                    'Verification': verifications,
+                    'SOURCE_FILE': [f'Sample Data Layer {layer_num}{side}'] * num_points,
+                    'SIDE': side,
+                    'HAS_VERIFICATION_DATA': [True] * num_points
                 }
+
                 df = pd.DataFrame(defect_data)
                 layer_data[layer_num][side] = _add_plotting_coordinates(df, panel_rows, panel_cols)
 
