@@ -229,7 +229,8 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
                         line=dict(width=1, color='black')
                     ),
                     name=trace_name,
-                    legendgroup=f"Layer {layer_num}", # Group traces by Layer in legend
+                    # REMOVED legendgroup to allow independent toggling of Front/Back layers
+                    # legendgroup=f"Layer {layer_num}",
                     customdata=dff[custom_data_cols],
                     hovertemplate=hovertemplate
                 ))
