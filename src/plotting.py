@@ -149,6 +149,121 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
             ))
 
     return traces
+
+def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> go.Figure:
+    """
+    Creates a defect map visualizing defects from ALL layers simultaneously.
+
+    Logic:
+    - Group by Layer Number (Same Color)
+    - Distinguish by Side (Different Symbol: Front=Circle, Back=Diamond)
+    """
+    fig = go.Figure()
+
+    if not df.empty:
+        # Ensure LAYER_NUM exists
+        if 'LAYER_NUM' not in df.columns:
+            # Fallback if column missing (should not happen with new prepare_multi_layer_data)
+            df['LAYER_NUM'] = 0
+
+        unique_layer_nums = sorted(df['LAYER_NUM'].unique())
+
+        # Generate colors for layers
+        # Reuse NEON_PALETTE + FALLBACK_COLORS
+        layer_colors = {}
+        for i, num in enumerate(unique_layer_nums):
+            layer_colors[num] = FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
+
+        # Symbol Mapping
+        # Front = Circle (Standard)
+        # Back = Diamond (Distinct, implies flip side)
+        symbol_map = {'F': 'circle', 'B': 'diamond'}
+
+        # Group by (Layer, Side) to create traces
+        # We iterate through layers first to keep legend organized
+        for layer_num in unique_layer_nums:
+            layer_color = layer_colors[layer_num]
+
+            # Filter for this layer
+            layer_df = df[df['LAYER_NUM'] == layer_num]
+
+            # Iterate through sides present in this layer
+            # Sort sides to keep Front before Back usually, or alphabetical
+            for side in sorted(layer_df['SIDE'].unique()):
+                dff = layer_df[layer_df['SIDE'] == side]
+
+                # Determine Symbol
+                symbol = symbol_map.get(side, 'circle') # Default to circle if unknown
+
+                side_name = "Front" if side == 'F' else "Back"
+                trace_name = f"Layer {layer_num} ({side_name})"
+
+                # Prepare hover data
+                if 'Verification' in dff.columns:
+                     dff = dff.copy()
+                     dff['Description'] = dff['Verification'].map(VERIFICATION_DESCRIPTIONS).fillna("Unknown Code")
+                else:
+                     dff['Description'] = "N/A"
+
+                custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description', 'SOURCE_FILE']
+
+                hovertemplate = ("<b>Layer: %{data.legendgroup}</b><br>"
+                                 "Side: " + side_name + "<br>"
+                                 "Status: %{customdata[4]}<br>"
+                                 "Type: %{customdata[2]}<br>"
+                                 "Coords: (%{customdata[0]}, %{customdata[1]})<br>"
+                                 "File: %{customdata[6]}"
+                                 "<extra></extra>")
+
+                fig.add_trace(go.Scatter(
+                    x=dff['plot_x'],
+                    y=dff['plot_y'],
+                    mode='markers',
+                    marker=dict(
+                        color=layer_color,
+                        symbol=symbol,
+                        size=9, # Slightly larger for visibility
+                        line=dict(width=1, color='black')
+                    ),
+                    name=trace_name,
+                    legendgroup=f"Layer {layer_num}", # Group traces by Layer in legend
+                    customdata=dff[custom_data_cols],
+                    hovertemplate=hovertemplate
+                ))
+
+    # Add Grid and Layout
+    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All'))
+
+    # Calculate ticks (reused from standard map logic)
+    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
+    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
+    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+
+    fig.update_layout(
+        title=dict(text="Multi-Layer Combined Defect Map (True Defects Only)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
+        xaxis=dict(
+            title="Unit Column Index",
+            tickvals=x_tick_vals_q1 + x_tick_vals_q2,
+            range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], constrain='domain',
+            showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True,
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        yaxis=dict(
+            title="Unit Row Index",
+            tickvals=y_tick_vals_q1 + y_tick_vals_q3,
+            range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)],
+            scaleanchor="x", scaleratio=1,
+            showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True,
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR,
+        legend=dict(title=dict(text="Build-Up Layer"), title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
+        hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"), height=800
+    )
+
+    return fig
     
 def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int, quadrant_selection: str = Quadrant.ALL.value, lot_number: Optional[str] = None, title: Optional[str] = None) -> go.Figure:
     """
