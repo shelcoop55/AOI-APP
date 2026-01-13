@@ -84,6 +84,42 @@ def main() -> None:
                 st.session_state.clear()
                 st.rerun()
 
+            # --- NEW: Multi-Layer Filters (Visible only in Multi-Layer View) ---
+            selected_layers_multi = []
+            selected_sides_multi = []
+
+            if is_multi_layer_view:
+                with st.expander("🛠️ Multi-Layer Filters", expanded=True):
+                    # Get all available layers and sides
+                    all_layers = sorted(st.session_state.layer_data.keys())
+                    all_sides = set()
+                    for l_data in st.session_state.layer_data.values():
+                        all_sides.update(l_data.keys())
+
+                    # Convert side codes to labels for UI (but map back for filtering)
+                    side_map = {'F': 'Front', 'B': 'Back'}
+                    # Reverse map for filtering logic
+                    side_map_rev = {'Front': 'F', 'Back': 'B'}
+
+                    available_side_labels = sorted([side_map.get(s, s) for s in all_sides])
+
+                    selected_layers_multi = st.multiselect(
+                        "Select Layers",
+                        options=all_layers,
+                        default=all_layers,
+                        help="Choose which build-up layers to display."
+                    )
+
+                    selected_sides_labels = st.multiselect(
+                        "Select Sides",
+                        options=available_side_labels,
+                        default=available_side_labels,
+                        help="Choose which sides (Front/Back) to display."
+                    )
+
+                    # Map labels back to codes 'F', 'B'
+                    selected_sides_multi = [side_map_rev.get(label, label) for label in selected_sides_labels]
+
             # --- Get the active dataframe based on selected layer and side ---
             active_df = pd.DataFrame()
             selected_layer_num = st.session_state.get('selected_layer')
@@ -349,17 +385,31 @@ def main() -> None:
 
         elif st.session_state.active_view == 'multi_layer_defects':
             st.header("Multi-Layer Combined Defect Map")
-            st.info("Visualizing 'True Defects' from all loaded layers. Colors indicate the source layer.")
+            st.info("Visualizing 'True Defects' from selected layers. Colors indicate the source layer.")
 
             # 1. Aggregate Data from All Layers
             combined_df = prepare_multi_layer_data(st.session_state.layer_data)
 
+            # 2. Apply Filters (Layers & Sides)
             if not combined_df.empty:
-                # 2. Generate Plot
+                # Filter by Layers
+                if selected_layers_multi:
+                    combined_df = combined_df[combined_df['LAYER_NUM'].isin(selected_layers_multi)]
+                else:
+                    combined_df = pd.DataFrame() # No layers selected
+
+                # Filter by Sides
+                if not combined_df.empty and selected_sides_multi:
+                    combined_df = combined_df[combined_df['SIDE'].isin(selected_sides_multi)]
+                elif not selected_sides_multi:
+                    combined_df = pd.DataFrame() # No sides selected
+
+            if not combined_df.empty:
+                # 3. Generate Plot
                 fig = create_multi_layer_defect_map(combined_df, panel_rows, panel_cols)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # 3. Download Options
+                # 4. Download Options
                 st.divider()
                 st.subheader("Download Map")
                 try:
@@ -395,6 +445,10 @@ def main() -> None:
             display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
 
             if view_mode == ViewMode.DEFECT.value:
+                # Inform user if viewing Back side (Raw Coordinates)
+                if st.session_state.selected_side == 'B':
+                    st.info("ℹ️ Displaying raw coordinates (unflipped) as per machine output. For physical alignment, see 'Still Alive' or 'Multi-Layer' views.")
+
                 # REFACTORED: Use new helper
                 fig = create_defect_map_figure(display_df, panel_rows, panel_cols, quadrant_selection, lot_number)
                 st.plotly_chart(fig, use_container_width=True)
