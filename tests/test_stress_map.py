@@ -48,10 +48,12 @@ def test_aggregate_stress_data_cumulative(sample_layer_data):
     assert result.total_defects == 2
 
     # Check grid counts
-    # (0,0) should have 1 defect (Front)
-    assert result.grid_counts[0, 0] == 1
-    # (0,3) should have 1 defect (Back, physically flipped)
-    assert result.grid_counts[0, 3] == 1
+    # (0,0) should have 1 defect (Front, Raw X=0)
+    assert result.grid_counts[0, 0] == 2
+    # The Front defect is at (0,0).
+    # The Back defect is at Raw X=0 (physically 3, but we treat it as 0 now for Stress Map).
+    # So both should stack at (0,0).
+    assert result.grid_counts[0, 3] == 0
 
 def test_aggregate_stress_data_filtered(sample_layer_data):
     """Test aggregation with only one side selected."""
@@ -67,7 +69,6 @@ def test_aggregate_stress_data_filtered(sample_layer_data):
 
     # Check Hover Text
     assert "Short" in str(result.hover_text[0, 0])
-    assert "No Defects" in str(result.hover_text[0, 3])
 
 def test_calculate_yield_killers(sample_layer_data):
     """Test KPI calculation."""
@@ -101,16 +102,19 @@ def test_get_cross_section_matrix(sample_layer_data):
     assert matrix.shape == (1, 4) # 1 Layer x 4 Width
 
     # Check values
-    assert matrix[0, 0] == 1
-    assert matrix[0, 3] == 1
+    # Both Front and Back have defects at RAW X=0.
+    # So we should see 2 defects at X=0.
+    assert matrix[0, 0] == 2
+    assert matrix[0, 3] == 0
     assert matrix[0, 1] == 0
 
     # Slice X (Col) at Index 0.
     # Should see defect at Y=0 for Layer 1.
+    # Both Front (X=0) and Back (X=0) match slice_index=0.
     matrix_x, _, _ = get_cross_section_matrix(
         sample_layer_data, 'X', 0, panel_rows, panel_cols
     )
-    assert matrix_x[0, 0] == 1 # Y=0
+    assert matrix_x[0, 0] == 2 # Y=0 (Stacked)
 
     # Slice X (Col) at Index 1 (Empty).
     matrix_x_empty, _, _ = get_cross_section_matrix(

@@ -433,18 +433,11 @@ def aggregate_stress_data(
 
         if df_true.empty: continue
 
-        # Use PHYSICAL COORDINATES for global grid mapping
-        # Ensure PHYSICAL_X exists
-        if 'PHYSICAL_X' not in df_true.columns:
-            # Should not happen if loaded correctly, but safety
-            df_true['PHYSICAL_X'] = df_true['UNIT_INDEX_X']
-            if side == 'B':
-                width = panel_cols * 2
-                df_true['PHYSICAL_X'] = (width - 1) - df_true['UNIT_INDEX_X']
+        # Use RAW COORDINATES (UNIT_INDEX_X) as per request, do NOT flip.
 
         # Iterate rows
         for _, row in df_true.iterrows():
-            gx = int(row['PHYSICAL_X'])
+            gx = int(row['UNIT_INDEX_X'])
             gy = int(row['UNIT_INDEX_Y'])
             dtype = str(row['DEFECT_TYPE'])
 
@@ -523,18 +516,8 @@ def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], pane
     top_killer_count = layer_counts.max()
     top_killer_label = f"Layer {top_killer_layer_id}"
 
-    # 2. Worst Unit (Use PHYSICAL COORDINATES)
-    # Group by (PHYSICAL_X, UNIT_INDEX_Y)
-    # Ensure physical coords
-    if 'PHYSICAL_X' not in combined_df.columns:
-        # Fallback logic, though data loader handles it
-        combined_df['PHYSICAL_X'] = combined_df['UNIT_INDEX_X']
-        # Note: In-situ recalc for Back side might be tricky here if we lost 'Side' context in a generic combine?
-        # Actually combined_df has 'SIDE'.
-        # Let's rely on data loader having set it correctly.
-        pass
-
-    unit_counts = combined_df.groupby(['PHYSICAL_X', 'UNIT_INDEX_Y']).size()
+    # 2. Worst Unit (Use RAW COORDINATES - UNIT_INDEX_X as per request)
+    unit_counts = combined_df.groupby(['UNIT_INDEX_X', 'UNIT_INDEX_Y']).size()
     worst_unit_coords = unit_counts.idxmax() # Tuple (x, y)
     worst_unit_count = unit_counts.max()
     worst_unit_label = f"X:{worst_unit_coords[0]}, Y:{worst_unit_coords[1]}"
@@ -620,19 +603,19 @@ def get_cross_section_matrix(
 
             if slice_axis == 'Y':
                 # Slice by Row. We want defects at this Y.
-                # Plot X-axis will be PHYSICAL_X.
+                # Plot X-axis will be UNIT_INDEX_X (Raw).
                 relevant_defects = df_copy[df_copy['UNIT_INDEX_Y'] == slice_index]
                 if not relevant_defects.empty:
                     # Count defects per X column
-                    counts = relevant_defects.groupby('PHYSICAL_X').size()
+                    counts = relevant_defects.groupby('UNIT_INDEX_X').size()
                     for x_idx, count in counts.items():
                         if 0 <= x_idx < total_width:
                             matrix[i, int(x_idx)] += count
 
             else: # Slice 'X'
-                # Slice by Column. We want defects at this X (PHYSICAL_X).
+                # Slice by Column. We want defects at this X (UNIT_INDEX_X).
                 # Plot X-axis will be UNIT_INDEX_Y.
-                relevant_defects = df_copy[df_copy['PHYSICAL_X'] == slice_index]
+                relevant_defects = df_copy[df_copy['UNIT_INDEX_X'] == slice_index]
                 if not relevant_defects.empty:
                     # Count defects per Y row
                     counts = relevant_defects.groupby('UNIT_INDEX_Y').size()
