@@ -294,23 +294,23 @@ def normalize_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int) ->
     Normalizes raw X_COORDINATES (microns) and Y_COORDINATES (microns) to the physical panel space (mm).
 
     UPDATED:
-    - Coordinates are assumed to be absolute (including gaps/margins), so no extra gap is added.
-    - Back side coordinates are NOT flipped (as per user instruction).
+    - Coordinates are assumed to be absolute.
+    - No flipping for Back side.
+    - Simple division by 1000.0 to convert to mm.
     """
     if 'X_COORDINATES' not in df.columns or 'Y_COORDINATES' not in df.columns:
-        # Fallback if coords missing
-        df['plot_x_coord'] = df['plot_x']
-        df['plot_y_coord'] = df['plot_y']
+        # Fallback if coords missing, but for Multi-Layer with Real Coords, we prefer empty/NaN than derived unit coords
+        # if the user specifically wants Real Coords. However, to prevent crashes, we can leave as is or set to NaN.
+        # Given the previous logic used plot_x, let's keep it as fallback but it's not "Real".
+        df['plot_x_coord'] = df.get('plot_x', 0)
+        df['plot_y_coord'] = df.get('plot_y', 0)
         return df
 
     # 1. Convert to mm
     # Use copy to avoid setting on slice warnings if passed a view
     df = df.copy()
 
-    # Fill NaNs with 0 to avoid errors, though valid_data check elsewhere might be better.
-    # But here we want to process all rows.
-    # We assume these are absolute coordinates relative to the panel origin (0,0)
-    # matching the physical layout (including gaps/margins).
+    # Simply divide by 1000.0 as requested. No flipping. No margin logic.
     df['plot_x_coord'] = df['X_COORDINATES'].fillna(0) / 1000.0
     df['plot_y_coord'] = df['Y_COORDINATES'].fillna(0) / 1000.0
 

@@ -251,24 +251,25 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
                 ))
 
     # Add Grid and Layout
+    # For Multi-Layer Map, the user requested to "forget about the margin... just take the number of row and column... use the real cordinates".
+    # This implies a simpler grid over the real coordinate space (0-510).
+    # However, to keep visual consistency with the panel size, we still draw the border.
+    # But if real coordinates are used, they span 0-510. The margins are physically there on the panel.
+    # If we draw the complex grid (with margins), and plot points at raw 0-510 coords, they will align IF the raw coords respect the physical margins.
+    # If raw coords are "absolute from corner", they should align.
+
     fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All'))
 
-    # Calculate Ticks based on Active Areas
+    # Calculate Ticks based on Active Areas (Standard Behavior)
     cell_width = ACTIVE_QUADRANT_WIDTH / panel_cols
     cell_height = ACTIVE_QUADRANT_HEIGHT / panel_rows
 
-    # Ticks for Q1/Q3 (Left) and Q2/Q4 (Right)
-    # Note: Ticks should align with the center of the UNIT, relative to the QUADRANT ORIGIN
     x_tick_vals = []
-    # Q1/Q3 X-ticks
     x_tick_vals.extend([MARGIN_X + (i * cell_width) + (cell_width/2) for i in range(panel_cols)])
-    # Q2/Q4 X-ticks
     x_tick_vals.extend([MARGIN_X + ACTIVE_QUADRANT_WIDTH + GAP_SIZE + (i * cell_width) + (cell_width/2) for i in range(panel_cols)])
 
     y_tick_vals = []
-    # Q1/Q2 Y-ticks
     y_tick_vals.extend([MARGIN_Y + (i * cell_height) + (cell_height/2) for i in range(panel_rows)])
-    # Q3/Q4 Y-ticks
     y_tick_vals.extend([MARGIN_Y + ACTIVE_QUADRANT_HEIGHT + GAP_SIZE + (i * cell_height) + (cell_height/2) for i in range(panel_rows)])
 
     title_text = "Multi-Layer Combined Defect Map"
