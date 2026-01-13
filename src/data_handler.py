@@ -189,10 +189,17 @@ def load_data(
                         code, _ = DEFECT_DEFINITIONS[np.random.randint(len(DEFECT_DEFINITIONS))]
                         verifications.append(code)
 
+                # Generate dummy X_COORDINATES and Y_COORDINATES for sample data
+                # Using approximate scale factors from analysis: X ~ 40000*idx, Y ~ 40000*idx
+                x_coords = unit_x * 40000 + np.random.randint(0, 30000, size=num_points)
+                y_coords = unit_y * 40000 + np.random.randint(0, 30000, size=num_points)
+
                 defect_data = {
                     'DEFECT_ID': range(layer_num * 1000 + (0 if side == 'F' else 500), layer_num * 1000 + (0 if side == 'F' else 500) + num_points),
                     'UNIT_INDEX_X': unit_x,
                     'UNIT_INDEX_Y': unit_y,
+                    'X_COORDINATES': x_coords,
+                    'Y_COORDINATES': y_coords,
                     'DEFECT_TYPE': defect_types,
                     'Verification': verifications,
                     'SOURCE_FILE': [f'Sample Data Layer {layer_num}{side}'] * num_points,
@@ -281,9 +288,76 @@ def get_true_defect_coordinates(layer_data: Dict[int, Dict[str, pd.DataFrame]]) 
 
     return set(map(tuple, defect_coords_df.to_numpy()))
 
-def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> pd.DataFrame:
+def normalize_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> pd.DataFrame:
+    """
+    Normalizes raw X_COORDINATES and Y_COORDINATES to the physical panel space.
+    """
+    # Require raw coordinate columns
+    if 'X_COORDINATES' not in df.columns or 'Y_COORDINATES' not in df.columns:
+        return df
+
+    # Work with valid data for fitting
+    # We fit linear models: Index = (Coord - Offset) / Scale
+    # Or simply: Raw = m * Index + c
+    # So: Continuous_Index = (Raw - c) / m
+    valid_data = df.dropna(subset=['UNIT_INDEX_X', 'X_COORDINATES', 'UNIT_INDEX_Y', 'Y_COORDINATES'])
+
+    if valid_data.empty:
+        return df
+
+    try:
+        # Fit X
+        if valid_data['UNIT_INDEX_X'].nunique() > 1:
+            m_x, c_x = np.polyfit(valid_data['UNIT_INDEX_X'], valid_data['X_COORDINATES'], 1)
+            # Continuous Unit X
+            df['normalized_unit_x'] = (df['X_COORDINATES'] - c_x) / m_x
+        else:
+            # Fallback if only 1 column of data
+            df['normalized_unit_x'] = df['UNIT_INDEX_X'] + 0.5 # Center it
+
+        # Fit Y
+        if valid_data['UNIT_INDEX_Y'].nunique() > 1:
+            m_y, c_y = np.polyfit(valid_data['UNIT_INDEX_Y'], valid_data['Y_COORDINATES'], 1)
+            df['normalized_unit_y'] = (df['Y_COORDINATES'] - c_y) / m_y
+        else:
+            df['normalized_unit_y'] = df['UNIT_INDEX_Y'] + 0.5
+
+        # Convert to Physical Plot Coordinates
+        cell_width = QUADRANT_WIDTH / panel_cols
+        cell_height = QUADRANT_HEIGHT / panel_rows
+
+        # Calculate base physical position
+        df['plot_x_coord'] = df['normalized_unit_x'] * cell_width
+        df['plot_y_coord'] = df['normalized_unit_y'] * cell_height
+
+        # Apply Gap Logic
+        # Gap is inserted between Q1/Q3 (Left) and Q2/Q4 (Right)
+        # Left boundary is panel_cols.
+        # If normalized_unit_x >= panel_cols, add GAP_SIZE
+        # Note: panel_cols is the number of cols in a quadrant (e.g., 6).
+        # Global indices 0-5 are Left, 6-11 are Right.
+
+        # We need to handle potential slight floating point errors around the boundary,
+        # but generally >= panel_cols is correct for indices.
+        df.loc[df['normalized_unit_x'] >= panel_cols, 'plot_x_coord'] += GAP_SIZE
+
+        # Gap for Y (Top vs Bottom)
+        # Top is 0..Rows-1, Bottom is Rows..2*Rows-1
+        df.loc[df['normalized_unit_y'] >= panel_rows, 'plot_y_coord'] += GAP_SIZE
+
+    except Exception as e:
+        # If fitting fails (e.g. singular matrix), fallback to standard plotting
+        print(f"Normalization failed: {e}")
+        # Ensure columns exist even if failed
+        df['plot_x_coord'] = df['plot_x']
+        df['plot_y_coord'] = df['plot_y']
+
+    return df
+
+def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]], panel_rows: int, panel_cols: int) -> pd.DataFrame:
     """
     Aggregates and filters defect data from all layers for the Multi-Layer Defect View.
+    Also normalizes coordinates if available.
 
     Logic:
     1. Iterates through all layers and sides in layer_data.
@@ -320,5 +394,9 @@ def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> 
             combined_data.append(df_copy)
 
     if combined_data:
-        return pd.concat(combined_data, ignore_index=True)
+        full_df = pd.concat(combined_data, ignore_index=True)
+        # Normalize coordinates
+        full_df = normalize_coordinates(full_df, panel_rows, panel_cols)
+        return full_df
+
     return pd.DataFrame()

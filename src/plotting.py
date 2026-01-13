@@ -150,13 +150,14 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
 
     return traces
 
-def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> go.Figure:
+def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols: int, use_real_coords: bool = False) -> go.Figure:
     """
     Creates a defect map visualizing defects from ALL layers simultaneously.
 
     Logic:
     - Group by Layer Number (Same Color)
     - Distinguish by Side (Different Symbol: Front=Circle, Back=Diamond)
+    - Optionally use real coordinates (plot_x_coord) if use_real_coords=True
     """
     fig = go.Figure()
 
@@ -165,6 +166,10 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
         if 'LAYER_NUM' not in df.columns:
             # Fallback if column missing (should not happen with new prepare_multi_layer_data)
             df['LAYER_NUM'] = 0
+
+        # Determine Coordinate columns
+        x_col = 'plot_x_coord' if use_real_coords and 'plot_x_coord' in df.columns else 'plot_x'
+        y_col = 'plot_y_coord' if use_real_coords and 'plot_y_coord' in df.columns else 'plot_y'
 
         unique_layer_nums = sorted(df['LAYER_NUM'].unique())
 
@@ -216,8 +221,8 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
                                  "<extra></extra>")
 
                 fig.add_trace(go.Scatter(
-                    x=dff['plot_x'],
-                    y=dff['plot_y'],
+                    x=dff[x_col],
+                    y=dff[y_col],
                     mode='markers',
                     marker=dict(
                         color=layer_color,
@@ -241,8 +246,11 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
     y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
     y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
 
+    title_text = "Multi-Layer Combined Defect Map"
+    subtitle = "(Real Coordinates)" if use_real_coords else "(Unit Grid + Jitter)"
+
     fig.update_layout(
-        title=dict(text="Multi-Layer Combined Defect Map (True Defects Only)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
+        title=dict(text=f"{title_text} {subtitle}", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
         xaxis=dict(
             title="Unit Column Index",
             tickvals=x_tick_vals_q1 + x_tick_vals_q2,

@@ -76,6 +76,9 @@ def main() -> None:
 
         is_still_alive_view = st.session_state.active_view == 'still_alive'
         is_multi_layer_view = st.session_state.active_view == 'multi_layer_defects'
+        is_multi_layer_coords_view = st.session_state.active_view == 'multi_layer_coords'
+
+        is_aggregate_view = is_still_alive_view or is_multi_layer_view or is_multi_layer_coords_view
 
         if st.session_state.get('layer_data'):
 
@@ -91,12 +94,25 @@ def main() -> None:
                 layer_info = st.session_state.layer_data.get(selected_layer_num, {})
                 active_df = layer_info.get(st.session_state.selected_side, pd.DataFrame())
 
+            # --- Sidebar Filters for Multi-Layer Views ---
+            if is_multi_layer_view or is_multi_layer_coords_view:
+                with st.expander("🛠️ Multi-Layer Filters", expanded=True):
+                    # Get available layers and sides from all data
+                    all_layers = sorted(st.session_state.layer_data.keys())
+                    selected_layers_filter = st.multiselect("Select Layers", all_layers, default=all_layers)
+
+                    # Sides (Hardcoded F/B as they are standard)
+                    selected_sides_filter = st.multiselect("Select Sides", ["F", "B"], default=["F", "B"])
+            else:
+                selected_layers_filter = []
+                selected_sides_filter = []
+
             with st.expander("📊 Analysis Controls", expanded=True):
-                view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.", disabled=(is_still_alive_view or is_multi_layer_view))
-                quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant.", disabled=(is_still_alive_view or is_multi_layer_view))
+                view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.", disabled=is_aggregate_view)
+                quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant.", disabled=is_aggregate_view)
 
                 verification_options = ['All'] + sorted(active_df['Verification'].unique().tolist()) if not active_df.empty else ['All']
-                verification_selection = st.radio("Filter by Verification Status", options=verification_options, index=0, help="Select a single verification status to filter by.", disabled=(is_still_alive_view or is_multi_layer_view))
+                verification_selection = st.radio("Filter by Verification Status", options=verification_options, index=0, help="Select a single verification status to filter by.", disabled=is_aggregate_view)
 
             st.divider()
 
@@ -118,7 +134,7 @@ def main() -> None:
                 with col_img2:
                     include_pareto_png = st.checkbox("Pareto Charts (PNG)", value=False, help="Export PNG images of the Pareto chart for ALL layers (Front & Back).")
 
-                if st.button("Generate Download Package", disabled=(is_still_alive_view or is_multi_layer_view), help="Generate a ZIP file with all selected items."):
+                if st.button("Generate Download Package", disabled=is_aggregate_view, help="Generate a ZIP file with all selected items."):
                     with st.spinner("Generating Package..."):
                         layer_info = st.session_state.layer_data.get(st.session_state.selected_layer, {})
                         if layer_info:
@@ -228,8 +244,8 @@ def main() -> None:
                 bu_names[num] = get_bu_name_from_filename(st.session_state.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0])
 
             # --- Layer Selection Buttons ---
-            # Total buttons = layers + 2 (Still Alive + Multi-Layer)
-            num_buttons = len(layer_keys) + 2
+            # Total buttons = layers + 3 (Still Alive + Multi-Layer + Multi-Layer Coords)
+            num_buttons = len(layer_keys) + 3
             cols = st.columns(num_buttons)
 
             # Layer Buttons
@@ -253,17 +269,24 @@ def main() -> None:
                         st.rerun()
 
             # Still Alive Button
-            with cols[num_buttons - 2]:
+            with cols[num_buttons - 3]:
                 is_active = st.session_state.active_view == 'still_alive'
                 if st.button("Still Alive", key="still_alive_btn", use_container_width=True, type="primary" if is_active else "secondary"):
                     st.session_state.active_view = 'still_alive'
                     st.rerun()
 
             # Multi-Layer Defects Button
-            with cols[num_buttons - 1]:
+            with cols[num_buttons - 2]:
                 is_active = st.session_state.active_view == 'multi_layer_defects'
                 if st.button("Multi-Layer Defects", key="multi_layer_defects_btn", use_container_width=True, type="primary" if is_active else "secondary"):
                     st.session_state.active_view = 'multi_layer_defects'
+                    st.rerun()
+
+            # Multi-Layer Coords Button
+            with cols[num_buttons - 1]:
+                is_active = st.session_state.active_view == 'multi_layer_coords'
+                if st.button("Multi-Layer (Coords)", key="multi_layer_coords_btn", use_container_width=True, type="primary" if is_active else "secondary"):
+                    st.session_state.active_view = 'multi_layer_coords'
                     st.rerun()
 
 
@@ -347,34 +370,46 @@ def main() -> None:
                 '''
                 st.markdown(legend_html, unsafe_allow_html=True)
 
-        elif st.session_state.active_view == 'multi_layer_defects':
-            st.header("Multi-Layer Combined Defect Map")
-            st.info("Visualizing 'True Defects' from all loaded layers. Colors indicate the source layer.")
+        elif is_multi_layer_view or is_multi_layer_coords_view:
+            use_real_coords = is_multi_layer_coords_view
+            title_suffix = "(Real Coordinates)" if use_real_coords else ""
 
-            # 1. Aggregate Data from All Layers
-            combined_df = prepare_multi_layer_data(st.session_state.layer_data)
+            st.header(f"Multi-Layer Combined Defect Map {title_suffix}")
+            st.info("Visualizing 'True Defects' from selected layers. Colors indicate the source layer.")
+
+            # 1. Aggregate Data from All Layers (and Normalize)
+            # Pass panel dimensions for normalization
+            combined_df = prepare_multi_layer_data(st.session_state.layer_data, panel_rows, panel_cols)
+
+            # 2. Apply Filters
+            if not combined_df.empty:
+                if selected_layers_filter:
+                    combined_df = combined_df[combined_df['LAYER_NUM'].isin(selected_layers_filter)]
+                if selected_sides_filter:
+                    combined_df = combined_df[combined_df['SIDE'].isin(selected_sides_filter)]
 
             if not combined_df.empty:
-                # 2. Generate Plot
-                fig = create_multi_layer_defect_map(combined_df, panel_rows, panel_cols)
+                # 3. Generate Plot
+                fig = create_multi_layer_defect_map(combined_df, panel_rows, panel_cols, use_real_coords=use_real_coords)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # 3. Download Options
+                # 4. Download Options
                 st.divider()
                 st.subheader("Download Map")
                 try:
                     img_bytes = fig.to_image(format="png", engine="kaleido", scale=2)
+                    filename = "Multi_Layer_Defect_Map_Coords.png" if use_real_coords else "Multi_Layer_Defect_Map.png"
                     st.download_button(
                         label="Download Multi-Layer Map (PNG)",
                         data=img_bytes,
-                        file_name="Multi_Layer_Defect_Map.png",
+                        file_name=filename,
                         mime="image/png"
                     )
                 except Exception as e:
                     st.warning("Image generation not available.")
 
             else:
-                st.warning("No 'True Defects' found in any of the loaded layers to display.")
+                st.warning("No 'True Defects' found matching the selected filters.")
         
         elif st.session_state.active_view == 'layer':
             selected_layer_num = st.session_state.get('selected_layer')
