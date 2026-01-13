@@ -280,3 +280,43 @@ def get_true_defect_coordinates(layer_data: Dict[int, Dict[str, pd.DataFrame]]) 
     defect_coords_df = true_defects_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates()
 
     return set(map(tuple, defect_coords_df.to_numpy()))
+
+def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> pd.DataFrame:
+    """
+    Aggregates and filters defect data from all layers for the Multi-Layer Defect View.
+
+    Logic:
+    1. Iterates through all layers and sides in layer_data.
+    2. Filters out 'Safe' verification values (False Alarms).
+    3. Adds a 'Layer_Label' column (e.g., 'Layer 1 (Front)').
+    4. Returns a single combined DataFrame.
+    """
+    combined_data = []
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+
+    if not layer_data:
+        return pd.DataFrame()
+
+    for layer_num, sides in layer_data.items():
+        for side, df in sides.items():
+            if df.empty: continue
+
+            # Create a copy to avoid SettingWithCopy warnings
+            df_copy = df.copy()
+
+            # Filter for True Defects
+            if 'Verification' in df_copy.columns:
+                is_true_defect = ~df_copy['Verification'].str.upper().isin(safe_values_upper)
+                df_copy = df_copy[is_true_defect]
+
+            if df_copy.empty: continue
+
+            # Add Layer Label
+            side_name = "Front" if side == 'F' else "Back"
+            df_copy['Layer_Label'] = f"Layer {layer_num} ({side_name})"
+
+            combined_data.append(df_copy)
+
+    if combined_data:
+        return pd.concat(combined_data, ignore_index=True)
+    return pd.DataFrame()

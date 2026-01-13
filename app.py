@@ -14,7 +14,7 @@ from src.config import (
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, SAFE_VERIFICATION_VALUES
 )
 from src.data_handler import (
-    load_data, get_true_defect_coordinates,
+    load_data, get_true_defect_coordinates, prepare_multi_layer_data,
     QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
 )
 from src.plotting import (
@@ -352,32 +352,9 @@ def main() -> None:
             st.info("Visualizing 'True Defects' from all loaded layers. Colors indicate the source layer.")
 
             # 1. Aggregate Data from All Layers
-            combined_data = []
-            safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+            combined_df = prepare_multi_layer_data(st.session_state.layer_data)
 
-            for layer_num, sides in st.session_state.layer_data.items():
-                for side, df in sides.items():
-                    if df.empty: continue
-
-                    # Create a copy to avoid SettingWithCopy warnings
-                    df_copy = df.copy()
-
-                    # Filter for True Defects
-                    if 'Verification' in df_copy.columns:
-                        is_true_defect = ~df_copy['Verification'].str.upper().isin(safe_values_upper)
-                        df_copy = df_copy[is_true_defect]
-
-                    if df_copy.empty: continue
-
-                    # Add Layer Label
-                    side_name = "Front" if side == 'F' else "Back"
-                    df_copy['Layer_Label'] = f"Layer {layer_num} ({side_name})"
-
-                    combined_data.append(df_copy)
-
-            if combined_data:
-                combined_df = pd.concat(combined_data, ignore_index=True)
-
+            if not combined_df.empty:
                 # 2. Generate Plot
                 fig = create_multi_layer_defect_map(combined_df, panel_rows, panel_cols)
                 st.plotly_chart(fig, use_container_width=True)
