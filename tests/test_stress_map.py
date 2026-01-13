@@ -40,7 +40,9 @@ def test_aggregate_stress_data_cumulative(sample_layer_data):
     panel_rows = 2
     panel_cols = 2
 
-    result = aggregate_stress_data(sample_layer_data, [1], panel_rows, panel_cols)
+    # Updated signature: List[Tuple[int, str]]
+    # Select BOTH Front and Back for Layer 1
+    result = aggregate_stress_data(sample_layer_data, [(1, 'F'), (1, 'B')], panel_rows, panel_cols)
 
     # assert isinstance(result, StressMapData) # Skipped to avoid class mismatch in test runner
     assert result.total_defects == 2
@@ -51,9 +53,21 @@ def test_aggregate_stress_data_cumulative(sample_layer_data):
     # (0,3) should have 1 defect (Back, physically flipped)
     assert result.grid_counts[0, 3] == 1
 
+def test_aggregate_stress_data_filtered(sample_layer_data):
+    """Test aggregation with only one side selected."""
+    panel_rows = 2
+    panel_cols = 2
+
+    # Select ONLY Front
+    result = aggregate_stress_data(sample_layer_data, [(1, 'F')], panel_rows, panel_cols)
+
+    assert result.total_defects == 1
+    assert result.grid_counts[0, 0] == 1 # Front defect present
+    assert result.grid_counts[0, 3] == 0 # Back defect ignored
+
     # Check Hover Text
     assert "Short" in str(result.hover_text[0, 0])
-    assert "Open" in str(result.hover_text[0, 3])
+    assert "No Defects" in str(result.hover_text[0, 3])
 
 def test_calculate_yield_killers(sample_layer_data):
     """Test KPI calculation."""

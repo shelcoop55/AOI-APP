@@ -389,16 +389,15 @@ def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> 
 
 def aggregate_stress_data(
     layer_data: Dict[int, Dict[str, pd.DataFrame]],
-    selected_layers: List[int],
+    selected_keys: List[Tuple[int, str]],
     panel_rows: int,
     panel_cols: int
 ) -> StressMapData:
     """
-    Aggregates data for the Cumulative Stress Map.
+    Aggregates data for the Cumulative Stress Map using specific (Layer, Side) keys.
 
-    Returns a StressMapData object containing:
-    - grid_counts: (Rows x Cols) grid of defect counts.
-    - hover_text: (Rows x Cols) grid of formatted strings for tooltips.
+    Args:
+        selected_keys: List of tuples (layer_num, side) e.g., [(1, 'F'), (1, 'B')]
     """
     total_cols = panel_cols * 2
     total_rows = panel_rows * 2
@@ -418,44 +417,45 @@ def aggregate_stress_data(
     total_defects_acc = 0
     max_count_acc = 0
 
-    # Iterate selected layers
-    for layer_num in selected_layers:
+    # Iterate selected keys
+    for layer_num, side in selected_keys:
         if layer_num not in layer_data: continue
+        if side not in layer_data[layer_num]: continue
 
-        for side, df in layer_data[layer_num].items():
-            if df.empty: continue
+        df = layer_data[layer_num][side]
+        if df.empty: continue
 
-            # Filter True Defects
-            df_true = df.copy()
-            if 'Verification' in df_true.columns:
-                is_true = ~df_true['Verification'].str.upper().isin(safe_values_upper)
-                df_true = df_true[is_true]
+        # Filter True Defects
+        df_true = df.copy()
+        if 'Verification' in df_true.columns:
+            is_true = ~df_true['Verification'].str.upper().isin(safe_values_upper)
+            df_true = df_true[is_true]
 
-            if df_true.empty: continue
+        if df_true.empty: continue
 
-            # Use PHYSICAL COORDINATES for global grid mapping
-            # Ensure PHYSICAL_X exists
-            if 'PHYSICAL_X' not in df_true.columns:
-                # Should not happen if loaded correctly, but safety
-                df_true['PHYSICAL_X'] = df_true['UNIT_INDEX_X']
-                if side == 'B':
-                    width = panel_cols * 2
-                    df_true['PHYSICAL_X'] = (width - 1) - df_true['UNIT_INDEX_X']
+        # Use PHYSICAL COORDINATES for global grid mapping
+        # Ensure PHYSICAL_X exists
+        if 'PHYSICAL_X' not in df_true.columns:
+            # Should not happen if loaded correctly, but safety
+            df_true['PHYSICAL_X'] = df_true['UNIT_INDEX_X']
+            if side == 'B':
+                width = panel_cols * 2
+                df_true['PHYSICAL_X'] = (width - 1) - df_true['UNIT_INDEX_X']
 
-            # Iterate rows
-            for _, row in df_true.iterrows():
-                gx = int(row['PHYSICAL_X'])
-                gy = int(row['UNIT_INDEX_Y'])
-                dtype = str(row['DEFECT_TYPE'])
+        # Iterate rows
+        for _, row in df_true.iterrows():
+            gx = int(row['PHYSICAL_X'])
+            gy = int(row['UNIT_INDEX_Y'])
+            dtype = str(row['DEFECT_TYPE'])
 
-                # Boundary check (safety)
-                if 0 <= gx < total_cols and 0 <= gy < total_rows:
-                    grid_counts[gy, gx] += 1
-                    total_defects_acc += 1
+            # Boundary check (safety)
+            if 0 <= gx < total_cols and 0 <= gy < total_rows:
+                grid_counts[gy, gx] += 1
+                total_defects_acc += 1
 
-                    # Track Defect Types
-                    if (gy, gx) not in cell_defects: cell_defects[(gy, gx)] = {}
-                    cell_defects[(gy, gx)][dtype] = cell_defects[(gy, gx)].get(dtype, 0) + 1
+                # Track Defect Types
+                if (gy, gx) not in cell_defects: cell_defects[(gy, gx)] = {}
+                cell_defects[(gy, gx)][dtype] = cell_defects[(gy, gx)].get(dtype, 0) + 1
 
 
     # Post-process for Hover Text

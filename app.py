@@ -109,22 +109,37 @@ def main() -> None:
 
             # --- Stress Map Filters ---
             stress_mode = "Cumulative"
-            selected_layers_stress = []
-            delta_group_a = []
-            delta_group_b = []
+            selected_keys_stress = []
+            delta_group_a_keys = []
+            delta_group_b_keys = []
 
             if is_stress_view:
                 with st.expander("🔥 Stress Map Controls", expanded=True):
-                    all_layers = sorted(st.session_state.layer_data.keys())
+                    # Build available Layer-Side options
+                    available_options = []
+                    option_map = {} # "Layer 1 (Front)" -> (1, 'F')
+
+                    all_layer_nums = sorted(st.session_state.layer_data.keys())
+                    for num in all_layer_nums:
+                        sides = sorted(st.session_state.layer_data[num].keys())
+                        for side in sides:
+                            side_label = "Front" if side == 'F' else "Back"
+                            label = f"Layer {num} ({side_label})"
+                            available_options.append(label)
+                            option_map[label] = (num, side)
 
                     stress_mode = st.radio("Analysis Mode", ["Cumulative", "Delta (Difference)"])
 
                     if stress_mode == "Delta (Difference)":
                         st.markdown("**Group A - Group B**")
-                        delta_group_a = st.multiselect("Select Group A (Reference)", options=all_layers, default=all_layers)
-                        delta_group_b = st.multiselect("Select Group B (Comparison)", options=all_layers, default=[])
+                        sel_a = st.multiselect("Select Group A (Reference)", options=available_options, default=available_options)
+                        sel_b = st.multiselect("Select Group B (Comparison)", options=available_options, default=[])
+
+                        delta_group_a_keys = [option_map[k] for k in sel_a]
+                        delta_group_b_keys = [option_map[k] for k in sel_b]
                     else:
-                        selected_layers_stress = st.multiselect("Select Layers to Analyze", options=all_layers, default=all_layers)
+                        sel_cumulative = st.multiselect("Select Data to Analyze", options=available_options, default=available_options)
+                        selected_keys_stress = [option_map[k] for k in sel_cumulative]
 
             # --- Root Cause Filters ---
             slice_axis = 'Y'
@@ -327,15 +342,15 @@ def main() -> None:
 
         elif st.session_state.active_view == 'stress_map':
             st.header("Cumulative Stress Map Analysis")
-            st.info("Aggregates defects across layers into a master grid (12x12). Includes Back-Side alignment.")
+            st.info("Aggregates defects into a master grid. Includes Back-Side alignment.")
 
             # 1. Prepare Data
             if stress_mode == "Cumulative":
-                stress_data = aggregate_stress_data(st.session_state.layer_data, selected_layers_stress, panel_rows, panel_cols)
+                stress_data = aggregate_stress_data(st.session_state.layer_data, selected_keys_stress, panel_rows, panel_cols)
                 fig = create_stress_heatmap(stress_data, panel_rows, panel_cols)
             else: # Delta
-                stress_data_a = aggregate_stress_data(st.session_state.layer_data, delta_group_a, panel_rows, panel_cols)
-                stress_data_b = aggregate_stress_data(st.session_state.layer_data, delta_group_b, panel_rows, panel_cols)
+                stress_data_a = aggregate_stress_data(st.session_state.layer_data, delta_group_a_keys, panel_rows, panel_cols)
+                stress_data_b = aggregate_stress_data(st.session_state.layer_data, delta_group_b_keys, panel_rows, panel_cols)
                 fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols)
 
             # 2. Render Plot
