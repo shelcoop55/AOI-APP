@@ -115,7 +115,7 @@ def test_create_defect_sankey_overlap():
     # Verif unique: ['N', 'Short']
     # Combined: ['Cut', 'Short', 'N', 'Short']
 
-    expected_labels = ['Cut', 'Short', 'N', 'Short']
+    expected_labels = ['Cut (1 - 50.0%)', 'Short (1 - 50.0%)', 'N (1 - 50.0%)', 'Short (1 - 50.0%)']
     assert list(node_labels) == expected_labels
 
     # Check connections based on above indices:
