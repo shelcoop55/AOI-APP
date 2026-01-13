@@ -1,7 +1,7 @@
 """
 Plotting and Visualization Module.
-This version draws a true-to-scale simulation of a 510x510mm physical panel.
-UPDATED: Sankey charts with Neon Palette, 3 types of Heatmaps, and polished styling.
+This version draws a true-to-scale simulation of a 510x510mm physical panel
+with explicit margins and gaps.
 """
 import plotly.graph_objects as go
 import pandas as pd
@@ -10,13 +10,36 @@ import numpy as np
 
 from src.config import (
     PANEL_COLOR, GRID_COLOR, defect_style_map, TEXT_COLOR, BACKGROUND_COLOR, PLOT_AREA_COLOR,
-    PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE,
+    PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, MARGIN_X, MARGIN_Y,
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, FALLBACK_COLORS, SAFE_VERIFICATION_VALUES,
     VERIFICATION_COLOR_SAFE, VERIFICATION_COLOR_DEFECT, NEON_PALETTE
 )
-from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT
 from src.documentation import VERIFICATION_DESCRIPTIONS
 from src.enums import Quadrant
+
+# --- Recalculate Active Area based on Margins and Gaps ---
+# Total Width = MARGIN_X + Active_W + GAP + Active_W + MARGIN_X
+# Active_W = (PANEL_WIDTH - 2*MARGIN_X - GAP_SIZE) / 2
+ACTIVE_QUADRANT_WIDTH = (PANEL_WIDTH - (2 * MARGIN_X) - GAP_SIZE) / 2
+ACTIVE_QUADRANT_HEIGHT = (PANEL_HEIGHT - (2 * MARGIN_Y) - GAP_SIZE) / 2
+
+# Origins for the 4 Quadrants (Top-Left 0,0 based on global panel)
+# Q1: Top-Left
+Q1_ORIGIN = (MARGIN_X, MARGIN_Y)
+# Q2: Top-Right
+Q2_ORIGIN = (MARGIN_X + ACTIVE_QUADRANT_WIDTH + GAP_SIZE, MARGIN_Y)
+# Q3: Bottom-Left
+Q3_ORIGIN = (MARGIN_X, MARGIN_Y + ACTIVE_QUADRANT_HEIGHT + GAP_SIZE)
+# Q4: Bottom-Right
+Q4_ORIGIN = (MARGIN_X + ACTIVE_QUADRANT_WIDTH + GAP_SIZE, MARGIN_Y + ACTIVE_QUADRANT_HEIGHT + GAP_SIZE)
+
+# Map Quadrant Keys to Origins
+QUADRANT_ORIGINS = {
+    'Q1': Q1_ORIGIN,
+    'Q2': Q2_ORIGIN,
+    'Q3': Q3_ORIGIN,
+    'Q4': Q4_ORIGIN
+}
 
 # ==============================================================================
 # --- Private Helper Functions for Grid Creation ---
@@ -25,43 +48,64 @@ from src.enums import Quadrant
 def _draw_border_and_gaps() -> List[Dict[str, Any]]:
     """Creates the shapes for the outer border and inner gaps of the panel."""
     shapes = []
-    gap_color = '#A8652A'
-    total_width_with_gap = PANEL_WIDTH + GAP_SIZE
-    total_height_with_gap = PANEL_HEIGHT + GAP_SIZE
+    # Visual cues for dead zones (Margins and Gaps)
+    # We can draw a large rectangle for the whole panel (background)
+    # and then overlay the active quadrants. Or draw the gaps.
 
-    # Outer border frame
-    shapes.extend([
-        dict(type="rect", x0=0, y0=total_height_with_gap, x1=total_width_with_gap, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=0, y0=-GAP_SIZE, x1=total_width_with_gap, y1=0, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=-GAP_SIZE, y0=-GAP_SIZE, x1=0, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=total_width_with_gap, y0=-GAP_SIZE, x1=total_width_with_gap + GAP_SIZE, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below')
-    ])
+    # Let's draw the "Dead Zone" background
+    shapes.append(dict(
+        type="rect",
+        x0=0, y0=0, x1=PANEL_WIDTH, y1=PANEL_HEIGHT,
+        fillcolor=PLOT_AREA_COLOR, # Dark Grey for background
+        line=dict(color=GRID_COLOR, width=2),
+        layer='below'
+    ))
 
-    # Inner gaps
-    shapes.extend([
-        dict(type="rect", x0=QUADRANT_WIDTH, y0=0, x1=QUADRANT_WIDTH + GAP_SIZE, y1=total_height_with_gap, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=0, y0=QUADRANT_HEIGHT, x1=total_width_with_gap, y1=QUADRANT_HEIGHT + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below')
-    ])
+    # We don't need explicit gap rectangles if we draw the active quadrants on top.
     return shapes
 
-def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int, fill: bool = True) -> List[Dict[str, Any]]:
+def _draw_quadrant_grids(origins_to_draw: Dict[str, Tuple[float, float]], panel_rows: int, panel_cols: int, fill: bool = True) -> List[Dict[str, Any]]:
     """Creates the shapes for the quadrant outlines and their internal grid lines."""
     shapes = []
-    cell_width = QUADRANT_WIDTH / panel_cols
-    cell_height = QUADRANT_HEIGHT / panel_rows
 
-    for x_start, y_start in origins_to_draw.values():
+    # Calculate cell size based on Active Dimensions
+    cell_width = ACTIVE_QUADRANT_WIDTH / panel_cols
+    cell_height = ACTIVE_QUADRANT_HEIGHT / panel_rows
+
+    for quad_key, (x_start, y_start) in origins_to_draw.items():
+        # Draw the Active Quadrant Background
         if fill:
             shapes.append(dict(
-                type="rect", x0=x_start, y0=y_start, x1=x_start + QUADRANT_WIDTH, y1=y_start + QUADRANT_HEIGHT,
-                line=dict(color=GRID_COLOR, width=2), fillcolor=PANEL_COLOR, layer='below'
+                type="rect",
+                x0=x_start, y0=y_start,
+                x1=x_start + ACTIVE_QUADRANT_WIDTH, y1=y_start + ACTIVE_QUADRANT_HEIGHT,
+                line=dict(color=GRID_COLOR, width=2),
+                fillcolor=PANEL_COLOR,
+                layer='below'
             ))
+
+        # Draw Internal Grid Lines
         for i in range(1, panel_cols):
             line_x = x_start + (i * cell_width)
-            shapes.append(dict(type="line", x0=line_x, y0=y_start, x1=line_x, y1=y_start + QUADRANT_HEIGHT, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
+            shapes.append(dict(
+                type="line",
+                x0=line_x, y0=y_start,
+                x1=line_x, y1=y_start + ACTIVE_QUADRANT_HEIGHT,
+                line=dict(color=GRID_COLOR, width=1, dash='solid'),
+                opacity=0.3,
+                layer='below'
+            ))
+
         for i in range(1, panel_rows):
             line_y = y_start + (i * cell_height)
-            shapes.append(dict(type="line", x0=x_start, y0=line_y, x1=x_start + QUADRANT_WIDTH, y1=line_y, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
+            shapes.append(dict(
+                type="line",
+                x0=x_start, y0=line_y,
+                x1=x_start + ACTIVE_QUADRANT_WIDTH, y1=line_y,
+                line=dict(color=GRID_COLOR, width=1, dash='solid'),
+                opacity=0.3,
+                layer='below'
+            ))
             
     return shapes
 
@@ -71,16 +115,14 @@ def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int
 
 def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', fill: bool = True) -> List[Dict[str, Any]]:
     """
-    Creates the visual shapes for the panel grid in a fixed 510x510mm coordinate system.
+    Creates the visual shapes for the panel grid in a fixed 510x515mm coordinate system.
     """
-    all_origins = {
-        'Q1': (0, 0), 'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0),
-        'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE), 'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)
-    }
-    origins_to_draw = all_origins if quadrant == 'All' else {quadrant: all_origins[quadrant]}
+    origins_to_draw = QUADRANT_ORIGINS if quadrant == 'All' else {quadrant: QUADRANT_ORIGINS[quadrant]}
+
     shapes = []
     if quadrant == 'All':
         shapes.extend(_draw_border_and_gaps())
+
     shapes.extend(_draw_quadrant_grids(origins_to_draw, panel_rows, panel_cols, fill=fill))
     return shapes
 
@@ -91,35 +133,24 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     traces = []
     if df.empty: return traces
 
-    # Check the flag. If mixed (some rows T, some F), default to True if any are True
     has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
-
-    # Determine what column to group by
     group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
-
     unique_groups = df[group_col].unique()
 
-    # --- COLOR MAPPING ---
     local_style_map = {}
-
     if group_col == 'DEFECT_TYPE':
-        # Use the standard defect style map + fallback
         local_style_map = defect_style_map.copy()
         fallback_index = 0
         for dtype in unique_groups:
             if dtype not in local_style_map:
-                color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
-                local_style_map[dtype] = color
+                local_style_map[dtype] = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
                 fallback_index += 1
     else:
-        # For Verification codes (CU22, N, etc.), generate a map on the fly
         fallback_index = 0
         for code in unique_groups:
-            color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
-            local_style_map[code] = color
+            local_style_map[code] = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
             fallback_index += 1
 
-    # Generate traces
     for group_val, color in local_style_map.items():
         dff = df[df[group_col] == group_val]
         if not dff.empty:
@@ -130,7 +161,6 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
                  dff['Description'] = "N/A"
 
             custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description']
-
             hovertemplate = ("<b>Status: %{customdata[4]}</b><br>"
                              "Description : %{customdata[5]}<br>"
                              "Type: %{customdata[2]}<br>"
@@ -147,63 +177,47 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
                 customdata=dff[custom_data_cols],
                 hovertemplate=hovertemplate
             ))
-
     return traces
 
 def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols: int, use_real_coords: bool = False) -> go.Figure:
     """
     Creates a defect map visualizing defects from ALL layers simultaneously.
-
-    Logic:
-    - Group by Layer Number (Same Color)
-    - Distinguish by Side (Different Symbol: Front=Circle, Back=Diamond)
-    - Optionally use real coordinates (plot_x_coord) if use_real_coords=True
+    UPDATED: Granular Legend Control (No Grouping).
     """
     fig = go.Figure()
 
     if not df.empty:
-        # Ensure LAYER_NUM exists
-        if 'LAYER_NUM' not in df.columns:
-            # Fallback if column missing (should not happen with new prepare_multi_layer_data)
-            df['LAYER_NUM'] = 0
+        if 'LAYER_NUM' not in df.columns: df['LAYER_NUM'] = 0
 
-        # Determine Coordinate columns
+        # Use real coords by default now as preferred by user logic, but keep flag
         x_col = 'plot_x_coord' if use_real_coords and 'plot_x_coord' in df.columns else 'plot_x'
         y_col = 'plot_y_coord' if use_real_coords and 'plot_y_coord' in df.columns else 'plot_y'
 
         unique_layer_nums = sorted(df['LAYER_NUM'].unique())
-
-        # Generate colors for layers
-        # Reuse NEON_PALETTE + FALLBACK_COLORS
-        layer_colors = {}
-        for i, num in enumerate(unique_layer_nums):
-            layer_colors[num] = FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
-
-        # Symbol Mapping
-        # Front = Circle (Standard)
-        # Back = Diamond (Distinct, implies flip side)
+        layer_colors = {num: FALLBACK_COLORS[i % len(FALLBACK_COLORS)] for i, num in enumerate(unique_layer_nums)}
         symbol_map = {'F': 'circle', 'B': 'diamond'}
 
-        # Group by (Layer, Side) to create traces
-        # We iterate through layers first to keep legend organized
         for layer_num in unique_layer_nums:
             layer_color = layer_colors[layer_num]
-
-            # Filter for this layer
             layer_df = df[df['LAYER_NUM'] == layer_num]
 
-            # Iterate through sides present in this layer
-            # Sort sides to keep Front before Back usually, or alphabetical
             for side in sorted(layer_df['SIDE'].unique()):
                 dff = layer_df[layer_df['SIDE'] == side]
-
-                # Determine Symbol
-                symbol = symbol_map.get(side, 'circle') # Default to circle if unknown
-
+                symbol = symbol_map.get(side, 'circle')
                 side_name = "Front" if side == 'F' else "Back"
+
+                # Further break down by Defect Type or just Layer/Side?
+                # User asked for "Legend per trace". Usually this means per Defect Type if colored by Type.
+                # But here we color by Layer.
+                # If we want to toggle specific defects, we should iterate types too?
+                # But that would explode the legend (Layer 1 Front Short, Layer 1 Front Open...)
+                # The user said: "toggle individual traces" (plural).
+                # Current implementation: Trace per Layer+Side.
+                # If I remove legendgroup, I can toggle "Layer 1 (Front)" independently of "Layer 1 (Back)".
+                # This seems to be what is requested vs "Grouped".
+
                 trace_name = f"Layer {layer_num} ({side_name})"
 
-                # Prepare hover data
                 if 'Verification' in dff.columns:
                      dff = dff.copy()
                      dff['Description'] = dff['Verification'].map(VERIFICATION_DESCRIPTIONS).fillna("Unknown Code")
@@ -212,7 +226,7 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
 
                 custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description', 'SOURCE_FILE']
 
-                hovertemplate = ("<b>Layer: %{data.legendgroup}</b><br>"
+                hovertemplate = ("<b>Layer: " + str(layer_num) + "</b><br>"
                                  "Side: " + side_name + "<br>"
                                  "Status: %{customdata[4]}<br>"
                                  "Type: %{customdata[2]}<br>"
@@ -227,11 +241,11 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
                     marker=dict(
                         color=layer_color,
                         symbol=symbol,
-                        size=9, # Slightly larger for visibility
+                        size=9,
                         line=dict(width=1, color='black')
                     ),
                     name=trace_name,
-                    legendgroup=f"Layer {layer_num}", # Group traces by Layer in legend
+                    # REMOVED legendgroup to allow individual toggling
                     customdata=dff[custom_data_cols],
                     hovertemplate=hovertemplate
                 ))
@@ -239,12 +253,23 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
     # Add Grid and Layout
     fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All'))
 
-    # Calculate ticks (reused from standard map logic)
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
-    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    # Calculate Ticks based on Active Areas
+    cell_width = ACTIVE_QUADRANT_WIDTH / panel_cols
+    cell_height = ACTIVE_QUADRANT_HEIGHT / panel_rows
+
+    # Ticks for Q1/Q3 (Left) and Q2/Q4 (Right)
+    # Note: Ticks should align with the center of the UNIT, relative to the QUADRANT ORIGIN
+    x_tick_vals = []
+    # Q1/Q3 X-ticks
+    x_tick_vals.extend([MARGIN_X + (i * cell_width) + (cell_width/2) for i in range(panel_cols)])
+    # Q2/Q4 X-ticks
+    x_tick_vals.extend([MARGIN_X + ACTIVE_QUADRANT_WIDTH + GAP_SIZE + (i * cell_width) + (cell_width/2) for i in range(panel_cols)])
+
+    y_tick_vals = []
+    # Q1/Q2 Y-ticks
+    y_tick_vals.extend([MARGIN_Y + (i * cell_height) + (cell_height/2) for i in range(panel_rows)])
+    # Q3/Q4 Y-ticks
+    y_tick_vals.extend([MARGIN_Y + ACTIVE_QUADRANT_HEIGHT + GAP_SIZE + (i * cell_height) + (cell_height/2) for i in range(panel_rows)])
 
     title_text = "Multi-Layer Combined Defect Map"
     subtitle = "(Real Coordinates)" if use_real_coords else "(Unit Grid + Jitter)"
@@ -253,15 +278,15 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
         title=dict(text=f"{title_text} {subtitle}", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
         xaxis=dict(
             title="Unit Column Index",
-            tickvals=x_tick_vals_q1 + x_tick_vals_q2,
-            range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], constrain='domain',
+            tickvals=x_tick_vals,
+            range=[0, PANEL_WIDTH], constrain='domain', # Use full panel width
             showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True,
             title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
         ),
         yaxis=dict(
             title="Unit Row Index",
-            tickvals=y_tick_vals_q1 + y_tick_vals_q3,
-            range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)],
+            tickvals=y_tick_vals,
+            range=[0, PANEL_HEIGHT], # Use full panel height
             scaleanchor="x", scaleratio=1,
             showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True,
             title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
@@ -280,37 +305,55 @@ def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int,
     fig = go.Figure(data=create_defect_traces(df))
     fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection))
 
-    # Calculate ticks and ranges
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
-    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    # Ticks
+    cell_width = ACTIVE_QUADRANT_WIDTH / panel_cols
+    cell_height = ACTIVE_QUADRANT_HEIGHT / panel_rows
+
+    x_tick_vals = []
+    x_tick_vals.extend([MARGIN_X + (i * cell_width) + (cell_width/2) for i in range(panel_cols)])
+    x_tick_vals.extend([MARGIN_X + ACTIVE_QUADRANT_WIDTH + GAP_SIZE + (i * cell_width) + (cell_width/2) for i in range(panel_cols)])
+
+    y_tick_vals = []
+    y_tick_vals.extend([MARGIN_Y + (i * cell_height) + (cell_height/2) for i in range(panel_rows)])
+    y_tick_vals.extend([MARGIN_Y + ACTIVE_QUADRANT_HEIGHT + GAP_SIZE + (i * cell_height) + (cell_height/2) for i in range(panel_rows)])
+
     x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
-    x_axis_range, y_axis_range, show_ticks = [-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], [-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)], True
+
+    # Ranges
+    x_axis_range = [0, PANEL_WIDTH]
+    y_axis_range = [0, PANEL_HEIGHT]
+    show_ticks = True
 
     if quadrant_selection != Quadrant.ALL.value:
         show_ticks = False
-        ranges = {
-            'Q1': ([0, QUADRANT_WIDTH], [0, QUADRANT_HEIGHT]),
-            'Q2': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [0, QUADRANT_HEIGHT]),
-            'Q3': ([0, QUADRANT_WIDTH], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]),
-            'Q4': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE])
-        }
-        x_axis_range, y_axis_range = ranges[quadrant_selection]
+        # Calculate localized ranges
+        origin = QUADRANT_ORIGINS[quadrant_selection]
+        x_axis_range = [origin[0], origin[0] + ACTIVE_QUADRANT_WIDTH]
+        y_axis_range = [origin[1], origin[1] + ACTIVE_QUADRANT_HEIGHT]
 
     final_title = title if title else f"Panel Defect Map - Quadrant: {quadrant_selection}"
 
     fig.update_layout(
         title=dict(text=final_title, font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
-        xaxis=dict(title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=x_tick_vals_q1 + x_tick_vals_q2 if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, constrain='domain', showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-        yaxis=dict(title="Unit Row Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=y_tick_vals_q1 + y_tick_vals_q3 if show_ticks else [], ticktext=y_tick_text if show_ticks else [], range=y_axis_range, scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
+        xaxis=dict(
+            title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR),
+            tickvals=x_tick_vals if show_ticks else [], ticktext=x_tick_text if show_ticks else [],
+            range=x_axis_range, constrain='domain',
+            showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True
+        ),
+        yaxis=dict(
+            title="Unit Row Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR),
+            tickvals=y_tick_vals if show_ticks else [], ticktext=y_tick_text if show_ticks else [],
+            range=y_axis_range, scaleanchor="x", scaleratio=1,
+            showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True
+        ),
+        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR,
+        legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
         hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"), height=800
     )
 
     if lot_number and quadrant_selection == Quadrant.ALL.value:
-        fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
+        fig.add_annotation(x=PANEL_WIDTH, y=PANEL_HEIGHT, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
 
     return fig
 
@@ -387,8 +430,9 @@ def create_still_alive_map(panel_rows: int, panel_cols: int, true_defect_coords:
     """
     shapes = []
     total_cols, total_rows = panel_cols * 2, panel_rows * 2
-    all_origins = {'Q1': (0, 0), 'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0), 'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE), 'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)}
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+
+    cell_width = ACTIVE_QUADRANT_WIDTH / panel_cols
+    cell_height = ACTIVE_QUADRANT_HEIGHT / panel_rows
 
     # 1. Draw the colored cells first (without borders)
     for row in range(total_rows):
@@ -396,8 +440,10 @@ def create_still_alive_map(panel_rows: int, panel_cols: int, true_defect_coords:
             quadrant_col, local_col = divmod(col, panel_cols)
             quadrant_row, local_row = divmod(row, panel_rows)
             quad_key = f"Q{quadrant_row * 2 + quadrant_col + 1}"
-            x_origin, y_origin = all_origins[quad_key]
+            x_origin, y_origin = QUADRANT_ORIGINS[quad_key]
+
             x0, y0 = x_origin + local_col * cell_width, y_origin + local_row * cell_height
+
             fill_color = DEFECTIVE_CELL_COLOR if (col, row) in true_defect_coords else ALIVE_CELL_COLOR
             shapes.append({'type': 'rect', 'x0': x0, 'y0': y0, 'x1': x0 + cell_width, 'y1': y0 + cell_height, 'fillcolor': fill_color, 'line': {'width': 0}, 'layer': 'below'})
 
@@ -413,25 +459,32 @@ def create_still_alive_figure(panel_rows: int, panel_cols: int, true_defect_coor
     fig = go.Figure()
     map_shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
 
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
-    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    # Ticks Calculation
+    cell_width = ACTIVE_QUADRANT_WIDTH / panel_cols
+    cell_height = ACTIVE_QUADRANT_HEIGHT / panel_rows
+
+    x_tick_vals = []
+    x_tick_vals.extend([MARGIN_X + (i * cell_width) + (cell_width/2) for i in range(panel_cols)])
+    x_tick_vals.extend([MARGIN_X + ACTIVE_QUADRANT_WIDTH + GAP_SIZE + (i * cell_width) + (cell_width/2) for i in range(panel_cols)])
+
+    y_tick_vals = []
+    y_tick_vals.extend([MARGIN_Y + (i * cell_height) + (cell_height/2) for i in range(panel_rows)])
+    y_tick_vals.extend([MARGIN_Y + ACTIVE_QUADRANT_HEIGHT + GAP_SIZE + (i * cell_height) + (cell_height/2) for i in range(panel_rows)])
+
     x_tick_text = list(range(panel_cols * 2))
     y_tick_text = list(range(panel_rows * 2))
 
     fig.update_layout(
         title=dict(text=f"Still Alive Map ({len(true_defect_coords)} Defective Cells)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
         xaxis=dict(
-            title="Unit Column Index", range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], constrain='domain',
-            tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text,
+            title="Unit Column Index", range=[0, PANEL_WIDTH], constrain='domain',
+            tickvals=x_tick_vals, ticktext=x_tick_text,
             showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor=GRID_COLOR, mirror=True,
             title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
         ),
         yaxis=dict(
-            title="Unit Row Index", range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)],
-            tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text,
+            title="Unit Row Index", range=[0, PANEL_HEIGHT],
+            tickvals=y_tick_vals, ticktext=y_tick_text,
             scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor=GRID_COLOR, mirror=True,
             title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
         ),
@@ -696,8 +749,8 @@ def create_density_contour_map(df: pd.DataFrame, panel_rows: int, panel_cols: in
 
     fig.update_layout(
         title=dict(text="2. Smoothed Defect Density (Hotspots)", font=dict(color=TEXT_COLOR, size=18)),
-        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], constrain='domain', tickfont=dict(color=TEXT_COLOR)),
-        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
+        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[0, PANEL_WIDTH], constrain='domain', tickfont=dict(color=TEXT_COLOR)),
+        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[0, PANEL_HEIGHT], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
         shapes=shapes,
         plot_bgcolor=PLOT_AREA_COLOR,
         paper_bgcolor=BACKGROUND_COLOR,
@@ -748,8 +801,8 @@ def create_hexbin_density_map(df: pd.DataFrame, panel_rows: int, panel_cols: int
 
     fig.update_layout(
         title=dict(text="3. High-Res Coordinate Density (Raster)", font=dict(color=TEXT_COLOR, size=18)),
-        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], constrain='domain', tickfont=dict(color=TEXT_COLOR)),
-        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
+        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[0, PANEL_WIDTH], constrain='domain', tickfont=dict(color=TEXT_COLOR)),
+        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[0, PANEL_HEIGHT], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
         shapes=shapes,
         plot_bgcolor=PLOT_AREA_COLOR,
         paper_bgcolor=BACKGROUND_COLOR,

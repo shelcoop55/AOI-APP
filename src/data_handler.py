@@ -292,7 +292,10 @@ def get_true_defect_coordinates(layer_data: Dict[int, Dict[str, pd.DataFrame]]) 
 def normalize_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> pd.DataFrame:
     """
     Normalizes raw X_COORDINATES (microns) and Y_COORDINATES (microns) to the physical panel space (mm).
-    Also handles Back side mirroring and visual gap insertion.
+
+    UPDATED:
+    - Coordinates are assumed to be absolute (including gaps/margins), so no extra gap is added.
+    - Back side coordinates are NOT flipped (as per user instruction).
     """
     if 'X_COORDINATES' not in df.columns or 'Y_COORDINATES' not in df.columns:
         # Fallback if coords missing
@@ -306,30 +309,10 @@ def normalize_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int) ->
 
     # Fill NaNs with 0 to avoid errors, though valid_data check elsewhere might be better.
     # But here we want to process all rows.
-    x_mm = df['X_COORDINATES'].fillna(0) / 1000.0
-    y_mm = df['Y_COORDINATES'].fillna(0) / 1000.0
-
-    # 2. Handle Back Side Mirroring
-    # If SIDE == 'B', Flip X relative to Panel Width
-    # We assume 'B' means we need to flip the X coordinate to align with 'F' view.
-    if 'SIDE' in df.columns:
-        mask_b = df['SIDE'] == 'B'
-        x_mm = np.where(mask_b, PANEL_WIDTH - x_mm, x_mm)
-
-    # 3. Apply Gap Shift
-    # Split point is Center of Panel
-    x_center = PANEL_WIDTH / 2
-    y_center = PANEL_HEIGHT / 2
-
-    # If x >= center, shift right by GAP_SIZE
-    # We use >= to be consistent with right quadrants
-    plot_x = np.where(x_mm >= x_center, x_mm + GAP_SIZE, x_mm)
-
-    # If y >= center, shift down by GAP_SIZE
-    plot_y = np.where(y_mm >= y_center, y_mm + GAP_SIZE, y_mm)
-
-    df['plot_x_coord'] = plot_x
-    df['plot_y_coord'] = plot_y
+    # We assume these are absolute coordinates relative to the panel origin (0,0)
+    # matching the physical layout (including gaps/margins).
+    df['plot_x_coord'] = df['X_COORDINATES'].fillna(0) / 1000.0
+    df['plot_y_coord'] = df['Y_COORDINATES'].fillna(0) / 1000.0
 
     return df
 

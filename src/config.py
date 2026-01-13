@@ -9,8 +9,13 @@ including color themes and the method for loading defect-specific styles.
 # These define the real-world dimensions of the panel being simulated.
 PANEL_WIDTH = 510
 PANEL_HEIGHT = 515
+
 # The physical gap between the quadrants on the panel.
-GAP_SIZE = 20
+GAP_SIZE = 13.0
+
+# Margins (Keep Out Zones)
+MARGIN_X = 18.5
+MARGIN_Y = 20.0
 
 
 # --- Style Theme: Post-Etch AOI Panel ---
