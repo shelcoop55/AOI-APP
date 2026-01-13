@@ -26,7 +26,7 @@ from src.plotting import (
     create_defect_sankey, create_defect_sunburst,
     create_still_alive_figure, create_defect_map_figure, create_pareto_figure,
     create_unit_grid_heatmap, create_density_contour_map, create_hexbin_density_map,
-    create_multi_layer_defect_map, create_stress_heatmap, create_delta_heatmap, create_dominant_layer_map,
+    create_multi_layer_defect_map, create_stress_heatmap, create_delta_heatmap,
     create_cross_section_heatmap
 )
 from src.reporting import generate_excel_report, generate_coordinate_list_report, generate_zip_package
@@ -112,13 +112,12 @@ def main() -> None:
             selected_layers_stress = []
             delta_group_a = []
             delta_group_b = []
-            yield_threshold = 0
 
             if is_stress_view:
                 with st.expander("🔥 Stress Map Controls", expanded=True):
                     all_layers = sorted(st.session_state.layer_data.keys())
 
-                    stress_mode = st.radio("Analysis Mode", ["Cumulative", "Delta (Difference)", "Dominant Layer"])
+                    stress_mode = st.radio("Analysis Mode", ["Cumulative", "Delta (Difference)"])
 
                     if stress_mode == "Delta (Difference)":
                         st.markdown("**Group A - Group B**")
@@ -126,10 +125,6 @@ def main() -> None:
                         delta_group_b = st.multiselect("Select Group B (Comparison)", options=all_layers, default=[])
                     else:
                         selected_layers_stress = st.multiselect("Select Layers to Analyze", options=all_layers, default=all_layers)
-
-                    st.divider()
-                    st.markdown("**Yield Impact Simulation**")
-                    yield_threshold = st.slider("Hotspot Threshold (Defects)", min_value=0, max_value=50, value=0, help="Mask cells with defects > threshold (simulate fixing them). 0 = No masking.")
 
             # --- Root Cause Filters ---
             slice_axis = 'Y'
@@ -338,48 +333,13 @@ def main() -> None:
             if stress_mode == "Cumulative":
                 stress_data = aggregate_stress_data(st.session_state.layer_data, selected_layers_stress, panel_rows, panel_cols)
                 fig = create_stress_heatmap(stress_data, panel_rows, panel_cols)
-            elif stress_mode == "Dominant Layer":
-                stress_data = aggregate_stress_data(st.session_state.layer_data, selected_layers_stress, panel_rows, panel_cols)
-                fig = create_dominant_layer_map(stress_data, panel_rows, panel_cols)
             else: # Delta
                 stress_data_a = aggregate_stress_data(st.session_state.layer_data, delta_group_a, panel_rows, panel_cols)
                 stress_data_b = aggregate_stress_data(st.session_state.layer_data, delta_group_b, panel_rows, panel_cols)
                 fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols)
-                # Use data A for yield simulation as reference? Or sum?
-                # For simplicity, we use the Union of A+B for yield base, or just disable yield sim in Delta mode.
-                stress_data = stress_data_a # Placeholder for metric calculation below if needed
 
             # 2. Render Plot
             st.plotly_chart(fig, use_container_width=True)
-
-            # 3. Yield Simulation Metrics
-            if stress_mode != "Delta (Difference)":
-                st.divider()
-                st.subheader("Yield Impact Simulation")
-
-                total_cells = (panel_rows * 2) * (panel_cols * 2)
-
-                # Actual (Current)
-                # Count cells with > 0 defects
-                defective_cells_actual = np.count_nonzero(stress_data.grid_counts)
-                yield_actual = ((total_cells - defective_cells_actual) / total_cells) * 100 if total_cells > 0 else 0
-
-                # Simulated (Masked)
-                if yield_threshold > 0:
-                    # Mask cells where count > threshold. Treat them as "Fixed" (0 defects).
-                    # So we only count cells where 0 < count <= threshold
-                    sim_defective = np.count_nonzero((stress_data.grid_counts > 0) & (stress_data.grid_counts <= yield_threshold))
-                    yield_sim = ((total_cells - sim_defective) / total_cells) * 100 if total_cells > 0 else 0
-
-                    delta_yield = yield_sim - yield_actual
-
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Actual Yield", f"{yield_actual:.2f}%")
-                    col2.metric("Simulated Yield", f"{yield_sim:.2f}%", delta=f"{delta_yield:.2f}%")
-                    col3.info(f"Threshold: > {yield_threshold} defects masked (Simulating fix of hotspots)")
-                else:
-                    st.metric("Actual Yield", f"{yield_actual:.2f}%")
-                    st.caption("Increase threshold slider in sidebar to simulate yield improvement.")
 
         elif st.session_state.active_view == 'root_cause':
             st.header("Root Cause & Diagnostics Dashboard")

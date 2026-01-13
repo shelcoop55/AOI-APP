@@ -66,8 +66,6 @@ class StressMapData:
     """Container for stress map aggregation results."""
     grid_counts: np.ndarray          # 2D array of total defect counts
     hover_text: np.ndarray           # 2D array of hover text strings
-    dominant_layer: np.ndarray       # 2D array of layer IDs with max defects
-    dominant_count: np.ndarray       # 2D array of count for dominant layer
     total_defects: int               # Total defects in selection
     max_count: int                   # Max count in any single cell
 
@@ -401,8 +399,6 @@ def aggregate_stress_data(
     Returns a StressMapData object containing:
     - grid_counts: (Rows x Cols) grid of defect counts.
     - hover_text: (Rows x Cols) grid of formatted strings for tooltips.
-    - dominant_layer: (Rows x Cols) grid of Layer ID with most defects.
-    - dominant_count: (Rows x Cols) grid of count for that dominant layer.
     """
     total_cols = panel_cols * 2
     total_rows = panel_rows * 2
@@ -412,14 +408,10 @@ def aggregate_stress_data(
     # Using 'object' dtype for string arrays to hold arbitrary length strings
     hover_text = np.empty((total_rows, total_cols), dtype=object)
     hover_text[:] = ""
-    dominant_layer = np.zeros((total_rows, total_cols), dtype=int)
-    dominant_count = np.zeros((total_rows, total_cols), dtype=int)
 
     # Helper structures for drill-down
     # cell_defects[(y, x)] = { 'Short': 10, 'Open': 5 }
     cell_defects: Dict[Tuple[int, int], Dict[str, int]] = {}
-    # cell_layers[(y, x)] = { 1: 20, 2: 5 }
-    cell_layers: Dict[Tuple[int, int], Dict[int, int]] = {}
 
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
 
@@ -465,11 +457,8 @@ def aggregate_stress_data(
                     if (gy, gx) not in cell_defects: cell_defects[(gy, gx)] = {}
                     cell_defects[(gy, gx)][dtype] = cell_defects[(gy, gx)].get(dtype, 0) + 1
 
-                    # Track Layers
-                    if (gy, gx) not in cell_layers: cell_layers[(gy, gx)] = {}
-                    cell_layers[(gy, gx)][layer_num] = cell_layers[(gy, gx)].get(layer_num, 0) + 1
 
-    # Post-process for Hover Text and Dominant Layer
+    # Post-process for Hover Text
     for y in range(total_rows):
         for x in range(total_cols):
             count = grid_counts[y, x]
@@ -488,23 +477,12 @@ def aggregate_stress_data(
                     tooltip += f"<br>... (+{len(sorted_defects)-3} types)"
 
                 hover_text[y, x] = tooltip
-
-                # 2. Dominant Layer
-                layers_map = cell_layers.get((y, x), {})
-                if layers_map:
-                    # Sort by count desc, then by layer num asc (tie breaker)
-                    sorted_layers = sorted(layers_map.items(), key=lambda item: (-item[1], item[0]))
-                    best_layer, best_count = sorted_layers[0]
-                    dominant_layer[y, x] = best_layer
-                    dominant_count[y, x] = best_count
             else:
                 hover_text[y, x] = "No Defects"
 
     return StressMapData(
         grid_counts=grid_counts,
         hover_text=hover_text,
-        dominant_layer=dominant_layer,
-        dominant_count=dominant_count,
         total_defects=total_defects_acc,
         max_count=max_count_acc
     )

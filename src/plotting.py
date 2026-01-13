@@ -918,64 +918,6 @@ def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_row
     _configure_stress_map_layout(fig, panel_rows, panel_cols, "Delta Stress Map (Group A - Group B)")
     return fig
 
-def create_dominant_layer_map(data: StressMapData, panel_rows: int, panel_cols: int) -> go.Figure:
-    """
-    Creates a Categorical Heatmap showing which Layer contributed the most defects.
-    """
-    if data.total_defects == 0:
-        return go.Figure(layout=dict(
-            title=dict(text="No True Defects Found in Selection", font=dict(color=TEXT_COLOR)),
-            paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=PLOT_AREA_COLOR
-        ))
-
-    # We use a Scatter plot with square markers to handle categorical colors more easily than heatmap
-    rows, cols = data.grid_counts.shape
-
-    x_vals = []
-    y_vals = []
-    colors = []
-    texts = []
-    hovers = []
-
-    for y in range(rows):
-        for x in range(cols):
-            layer_id = data.dominant_layer[y, x]
-            if layer_id > 0:
-                x_vals.append(x)
-                y_vals.append(y)
-
-                # Color mapping
-                color_idx = layer_id % len(NEON_PALETTE)
-                colors.append(NEON_PALETTE[color_idx])
-
-                # Text: Layer ID
-                texts.append(f"L{layer_id}")
-
-                # Hover
-                count = data.dominant_count[y, x]
-                total = data.grid_counts[y, x]
-                hovers.append(f"Unit: ({x}, {y})<br>Dominant: Layer {layer_id} ({count}/{total})")
-
-    fig = go.Figure(data=go.Scatter(
-        x=x_vals,
-        y=y_vals,
-        mode='markers+text',
-        marker=dict(
-            symbol='square',
-            size=30, # Large squares to fill grid (approx) - ideally Heatmap is better for sizing but this works for categories
-            color=colors,
-            line=dict(width=1, color='black')
-        ),
-        text=texts,
-        textfont=dict(color='black', size=12), # Black text on Neon colors usually readable
-        textposition="middle center",
-        hovertext=hovers,
-        hoverinfo="text"
-    ))
-
-    _configure_stress_map_layout(fig, panel_rows, panel_cols, "Dominant Layer Analysis (Layer with Max Defects)")
-    return fig
-
 def create_cross_section_heatmap(
     matrix: np.ndarray,
     layer_labels: List[str],
