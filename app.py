@@ -128,25 +128,28 @@ def main() -> None:
             smoothing_factor = 30
             saturation_cap = 0
             show_points = False
-            show_grid = True
+            show_grid = True # Default True, overriden if heatmap selected
+
+            # Common Layer-Side Logic for Analysis Views
+            available_options = []
+            option_map = {}
+            all_layer_nums = sorted(st.session_state.layer_data.keys())
+            for num in all_layer_nums:
+                sides = sorted(st.session_state.layer_data[num].keys())
+                for side in sides:
+                    side_label = "Front" if side == 'F' else "Back"
+                    label = f"Layer {num} ({side_label})"
+                    available_options.append(label)
+                    option_map[label] = (num, side)
+
+            # Heatmap specific filters
+            selected_keys_heatmap = []
 
             if is_analysis_dashboard:
                 subview = st.session_state.analysis_subview
 
                 if subview == ViewMode.STRESS.value:
                     with st.expander("🔥 Stress Map Controls", expanded=True):
-                        # Build available Layer-Side options
-                        available_options = []
-                        option_map = {}
-                        all_layer_nums = sorted(st.session_state.layer_data.keys())
-                        for num in all_layer_nums:
-                            sides = sorted(st.session_state.layer_data[num].keys())
-                            for side in sides:
-                                side_label = "Front" if side == 'F' else "Back"
-                                label = f"Layer {num} ({side_label})"
-                                available_options.append(label)
-                                option_map[label] = (num, side)
-
                         stress_mode = st.radio("Analysis Mode", ["Cumulative", "Delta (Difference)"])
 
                         if stress_mode == "Delta (Difference)":
@@ -171,9 +174,13 @@ def main() -> None:
 
                 elif subview == ViewMode.HEATMAP.value:
                     with st.expander("🌡️ Heatmap Settings", expanded=True):
+                        sel_heatmap = st.multiselect("Select Data to Analyze", options=available_options, default=available_options)
+                        selected_keys_heatmap = [option_map[k] for k in sel_heatmap]
+
                         smoothing_factor = st.slider("Smoothing (Bin Size)", min_value=10, max_value=100, value=30)
                         saturation_cap = st.slider("Color Saturation Cap (Defects)", min_value=0, max_value=100, value=0, help="0 = Auto")
-                        # Removed overlay checkboxes as per request
+                        # Grid and Points removed as per request
+                        show_grid = False
 
             # --- Layer Inspection Controls (Legacy) ---
             active_df = pd.DataFrame()
@@ -408,29 +415,31 @@ def main() -> None:
 
             elif subview == ViewMode.HEATMAP.value:
                 st.header("Heatmap Analysis")
-                # Use currently selected layer/side context from main session state as fallback or require explicit selection?
-                # The user asked to move it to Analysis.
-                # Ideally, Analysis Dashboard should probably be global (all layers) or selection based.
-                # However, Heatmaps (Contour) are usually single-layer or single-view.
-                # We will use the selected_layer/side from state as context.
+                st.info("Visualizing smoothed defect density across selected layers.")
 
-                layer_info = st.session_state.layer_data.get(st.session_state.selected_layer, {})
-                full_side_df = layer_info.get(st.session_state.selected_side)
+                # Combine selected data
+                combined_heatmap_df = pd.DataFrame()
+                if selected_keys_heatmap:
+                    dfs_to_concat = []
+                    for layer_num, side in selected_keys_heatmap:
+                        df = st.session_state.layer_data.get(layer_num, {}).get(side)
+                        if df is not None and not df.empty:
+                            dfs_to_concat.append(df)
 
-                if full_side_df is not None and not full_side_df.empty:
-                    st.caption(f"Analyzing: Layer {st.session_state.selected_layer} - {st.session_state.selected_side}")
-                    st.plotly_chart(create_unit_grid_heatmap(full_side_df, panel_rows, panel_cols), use_container_width=True)
+                    if dfs_to_concat:
+                        combined_heatmap_df = pd.concat(dfs_to_concat, ignore_index=True)
 
+                if not combined_heatmap_df.empty:
                     contour_fig = create_density_contour_map(
-                        full_side_df, panel_rows, panel_cols,
+                        combined_heatmap_df, panel_rows, panel_cols,
                         show_points=show_points,
                         smoothing_factor=smoothing_factor,
                         saturation_cap=saturation_cap,
-                        show_grid=show_grid
+                        show_grid=show_grid # Hardcoded False above
                     )
                     st.plotly_chart(contour_fig, use_container_width=True)
                 else:
-                    st.warning("No data available for the selected layer/side. Please select a layer from the top buttons.")
+                    st.warning("No data available for the selected layers.")
 
             elif subview == ViewMode.INSIGHTS.value:
                 st.header("Insights & Sankey View")
