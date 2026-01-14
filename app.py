@@ -166,11 +166,20 @@ def main() -> None:
                 elif subview == ViewMode.ROOT_CAUSE.value:
                      with st.expander("🔬 Cross-Section Controls", expanded=True):
                         st.markdown("Virtual Z-Axis Slicer")
-                        slice_axis_label = st.radio("Slice Axis", ["By Row (Y)", "By Column (X)"], index=0)
-                        slice_axis = 'Y' if "Row" in slice_axis_label else 'X'
+                        st.caption("Select a Region of Interest (ROI) to visualize vertically.")
 
-                        max_idx = (panel_rows * 2) - 1 if slice_axis == 'Y' else (panel_cols * 2) - 1
-                        slice_index = st.slider(f"Select {slice_axis} Index", min_value=0, max_value=max_idx, value=int(max_idx/2))
+                        # Dual Axis Range Sliders
+                        max_x = (panel_cols * 2) - 1
+                        max_y = (panel_rows * 2) - 1
+
+                        col_slice_1, col_slice_2 = st.columns(2)
+                        with col_slice_1:
+                            x_range = st.slider("X Range (Columns)", min_value=0, max_value=max_x, value=(0, max_x))
+                        with col_slice_2:
+                            y_range = st.slider("Y Range (Rows)", min_value=0, max_value=max_y, value=(0, max_y))
+
+                        slice_axis_label = st.radio("View Projection (Slice Axis)", ["By Row (Project onto X)", "By Column (Project onto Y)"], index=0)
+                        slice_axis = 'Y' if "Row" in slice_axis_label else 'X'
 
                 elif subview == ViewMode.HEATMAP.value:
                     with st.expander("🌡️ Heatmap Settings", expanded=True):
@@ -402,14 +411,18 @@ def main() -> None:
                 st.divider()
 
                 # 2. Virtual Cross-Section
-                st.subheader("Virtual Cross-Section (Z-Axis Slicer)")
-                st.info(f"Visualizing vertical defect propagation. Slicing by {slice_axis} Index: {slice_index}")
+                st.subheader("Virtual Cross-Section (Region of Interest)")
 
-                matrix, layer_labels, axis_labels = get_cross_section_matrix(st.session_state.layer_data, slice_axis, slice_index, panel_rows, panel_cols)
+                proj_desc = "X-Axis" if slice_axis == 'Y' else "Y-Axis"
+                st.info(f"Visualizing vertical defect propagation within ROI (X: {x_range}, Y: {y_range}). Projecting onto {proj_desc}.")
+
+                matrix, layer_labels, axis_labels = get_cross_section_matrix(
+                    st.session_state.layer_data, slice_axis, x_range, y_range, panel_rows, panel_cols
+                )
 
                 fig = create_cross_section_heatmap(
                     matrix, layer_labels, axis_labels,
-                    f"Slicing Axis: {slice_axis} at Index {slice_index}"
+                    f"ROI Slice: X{x_range} / Y{y_range} (View: {slice_axis})"
                 )
                 st.plotly_chart(fig, use_container_width=True)
 

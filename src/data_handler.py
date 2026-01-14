@@ -551,41 +551,44 @@ def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], pane
 def get_cross_section_matrix(
     layer_data: Dict[int, Dict[str, pd.DataFrame]],
     slice_axis: str,
-    slice_index: int,
+    x_range: Tuple[int, int],
+    y_range: Tuple[int, int],
     panel_rows: int,
     panel_cols: int
 ) -> Tuple[np.ndarray, List[str], List[str]]:
     """
-    Constructs the 2D cross-section matrix for Root Cause Analysis.
+    Constructs the 2D cross-section matrix for Root Cause Analysis based on a Region of Interest.
 
     Args:
-        slice_axis: 'X' (Slice by Column, show Layers vs Y) or 'Y' (Slice by Row, show Layers vs X)
-        slice_index: The index of the row/col to slice.
+        slice_axis: 'X' (View along Column, axis is Y) or 'Y' (View along Row, axis is X).
+        x_range: Tuple (min, max) for X-axis filtering.
+        y_range: Tuple (min, max) for Y-axis filtering.
 
     Returns:
         (matrix, layer_labels, axis_labels)
-        matrix: 2D array (Num Layers x Width/Height) containing defect counts.
-        layer_labels: List of strings for Y-axis (Layer 1, Layer 2...) - Sorted.
-        axis_labels: List of strings for X-axis (Unit 0, Unit 1...).
     """
     sorted_layers = sorted(layer_data.keys())
     num_layers = len(sorted_layers)
     if num_layers == 0:
         return np.zeros((0,0)), [], []
 
-    # Dimensions
-    total_width = panel_cols * 2
-    total_height = panel_rows * 2
+    # 1. Determine Matrix Dimensions based on Projection Axis (slice_axis)
+    # If slice_axis == 'Y' (Row View), we project onto X. Matrix width is length of x_range.
+    # If slice_axis == 'X' (Col View), we project onto Y. Matrix width is length of y_range.
 
-    # Define matrix shape based on slice direction
-    # If Slicing Y (Row): Result is (Layers x Width) -> X-axis is Unit X
-    # If Slicing X (Col): Result is (Layers x Height) -> X-axis is Unit Y
+    if slice_axis == 'Y':
+        # Projection Axis is X
+        start, end = x_range
+        width_dim = end - start + 1
+        axis_labels = [str(i) for i in range(start, end + 1)]
+    else:
+        # Projection Axis is Y
+        start, end = y_range
+        width_dim = end - start + 1
+        axis_labels = [str(i) for i in range(start, end + 1)]
 
-    width_dim = total_width if slice_axis == 'Y' else total_height
     matrix = np.zeros((num_layers, width_dim), dtype=int)
-
     layer_labels = [f"L{num}" for num in sorted_layers]
-    axis_labels = [str(i) for i in range(width_dim)]
 
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
 
@@ -601,30 +604,29 @@ def get_cross_section_matrix(
 
             if df_copy.empty: continue
 
-            # Filter to the slice
-            # If Slicing Y (Row): Keep rows where UNIT_INDEX_Y == slice_index
-            # If Slicing X (Col): Keep rows where PHYSICAL_X == slice_index
+            # 2. Filter by ROI (Both X and Y ranges)
+            relevant_defects = df_copy[
+                (df_copy['UNIT_INDEX_X'] >= x_range[0]) & (df_copy['UNIT_INDEX_X'] <= x_range[1]) &
+                (df_copy['UNIT_INDEX_Y'] >= y_range[0]) & (df_copy['UNIT_INDEX_Y'] <= y_range[1])
+            ]
 
+            if relevant_defects.empty: continue
+
+            # 3. Aggregate based on Projection Axis
             if slice_axis == 'Y':
-                # Slice by Row. We want defects at this Y.
-                # Plot X-axis will be UNIT_INDEX_X (Raw).
-                relevant_defects = df_copy[df_copy['UNIT_INDEX_Y'] == slice_index]
-                if not relevant_defects.empty:
-                    # Count defects per X column
-                    counts = relevant_defects.groupby('UNIT_INDEX_X').size()
-                    for x_idx, count in counts.items():
-                        if 0 <= x_idx < total_width:
-                            matrix[i, int(x_idx)] += count
-
-            else: # Slice 'X'
-                # Slice by Column. We want defects at this X (UNIT_INDEX_X).
-                # Plot X-axis will be UNIT_INDEX_Y.
-                relevant_defects = df_copy[df_copy['UNIT_INDEX_X'] == slice_index]
-                if not relevant_defects.empty:
-                    # Count defects per Y row
-                    counts = relevant_defects.groupby('UNIT_INDEX_Y').size()
-                    for y_idx, count in counts.items():
-                         if 0 <= y_idx < total_height:
-                            matrix[i, int(y_idx)] += count
+                # View along Row. Plot X-axis is UNIT_INDEX_X.
+                counts = relevant_defects.groupby('UNIT_INDEX_X').size()
+                for x_idx, count in counts.items():
+                    # Map global index to matrix index (0 to width)
+                    if x_range[0] <= x_idx <= x_range[1]:
+                        col_idx = int(x_idx) - x_range[0]
+                        matrix[i, col_idx] += count
+            else:
+                # View along Column. Plot X-axis is UNIT_INDEX_Y.
+                counts = relevant_defects.groupby('UNIT_INDEX_Y').size()
+                for y_idx, count in counts.items():
+                    if y_range[0] <= y_idx <= y_range[1]:
+                        col_idx = int(y_idx) - y_range[0]
+                        matrix[i, col_idx] += count
 
     return matrix, layer_labels, axis_labels
