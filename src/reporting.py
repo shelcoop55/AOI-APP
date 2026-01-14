@@ -121,6 +121,7 @@ def _create_panel_wide_top_defects_sheet(writer, formats, full_df):
 
     top_offenders = full_df['DEFECT_TYPE'].value_counts().reset_index()
     top_offenders.columns = ['Defect Type', 'Count']
+    top_offenders = top_offenders[top_offenders['Count'] > 0]
     top_offenders['Percentage'] = (top_offenders['Count'] / len(full_df))
 
     top_offenders.to_excel(writer, sheet_name=sheet_name, startrow=1, header=False, index=False)
@@ -157,6 +158,7 @@ def _create_per_quadrant_top_defects_sheets(writer, formats, full_df):
 
             top_offenders = quad_df['DEFECT_TYPE'].value_counts().reset_index()
             top_offenders.columns = ['Defect Type', 'Count']
+            top_offenders = top_offenders[top_offenders['Count'] > 0]
             top_offenders['Percentage'] = (top_offenders['Count'] / len(quad_df))
             
             top_offenders.to_excel(writer, sheet_name=sheet_name, startrow=1, header=False, index=False)

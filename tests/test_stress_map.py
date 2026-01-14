@@ -2,13 +2,16 @@ import pytest
 import pandas as pd
 import numpy as np
 from src.data_handler import aggregate_stress_data, StressMapData, calculate_yield_killers, get_cross_section_matrix, YieldKillerMetrics
+from src.models import PanelData, BuildUpLayer
 
 @pytest.fixture
 def sample_layer_data():
     """
-    Creates a sample layer_data dictionary for testing.
+    Creates a sample layer_data PanelData object for testing.
     Panel size: 2x2 (Width=4, Height=4 units total).
     """
+    panel = PanelData()
+
     # Layer 1: Front side. Defect at (0,0) [Q1]
     df1 = pd.DataFrame({
         'DEFECT_ID': [1],
@@ -19,6 +22,13 @@ def sample_layer_data():
         'PHYSICAL_X': [0], # Calculated by load_data usually
         'SIDE': ['F']
     })
+    # Convert types as per data_handler logic
+    df1['UNIT_INDEX_X'] = df1['UNIT_INDEX_X'].astype('int32')
+    df1['UNIT_INDEX_Y'] = df1['UNIT_INDEX_Y'].astype('int32')
+    df1['DEFECT_TYPE'] = df1['DEFECT_TYPE'].astype('category')
+
+    l1f = BuildUpLayer(1, 'F', df1, 2, 2)
+    panel.add_layer(l1f)
 
     # Layer 1: Back side. Defect at (0,0) raw [Q1].
     # Physical X for Back side with width 4: (4-1) - 0 = 3.
@@ -32,8 +42,15 @@ def sample_layer_data():
         'PHYSICAL_X': [3], # Simulating correct loading logic
         'SIDE': ['B']
     })
+    # Convert types
+    df2['UNIT_INDEX_X'] = df2['UNIT_INDEX_X'].astype('int32')
+    df2['UNIT_INDEX_Y'] = df2['UNIT_INDEX_Y'].astype('int32')
+    df2['DEFECT_TYPE'] = df2['DEFECT_TYPE'].astype('category')
 
-    return {1: {'F': df1, 'B': df2}}
+    l1b = BuildUpLayer(1, 'B', df2, 2, 2)
+    panel.add_layer(l1b)
+
+    return panel
 
 def test_aggregate_stress_data_cumulative(sample_layer_data):
     """Test standard cumulative aggregation."""
@@ -42,7 +59,7 @@ def test_aggregate_stress_data_cumulative(sample_layer_data):
 
     # Updated signature: List[Tuple[int, str]]
     # Select BOTH Front and Back for Layer 1
-    result = aggregate_stress_data(sample_layer_data, [(1, 'F'), (1, 'B')], panel_rows, panel_cols)
+    result = aggregate_stress_data(sample_layer_data, [(1, 'F'), (1, 'B')], panel_rows, panel_cols, sample_layer_data.id)
 
     # assert isinstance(result, StressMapData) # Skipped to avoid class mismatch in test runner
     assert result.total_defects == 2
@@ -61,7 +78,7 @@ def test_aggregate_stress_data_filtered(sample_layer_data):
     panel_cols = 2
 
     # Select ONLY Front
-    result = aggregate_stress_data(sample_layer_data, [(1, 'F')], panel_rows, panel_cols)
+    result = aggregate_stress_data(sample_layer_data, [(1, 'F')], panel_rows, panel_cols, sample_layer_data.id)
 
     assert result.total_defects == 1
     assert result.grid_counts[0, 0] == 1 # Front defect present

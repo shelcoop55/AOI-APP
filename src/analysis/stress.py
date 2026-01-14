@@ -42,16 +42,17 @@ class StressMapTool(AnalysisTool):
         params = self.store.analysis_params
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
         mode = st.session_state.get('stress_mode', 'Cumulative')
+        panel_uid = self.store.layer_data.id
 
         if mode == "Cumulative":
             keys = st.session_state.get('selected_keys_stress', [])
-            stress_data = aggregate_stress_data(self.store.layer_data, keys, panel_rows, panel_cols)
+            stress_data = aggregate_stress_data(self.store.layer_data, keys, panel_rows, panel_cols, panel_uid)
             fig = create_stress_heatmap(stress_data, panel_rows, panel_cols)
         else: # Delta
             keys_a = st.session_state.get('delta_group_a', [])
             keys_b = st.session_state.get('delta_group_b', [])
-            stress_data_a = aggregate_stress_data(self.store.layer_data, keys_a, panel_rows, panel_cols)
-            stress_data_b = aggregate_stress_data(self.store.layer_data, keys_b, panel_rows, panel_cols)
+            stress_data_a = aggregate_stress_data(self.store.layer_data, keys_a, panel_rows, panel_cols, panel_uid)
+            stress_data_b = aggregate_stress_data(self.store.layer_data, keys_b, panel_rows, panel_cols, panel_uid)
             fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols)
 
         st.plotly_chart(fig, use_container_width=True)
