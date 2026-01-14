@@ -18,142 +18,222 @@ class ViewManager:
         self.store = store
 
     def render_navigation(self):
-        """Renders the top navigation bar (Layer Selection, View Switching)."""
+        """
+        Renders the top navigation controls.
+        Specific logic for 'Layer Inspection' view where we show Layer/Side/Quadrant/Verification controls.
+        """
         if not self.store.layer_data:
             return
 
-        with st.container():
-            # Create a layout: Layer Selector (Left) | View Mode Toggles (Right)
-            col1, col2 = st.columns([2, 1])
+        # Only render the top control bar if we are in the main 'Layer Inspection' mode
+        if self.store.active_view == 'layer':
+            self._render_layer_inspection_controls()
+            st.divider()
 
-            with col1:
-                self._render_layer_selector()
+    def _render_layer_inspection_controls(self):
+        """Renders the top control row for Layer Inspection."""
 
-            with col2:
-                self._render_global_view_toggles()
-
-        st.divider()
-
-    def _render_layer_selector(self):
-        """Renders the scalable layer selection widget."""
+        # Prepare Data for Dropdowns
         layer_keys = sorted(self.store.layer_data.keys())
         if not layer_keys:
             return
 
-        # Prepare options for the selectbox
-        options = []
-        option_map = {}
+        # Layer Options
+        layer_options = []
+        layer_option_map = {}
         for num in layer_keys:
-            first_side_key = next(iter(self.store.layer_data[num]))
-            # Handle empty dataframe case safely
+            # Try to get BU name
+            bu_name = ""
             try:
+                first_side_key = next(iter(self.store.layer_data[num]))
                 source_file = self.store.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0]
                 bu_name = get_bu_name_from_filename(str(source_file))
-            except (IndexError, AttributeError):
-                bu_name = ""
-
+            except (IndexError, AttributeError, StopIteration):
+                pass
             label = f"Layer {num}: {bu_name}" if bu_name else f"Layer {num}"
-            options.append(label)
-            option_map[label] = num
+            layer_options.append(label)
+            layer_option_map[label] = num
 
-        # Current selection index
-        current_layer = self.store.selected_layer
-        current_index = 0
-        if current_layer:
-             for i, opt in enumerate(options):
-                 if option_map[opt] == current_layer:
-                     current_index = i
+        # Determine Current Layer Index
+        current_layer_idx = 0
+        if self.store.selected_layer:
+             for i, opt in enumerate(layer_options):
+                 if layer_option_map[opt] == self.store.selected_layer:
+                     current_layer_idx = i
                      break
 
-        def on_layer_change():
-            label = st.session_state.layer_selector
-            layer_num = option_map[label]
-            self.store.set_layer_view(layer_num)
-            # Auto-select side logic
-            layer_info = self.store.layer_data.get(layer_num, {})
-            if 'F' in layer_info:
-                self.store.selected_side = 'F'
-            elif 'B' in layer_info:
-                self.store.selected_side = 'B'
-            elif layer_info:
-                 self.store.selected_side = next(iter(layer_info.keys()))
+        # Prepare Data for Side Toggle
+        # Default options
+        side_options = ["Front", "Back"]
+        # If current layer has limited sides, we might want to disable one?
+        # But keeping it simple for now as per design.
+        current_side_label = "Front" if self.store.selected_side == 'F' else "Back"
 
-        # Layout: Layer Select | Side Select
-        sub_col1, sub_col2 = st.columns([2, 1])
+        # Prepare Data for Verification
+        active_df = pd.DataFrame()
+        if self.store.selected_layer:
+            layer_info = self.store.layer_data.get(self.store.selected_layer, {})
+            active_df = layer_info.get(self.store.selected_side, pd.DataFrame())
 
-        with sub_col1:
+        ver_options = ['All'] + sorted(active_df['Verification'].unique().tolist()) if not active_df.empty and 'Verification' in active_df.columns else ['All']
+        current_ver = self.store.verification_selection
+        current_ver_idx = ver_options.index(current_ver) if current_ver in ver_options else 0
+
+        # --- Layout: 4 Columns ---
+        col1, col2, col3, col4 = st.columns(4)
+
+        # 1. Layer Selection
+        with col1:
+            def on_layer_change():
+                label = st.session_state.layer_selector_top
+                layer_num = layer_option_map[label]
+                self.store.set_layer_view(layer_num)
+                # Auto-select side logic
+                layer_info = self.store.layer_data.get(layer_num, {})
+                if 'F' in layer_info:
+                    self.store.selected_side = 'F'
+                elif 'B' in layer_info:
+                    self.store.selected_side = 'B'
+                elif layer_info:
+                     self.store.selected_side = next(iter(layer_info.keys()))
+
             st.selectbox(
                 "Select Layer",
-                options=options,
-                index=current_index,
-                key="layer_selector",
+                options=layer_options,
+                index=current_layer_idx,
+                key="layer_selector_top",
                 on_change=on_layer_change,
                 label_visibility="collapsed"
             )
 
-        with sub_col2:
-            # Render Side Toggles if in Layer View
-            # We show it even if not strictly in 'layer' view if a layer is selected,
-            # to allow easy context switching.
-            if self.store.selected_layer:
-                layer_info = self.store.layer_data.get(self.store.selected_layer, {})
-                if len(layer_info) >= 1:
-                    sides = sorted(layer_info.keys())
-                    side_options = ["Front" if s == 'F' else "Back" for s in sides]
-                    side_map_rev = {"Front": 'F', "Back": 'B'}
+        # 2. Side Selection (Front/Back)
+        with col2:
+            def on_side_change():
+                label = st.session_state.side_selector_top
+                self.store.selected_side = 'F' if label == "Front" else 'B'
 
-                    current_side_label = "Front" if self.store.selected_side == 'F' else "Back"
-                    # Validate current selection
-                    if current_side_label not in side_options and side_options:
-                         current_side_label = side_options[0]
+            # Use pills if available for button-like toggle
+            if hasattr(st, "pills"):
+                 st.pills(
+                     "Side",
+                     side_options,
+                     selection_mode="single",
+                     default=current_side_label,
+                     key="side_selector_top",
+                     on_change=on_side_change,
+                     label_visibility="collapsed"
+                 )
+            else:
+                 st.radio(
+                     "Side",
+                     side_options,
+                     horizontal=True,
+                     key="side_selector_top",
+                     on_change=on_side_change,
+                     index=side_options.index(current_side_label),
+                     label_visibility="collapsed"
+                 )
 
-                    def on_side_change():
-                         label = st.session_state.side_selector
-                         self.store.selected_side = side_map_rev[label]
+        # 3. Quadrant Selection
+        with col3:
+            quad_options = Quadrant.values()
+            curr_quad = self.store.quadrant_selection
+            curr_quad_idx = quad_options.index(curr_quad) if curr_quad in quad_options else 0
 
-                    # Use pills if available (st 1.40+) or radio
-                    if hasattr(st, "pills"):
-                         st.pills(
-                             "Side",
-                             side_options,
-                             selection_mode="single",
-                             default=current_side_label,
-                             key="side_selector",
-                             on_change=on_side_change,
-                             label_visibility="collapsed"
-                         )
-                    else:
-                         st.radio(
-                             "Side",
-                             side_options,
-                             horizontal=True,
-                             key="side_selector",
-                             on_change=on_side_change,
-                             index=side_options.index(current_side_label) if current_side_label in side_options else 0,
-                             label_visibility="collapsed"
-                         )
+            st.selectbox(
+                "Quadrant",
+                options=quad_options,
+                index=curr_quad_idx,
+                key="quadrant_selection", # Updates store automatically via SessionStore proxy? No, store reads session state
+                label_visibility="collapsed",
+                # Note: SessionStore properties might not auto-sync if we don't use on_change or property setter
+                # But app.py initializes widgets with keys.
+                # Ideally we explicitly set it.
+                on_change=lambda: setattr(self.store, 'quadrant_selection', st.session_state.quadrant_selection)
+            )
 
-    def _render_global_view_toggles(self):
-        # Buttons for Global Views
-        col_sa, col_ml = st.columns(2)
+        # 4. Verification Filter
+        with col4:
+            st.selectbox(
+                "Verification",
+                options=ver_options,
+                index=current_ver_idx,
+                key="verification_selection",
+                label_visibility="collapsed",
+                on_change=lambda: setattr(self.store, 'verification_selection', st.session_state.verification_selection)
+            )
 
-        with col_sa:
-             is_active = self.store.active_view == 'still_alive'
-             st.button(
-                 "Still Alive",
-                 type="primary" if is_active else "secondary",
-                 use_container_width=True,
-                 on_click=lambda: setattr(self.store, 'active_view', 'still_alive')
-             )
+        # --- Tabs for View Mode ---
+        st.markdown("") # Spacer
+        tab_labels = ["Defect View", "Summary View", "Pareto View"]
+        # Map tab labels to ViewMode values
+        tab_map = {
+            "Defect View": ViewMode.DEFECT.value,
+            "Summary View": ViewMode.SUMMARY.value,
+            "Pareto View": ViewMode.PARETO.value
+        }
 
-        with col_ml:
-             is_active = self.store.active_view == 'multi_layer_defects'
-             st.button(
-                 "Multi-Layer",
-                 type="primary" if is_active else "secondary",
-                 use_container_width=True,
-                 on_click=lambda: setattr(self.store, 'active_view', 'multi_layer_defects')
-             )
+        # Determine current tab index
+        current_view = self.store.view_mode
+        # If current view is not one of these (e.g. legacy), default to Defect
+        current_tab = "Defect View"
+        for label, val in tab_map.items():
+            if val == current_view:
+                current_tab = label
+                break
+
+        # We can't easily programmatically set the active tab in st.tabs
+        # Use st.radio or st.segmented_control (pills) for the look of tabs if we want state control?
+        # Standard st.tabs contains content.
+        # Design requirement: "Below Layer Selection Give Three tab option"
+        # Since st.tabs are containers, we wrap the content rendering in them.
+
+        # Implementation: We render the tabs here, and inside each tab, we call render_main_view logic?
+        # BUT render_main_view is called separately in app.py logic.
+        # Better approach: Use st.tabs to SET the view mode, or use custom styled radio/pills looking like tabs.
+        # Using actual st.tabs implies the content is inside.
+
+        # Let's use st.tabs and conditionally render content inside?
+        # Problem: st.tabs renders all tabs at once (or lazy loads).
+        # If we just want them to act as buttons:
+
+        # Use st.pills for "Tabs" look-alike if available, or just render the content using st.tabs wrapper in render_main_view
+        # But render_navigation is separated.
+
+        # Solution: We will NOT render st.tabs here. We will render st.tabs in render_main_view if mode is layer.
+        # Wait, the user said "Below Layer Selection Give Three tab option".
+        # If I put st.tabs in `render_navigation`, I can't easily put the chart area inside them unless I merge the functions.
+        # But `app.py` calls `render_navigation` (outside fragment) then `render_main_view` (inside fragment).
+
+        # To support "Tabs" that switch the view (and thus the fragment content):
+        # We can use a segmented control or pills here in `render_navigation` that updates `store.view_mode`.
+
+        st.write("") # Spacer
+
+        def on_tab_change():
+             label = st.session_state.view_mode_selector
+             self.store.view_mode = tab_map[label]
+
+        if hasattr(st, "pills"):
+            st.pills(
+                "",
+                tab_labels,
+                selection_mode="single",
+                default=current_tab,
+                key="view_mode_selector",
+                on_change=on_tab_change,
+                label_visibility="collapsed"
+            )
+        else:
+             st.radio(
+                "",
+                tab_labels,
+                horizontal=True,
+                key="view_mode_selector",
+                index=tab_labels.index(current_tab),
+                on_change=on_tab_change,
+                label_visibility="collapsed"
+            )
 
     def render_main_view(self):
         """Dispatches the rendering to the appropriate view function."""
@@ -178,6 +258,9 @@ class ViewManager:
             tool.render_main()
 
         elif self.store.active_view == 'layer':
+            # Note: We are not using st.tabs container because the tabs are navigation controls
+            # (handled in render_navigation) that switch the `view_mode`.
+            # We just render the content for the selected mode.
             render_layer_view(
                 self.store,
                 self.store.view_mode,

@@ -113,9 +113,6 @@ def main() -> None:
         st.divider()
 
         # --- Sidebar State Logic ---
-        is_still_alive_view = store.active_view == 'still_alive'
-        is_multi_layer_view = store.active_view == 'multi_layer_defects'
-        is_analysis_dashboard = store.active_view == 'analysis_dashboard'
 
         # Only show advanced controls if data is loaded
         if store.layer_data:
@@ -123,106 +120,100 @@ def main() -> None:
                 store.clear_all()
                 st.rerun()
 
-            # --- Still Alive Controls ---
-            if is_still_alive_view:
-                 # We import this locally or assume it uses st.session_state
-                 # Ideally, refactor this to use keys and not return values?
-                 # render_still_alive_sidebar(store) sets st.session_state values.
-                 from src.views.still_alive import render_still_alive_sidebar
-                 render_still_alive_sidebar(store)
-
-            # --- Multi-Layer Filters ---
-            if is_multi_layer_view:
-                with st.expander("🛠️ Multi-Layer Filters", expanded=True):
-                    all_layers = sorted(store.layer_data.keys())
-                    all_sides = set()
-                    for l_data in store.layer_data.values():
-                        all_sides.update(l_data.keys())
-
-                    side_map = {'F': 'Front', 'B': 'Back'}
-                    side_map_rev = {'Front': 'F', 'Back': 'B'}
-                    available_side_labels = sorted([side_map.get(s, s) for s in all_sides])
-
-                    # We map widgets directly to session state keys if possible, or update store
-                    # Since multi_layer_selection is a List property in store backed by session state,
-                    # we can set the key directly.
-
-                    st.multiselect(
-                        "Select Layers",
-                        options=all_layers,
-                        default=all_layers,
-                        key="multi_layer_selection"
-                    )
-
-                    # Side selection is trickier because we need to map names back to F/B
-                    # We can use a callback or just process it here.
-                    # Let's keep it simple: read widget, update store.
-                    sel_sides_labels = st.multiselect(
-                         "Select Sides",
-                         options=available_side_labels,
-                         default=available_side_labels,
-                         key="multi_side_selection_widget" # Temp key
-                    )
-                    store.multi_side_selection = [side_map_rev.get(label, label) for label in sel_sides_labels]
-
             # --- Analysis Tools (Strategy Pattern) ---
             with st.expander("🔍 Analysis Tools", expanded=True):
-                st.caption("Advanced Defect Analysis")
-                analysis_options = [ViewMode.HEATMAP.value, ViewMode.STRESS.value, ViewMode.ROOT_CAUSE.value, ViewMode.INSIGHTS.value]
+                st.caption("Select Analysis View")
+                # Extended Options including Still Alive and Multi-Layer
+                analysis_options = [
+                    ViewMode.HEATMAP.value,
+                    ViewMode.STRESS.value,
+                    ViewMode.ROOT_CAUSE.value,
+                    ViewMode.INSIGHTS.value,
+                    ViewMode.STILL_ALIVE.value,
+                    ViewMode.MULTI_LAYER.value
+                ]
 
-                # Update store when radio changes
+                # We need to sync `store.active_view` and `store.analysis_subview`
+                # If active_view is 'layer', we might want to unselect the radio or show a "Layer View" option?
+                # For simplicity, let's treat "Layer View" as the default state when NOT in Analysis Dashboard.
+                # However, the user wants Still Alive/Multi-Layer reachable from here.
+                # Let's add "Layer Inspection" as the first option to allow returning to it.
+
+                # NOTE: ViewMode.DEFECT is "Defect View", which is a sub-view of Layer Inspection.
+                # We'll use a custom string "Layer Inspection" to represent the main view.
+                LAYER_INSPECTION_LABEL = "Layer Inspection"
+                full_options = [LAYER_INSPECTION_LABEL] + analysis_options
+
+                # Determine current selection based on store state
+                current_selection = LAYER_INSPECTION_LABEL
+                if store.active_view == 'layer':
+                    current_selection = LAYER_INSPECTION_LABEL
+                elif store.active_view == 'still_alive':
+                    current_selection = ViewMode.STILL_ALIVE.value
+                elif store.active_view == 'multi_layer_defects':
+                    current_selection = ViewMode.MULTI_LAYER.value
+                elif store.active_view == 'analysis_dashboard':
+                    current_selection = store.analysis_subview
+
+                def on_view_change():
+                    selection = st.session_state.main_view_selector
+                    if selection == LAYER_INSPECTION_LABEL:
+                        store.active_view = 'layer'
+                    elif selection == ViewMode.STILL_ALIVE.value:
+                        store.active_view = 'still_alive'
+                    elif selection == ViewMode.MULTI_LAYER.value:
+                        store.active_view = 'multi_layer_defects'
+                    else:
+                        store.active_view = 'analysis_dashboard'
+                        store.analysis_subview = selection
+
                 st.radio(
-                    "Select Module",
-                    analysis_options,
-                    index=analysis_options.index(store.analysis_subview) if store.analysis_subview in analysis_options else 0,
-                    key="analysis_subview",
-                    on_change=lambda: setattr(store, 'analysis_subview', st.session_state.analysis_subview)
+                    "Go to:",
+                    full_options,
+                    index=full_options.index(current_selection) if current_selection in full_options else 0,
+                    key="main_view_selector",
+                    on_change=on_view_change
                 )
-
-                if st.button("🚀 Show Analysis Dashboard", use_container_width=True):
-                    store.active_view = 'analysis_dashboard'
-                    st.rerun()
 
                 st.divider()
 
-                # Delegate Control Rendering
-                # Note: analysis tools might need refactoring to use keys instead of returns
-                # But for now, if they use st.selectbox etc, it triggers rerun.
-                tool_instance = get_analysis_tool(store.analysis_subview, store)
-                tool_instance.render_sidebar()
+                # Render Sub-controls for specific analysis tools if active
+                if store.active_view == 'analysis_dashboard':
+                    tool_instance = get_analysis_tool(store.analysis_subview, store)
+                    if tool_instance:
+                        tool_instance.render_sidebar()
 
-            # --- Layer Inspection Controls ---
-            active_df = pd.DataFrame()
-            if store.selected_layer:
-                layer_info = store.layer_data.get(store.selected_layer, {})
-                active_df = layer_info.get(store.selected_side, pd.DataFrame())
+                # Render Still Alive Sidebar controls if active
+                if store.active_view == 'still_alive':
+                     from src.views.still_alive import render_still_alive_sidebar
+                     render_still_alive_sidebar(store)
 
-            if store.active_view == 'layer':
-                with st.expander("📊 Layer Inspection", expanded=True):
-                    layer_view_options = [ViewMode.DEFECT.value, ViewMode.PARETO.value, ViewMode.SUMMARY.value]
-                    st.radio(
-                        "Select View",
-                        layer_view_options,
-                        key="view_mode" # Auto-updates st.session_state.view_mode
-                    )
+                # Render Multi-Layer Sidebar controls if active
+                if store.active_view == 'multi_layer_defects':
+                    with st.expander("🛠️ Multi-Layer Filters", expanded=True):
+                        all_layers = sorted(store.layer_data.keys())
+                        all_sides = set()
+                        for l_data in store.layer_data.values():
+                            all_sides.update(l_data.keys())
 
-                    st.selectbox(
-                        "Select Quadrant",
-                        Quadrant.values(),
-                        key="quadrant_selection"
-                    )
+                        side_map = {'F': 'Front', 'B': 'Back'}
+                        side_map_rev = {'Front': 'F', 'Back': 'B'}
+                        available_side_labels = sorted([side_map.get(s, s) for s in all_sides])
 
-                    ver_options = ['All'] + sorted(active_df['Verification'].unique().tolist()) if not active_df.empty else ['All']
-                    # Ensure current selection is valid
-                    curr_ver = store.verification_selection
-                    idx = ver_options.index(curr_ver) if curr_ver in ver_options else 0
+                        st.multiselect(
+                            "Select Layers",
+                            options=all_layers,
+                            default=all_layers,
+                            key="multi_layer_selection"
+                        )
 
-                    st.radio(
-                        "Filter by Verification Status",
-                        options=ver_options,
-                        index=idx,
-                        key="verification_selection"
-                    )
+                        sel_sides_labels = st.multiselect(
+                             "Select Sides",
+                             options=available_side_labels,
+                             default=available_side_labels,
+                             key="multi_side_selection_widget"
+                        )
+                        store.multi_side_selection = [side_map_rev.get(label, label) for label in sel_sides_labels]
 
             st.divider()
 
@@ -244,9 +235,12 @@ def main() -> None:
                 with col_img2:
                     include_pareto_png = st.checkbox("Pareto Charts (PNG)", value=False)
 
-                disable_layer_controls = is_analysis_dashboard or is_still_alive_view or is_multi_layer_view
+                # Disable if in analysis view? Or keep enabled?
+                # Original logic disabled it for some views. Let's keep it generally enabled but maybe warn?
+                # We'll stick to original logic: Layer Data is always source of truth.
+                # disable_layer_controls was previously used.
 
-                if st.button("Generate Download Package", disabled=disable_layer_controls):
+                if st.button("Generate Download Package"):
                     with st.spinner("Generating Package..."):
                         full_df = store.layer_data.get_combined_dataframe()
                         true_defect_coords = get_true_defect_coordinates(store.layer_data)
