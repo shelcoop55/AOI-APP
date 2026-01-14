@@ -80,158 +80,151 @@ class YieldKillerMetrics:
     side_bias_diff: int
 
 @st.cache_data
+def read_raw_excel_data(uploaded_files: List[BytesIO]) -> Dict[int, Dict[str, pd.DataFrame]]:
+    """
+    Reads defect data from uploaded Excel files into DataFrames.
+    Does NOT calculate plotting coordinates or physical mapping.
+    """
+    layer_data = {}
+
+    if not uploaded_files:
+        return {}
+
+    for uploaded_file in uploaded_files:
+        file_name = uploaded_file.name
+        match = re.match(r"BU-(\d{2})\s*([FB])", file_name, re.IGNORECASE)
+
+        if not match:
+            st.warning(f"Skipping file: '{file_name}'. Name must follow 'BU-XXF' or 'BU-XXB' format (e.g., 'BU-01F-...).")
+            continue
+
+        layer_num, side = int(match.group(1)), match.group(2).upper()
+
+        try:
+            df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='openpyxl')
+            df.rename(columns={'VERIFICATION': 'Verification'}, inplace=True)
+            df['SOURCE_FILE'] = file_name
+            df['SIDE'] = side
+
+            # --- VERIFICATION LOGIC ---
+            has_verification_data = 'Verification' in df.columns
+            if not has_verification_data:
+                df['Verification'] = 'Under Verification'
+            else:
+                df['Verification'] = df['Verification'].fillna('N').astype(str).str.strip()
+                df['Verification'] = df['Verification'].replace('', 'N')
+
+            df['HAS_VERIFICATION_DATA'] = has_verification_data
+
+            required_columns = ['DEFECT_ID', 'DEFECT_TYPE', 'UNIT_INDEX_X', 'UNIT_INDEX_Y']
+            if not all(col in df.columns for col in required_columns):
+                st.error(f"File '{file_name}' is missing required columns: {required_columns}. It has been skipped.")
+                continue
+
+            df.dropna(subset=required_columns, inplace=True)
+            for col in ['UNIT_INDEX_X', 'UNIT_INDEX_Y']: df[col] = df[col].astype(int)
+            df['DEFECT_TYPE'] = df['DEFECT_TYPE'].str.strip()
+
+            if layer_num not in layer_data: layer_data[layer_num] = {}
+            if side not in layer_data[layer_num]: layer_data[layer_num][side] = []
+
+            layer_data[layer_num][side].append(df)
+
+        except ValueError:
+            st.error(f"Error in '{file_name}': A sheet named 'Defects' was not found.")
+            continue
+        except Exception as e:
+            st.error(f"An unexpected error occurred while reading '{file_name}': {e}")
+            continue
+
+    # Consolidate raw dataframes
+    consolidated_data = {}
+    for layer_num, sides in layer_data.items():
+        consolidated_data[layer_num] = {}
+        for side, dfs in sides.items():
+            consolidated_data[layer_num][side] = pd.concat(dfs, ignore_index=True)
+
+    return consolidated_data
+
+@st.cache_data
+def generate_sample_data(panel_rows: int, panel_cols: int) -> Dict[int, Dict[str, pd.DataFrame]]:
+    """
+    Generates random sample data for demonstration.
+    """
+    total_units_x = 2 * panel_cols
+    total_units_y = 2 * panel_rows
+    layer_data = {}
+    layers_to_generate = [1, 2, 3]
+
+    for layer_num in layers_to_generate:
+        layer_data[layer_num] = {}
+        false_alarm_rate = np.random.uniform(0.5, 0.6)
+
+        for side in ['F', 'B']:
+            num_points = np.random.randint(100, 151)
+            unit_x = np.random.randint(0, total_units_x, size=num_points)
+            unit_y = np.random.randint(0, total_units_y, size=num_points)
+
+            defect_types = []
+            verifications = []
+
+            for _ in range(num_points):
+                desc = np.random.choice(SIMPLE_DEFECT_TYPES)
+                defect_types.append(desc)
+                if np.random.rand() < false_alarm_rate:
+                    verifications.append(np.random.choice(FALSE_ALARMS))
+                else:
+                    code, _ = DEFECT_DEFINITIONS[np.random.randint(len(DEFECT_DEFINITIONS))]
+                    verifications.append(code)
+
+            defect_data = {
+                'DEFECT_ID': range(layer_num * 1000 + (0 if side == 'F' else 500), layer_num * 1000 + (0 if side == 'F' else 500) + num_points),
+                'UNIT_INDEX_X': unit_x,
+                'UNIT_INDEX_Y': unit_y,
+                'DEFECT_TYPE': defect_types,
+                'Verification': verifications,
+                'SOURCE_FILE': [f'Sample Data Layer {layer_num}{side}'] * num_points,
+                'SIDE': side,
+                'HAS_VERIFICATION_DATA': [True] * num_points
+            }
+            layer_data[layer_num][side] = pd.DataFrame(defect_data)
+
+    return layer_data
+
+@st.cache_data
+def process_data_coordinates(
+    raw_layer_data: Dict[int, Dict[str, pd.DataFrame]],
+    panel_rows: int,
+    panel_cols: int
+) -> Dict[int, Dict[str, pd.DataFrame]]:
+    """
+    Calculates plotting coordinates and physical mapping for the given layer data.
+    """
+    processed_data = {}
+
+    for layer_num, sides in raw_layer_data.items():
+        processed_data[layer_num] = {}
+        for side, df in sides.items():
+            # Create a copy to ensure we don't mutate the cached raw data
+            df_copy = df.copy()
+            processed_data[layer_num][side] = _add_plotting_coordinates(df_copy, panel_rows, panel_cols)
+
+    return processed_data
+
 def load_data(
     uploaded_files: List[BytesIO],
     panel_rows: int,
     panel_cols: int,
 ) -> Dict[int, Dict[str, pd.DataFrame]]:
     """
-    Loads defect data from multiple build-up layer files, validates filenames
-    (e.g., BU-01F..., BU-01B...), and processes each layer's data.
-    Returns a nested dictionary mapping layer numbers to sides ('F' or 'B')
-    to their corresponding DataFrames.
+    Legacy wrapper for backward compatibility, now using the split pipeline.
     """
-    layer_data = {}
-
     if uploaded_files:
-        for uploaded_file in uploaded_files:
-            file_name = uploaded_file.name
-            match = re.match(r"BU-(\d{2})\s*([FB])", file_name, re.IGNORECASE)
-
-            if not match:
-                st.warning(f"Skipping file: '{file_name}'. Name must follow 'BU-XXF' or 'BU-XXB' format (e.g., 'BU-01F-...).")
-                continue
-
-            layer_num, side = int(match.group(1)), match.group(2).upper()
-
-            try:
-                df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='openpyxl')
-                df.rename(columns={'VERIFICATION': 'Verification'}, inplace=True)
-                df['SOURCE_FILE'] = file_name
-                df['SIDE'] = side
-
-                # --- VERIFICATION LOGIC UPDATE ---
-                # Check if we have real verification data
-                has_verification_data = 'Verification' in df.columns
-
-                # 1. If 'Verification' column is missing, create it and mark as "Under Verification".
-                # 2. If it exists, fill NaN/Blanks with 'N' (Safe).
-                if not has_verification_data:
-                    df['Verification'] = 'Under Verification'
-                else:
-                    df['Verification'] = df['Verification'].fillna('N').astype(str).str.strip()
-                    # Also handle empty strings that might result from stripping
-                    df['Verification'] = df['Verification'].replace('', 'N')
-
-                # Store the flag in the DataFrame for use in plotting
-                df['HAS_VERIFICATION_DATA'] = has_verification_data
-
-                required_columns = ['DEFECT_ID', 'DEFECT_TYPE', 'UNIT_INDEX_X', 'UNIT_INDEX_Y']
-                if not all(col in df.columns for col in required_columns):
-                    st.error(f"File '{file_name}' is missing required columns: {required_columns}. It has been skipped.")
-                    continue
-
-                df.dropna(subset=required_columns, inplace=True)
-                for col in ['UNIT_INDEX_X', 'UNIT_INDEX_Y']: df[col] = df[col].astype(int)
-                df['DEFECT_TYPE'] = df['DEFECT_TYPE'].str.strip()
-
-                # --- COORDINATE HANDLING (RAW vs PHYSICAL) ---
-                # RAW: UNIT_INDEX_X from the file (used for Individual Layer View).
-                # PHYSICAL: Flipped for Back side to align with Front side (used for Yield/Heatmaps).
-
-                df['PHYSICAL_X'] = df['UNIT_INDEX_X'] # Default to Raw
-
-                if side == 'B':
-                    # Back side is mirrored. Calculate Physical X.
-                    total_width_units = 2 * panel_cols
-                    df['PHYSICAL_X'] = (total_width_units - 1) - df['UNIT_INDEX_X']
-
-                if layer_num not in layer_data: layer_data[layer_num] = {}
-                if side not in layer_data[layer_num]: layer_data[layer_num][side] = []
-
-                layer_data[layer_num][side].append(df)
-
-            except ValueError:
-                st.error(f"Error in '{file_name}': A sheet named 'Defects' was not found.")
-                continue
-            except Exception as e:
-                st.error(f"An unexpected error occurred while reading '{file_name}': {e}")
-                continue
-        
-        # Consolidate dataframes for each layer/side
-        for layer_num, sides in layer_data.items():
-            for side, dfs in sides.items():
-                layer_data[layer_num][side] = _add_plotting_coordinates(
-                    pd.concat(dfs, ignore_index=True), panel_rows, panel_cols
-                )
-
-        if layer_data:
-            st.sidebar.success(f"{len(layer_data)} layer(s) loaded successfully!")
-
+        raw_data = read_raw_excel_data(uploaded_files)
     else:
-        st.sidebar.info("No file uploaded. Displaying sample data for 3 layers (all with Front/Back).")
-        total_units_x = 2 * panel_cols
-        total_units_y = 2 * panel_rows
-        layer_data = {}
+        raw_data = generate_sample_data(panel_rows, panel_cols)
 
-        # 3 Layers
-        layers_to_generate = [1, 2, 3]
-
-        for layer_num in layers_to_generate:
-            layer_data[layer_num] = {}
-
-            # Random False Alarm Rate for this layer (50% - 60%)
-            false_alarm_rate = np.random.uniform(0.5, 0.6)
-
-            for side in ['F', 'B']:
-                # Random number of points (100 - 150) for both sides
-                num_points = np.random.randint(100, 151)
-
-                # Generate random indices
-                unit_x = np.random.randint(0, total_units_x, size=num_points)
-                unit_y = np.random.randint(0, total_units_y, size=num_points)
-
-                # Generate Defect Types and Verification statuses
-                defect_types = []
-                verifications = []
-
-                for _ in range(num_points):
-                    # Always use Simple Defect Types for the "Machine" view (DEFECT_TYPE)
-                    desc = np.random.choice(SIMPLE_DEFECT_TYPES)
-                    defect_types.append(desc)
-
-                    # Decide Verification Status
-                    if np.random.rand() < false_alarm_rate:
-                        # False Alarm: Machine saw 'desc', verification is 'N' or 'FALSE'
-                        verifications.append(np.random.choice(FALSE_ALARMS))
-                    else:
-                        # True Defect: Verification confirms a specific Code (e.g., CU10)
-                        # We pick a random code from the definitions
-                        code, _ = DEFECT_DEFINITIONS[np.random.randint(len(DEFECT_DEFINITIONS))]
-                        verifications.append(code)
-
-                defect_data = {
-                    'DEFECT_ID': range(layer_num * 1000 + (0 if side == 'F' else 500), layer_num * 1000 + (0 if side == 'F' else 500) + num_points),
-                    'UNIT_INDEX_X': unit_x,
-                    'UNIT_INDEX_Y': unit_y,
-                    'DEFECT_TYPE': defect_types,
-                    'Verification': verifications,
-                    'SOURCE_FILE': [f'Sample Data Layer {layer_num}{side}'] * num_points,
-                    'SIDE': side,
-                    'HAS_VERIFICATION_DATA': [True] * num_points
-                }
-
-                df = pd.DataFrame(defect_data)
-                # Ensure PHYSICAL_X is present in sample data
-                df['PHYSICAL_X'] = df['UNIT_INDEX_X']
-                if side == 'B':
-                    total_width_units = 2 * panel_cols
-                    df['PHYSICAL_X'] = (total_width_units - 1) - df['UNIT_INDEX_X']
-
-                layer_data[layer_num][side] = _add_plotting_coordinates(df, panel_rows, panel_cols)
-
-    return layer_data
-
+    return process_data_coordinates(raw_data, panel_rows, panel_cols)
 
 def _add_plotting_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> pd.DataFrame:
     """
@@ -245,7 +238,6 @@ def _add_plotting_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int
     cell_height = QUADRANT_HEIGHT / panel_rows
 
     # --- 1. RAW COORDINATES (Based on UNIT_INDEX_X) ---
-    # Used for Individual Layer Map (Back side unflipped)
 
     # Calculate Raw Quadrant
     conditions_raw = [
@@ -259,7 +251,7 @@ def _add_plotting_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int
 
     # Calculate Raw Plotting Coordinates
     local_index_x_raw = df['UNIT_INDEX_X'] % panel_cols
-    local_index_y = df['UNIT_INDEX_Y'] % panel_rows # Y is always consistent
+    local_index_y = df['UNIT_INDEX_Y'] % panel_rows
 
     plot_x_base_raw = local_index_x_raw * cell_width
     plot_y_base = local_index_y * cell_height
@@ -274,11 +266,20 @@ def _add_plotting_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int
     df['plot_x'] = plot_x_base_raw + x_offset_raw + jitter_x
     df['plot_y'] = plot_y_base + y_offset + jitter_y
 
-
     # --- 2. PHYSICAL COORDINATES (Based on PHYSICAL_X) ---
-    # Used for Multi-Layer Map, Still Alive Map, Heatmaps (Back side flipped)
 
-    if 'PHYSICAL_X' not in df.columns:
+    # Calculate PHYSICAL_X if not already present
+    # We use vectorization here for performance
+    total_width_units = 2 * panel_cols
+
+    if 'SIDE' in df.columns:
+         df['PHYSICAL_X'] = np.where(
+            df['SIDE'] == 'B',
+            (total_width_units - 1) - df['UNIT_INDEX_X'],
+            df['UNIT_INDEX_X']
+        )
+    else:
+         # Fallback if SIDE is missing (shouldn't happen with correct usage)
          df['PHYSICAL_X'] = df['UNIT_INDEX_X']
 
     # Calculate Physical Quadrant
@@ -330,7 +331,7 @@ def get_true_defect_coordinates(layer_data: Dict[int, Dict[str, pd.DataFrame]]) 
 
     # Identify true defects
     is_true_defect = ~all_layers_df['Verification'].str.upper().isin(safe_values_upper)
-    true_defects_df = all_layers_df[is_true_defect]
+    true_defects_df = all_layers_df[is_true_defect].copy()
 
     if true_defects_df.empty:
         return set()
@@ -387,6 +388,7 @@ def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> 
         return pd.concat(combined_data, ignore_index=True)
     return pd.DataFrame()
 
+@st.cache_data
 def aggregate_stress_data(
     layer_data: Dict[int, Dict[str, pd.DataFrame]],
     selected_keys: List[Tuple[int, str]],
@@ -480,6 +482,7 @@ def aggregate_stress_data(
         max_count=max_count_acc
     )
 
+@st.cache_data
 def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], panel_rows: int, panel_cols: int) -> Optional[YieldKillerMetrics]:
     """
     Calculates the 'Yield Killer' KPIs: Worst Layer, Worst Unit, Side Bias.
@@ -544,6 +547,7 @@ def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], pane
         side_bias_diff=int(diff)
     )
 
+@st.cache_data
 def get_cross_section_matrix(
     layer_data: Dict[int, Dict[str, pd.DataFrame]],
     slice_axis: str,

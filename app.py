@@ -15,7 +15,8 @@ from src.config import (
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, SAFE_VERIFICATION_VALUES
 )
 from src.data_handler import (
-    load_data, get_true_defect_coordinates, prepare_multi_layer_data, aggregate_stress_data,
+    load_data, read_raw_excel_data, process_data_coordinates, generate_sample_data,
+    get_true_defect_coordinates, prepare_multi_layer_data, aggregate_stress_data,
     calculate_yield_killers, get_cross_section_matrix,
     QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
 )
@@ -34,6 +35,7 @@ from src.enums import ViewMode, Quadrant
 from src.utils import get_bu_name_from_filename
 from src.documentation import TECHNICAL_DOCUMENTATION
 
+@st.cache_data
 def load_css(file_path: str) -> None:
     """Loads a CSS file and injects it into the Streamlit app."""
     with open(file_path) as f:
@@ -240,7 +242,17 @@ def main() -> None:
     st.markdown("<br>", unsafe_allow_html=True)
 
     if submitted:
-        st.session_state.layer_data = load_data(uploaded_files, panel_rows, panel_cols)
+        # Optimized Data Loading Pipeline
+        if uploaded_files:
+            # 1. Read Raw Data (Cached - Independent of Panel Size)
+            raw_data = read_raw_excel_data(uploaded_files)
+        else:
+            # 1. Generate Sample Data (Cached)
+            raw_data = generate_sample_data(panel_rows, panel_cols)
+
+        # 2. Process Coordinates (Cached - Re-runs only if Panel Size changes)
+        st.session_state.layer_data = process_data_coordinates(raw_data, panel_rows, panel_cols)
+
         if st.session_state.layer_data:
             st.session_state.selected_layer = max(st.session_state.layer_data.keys())
             st.session_state.active_view = 'layer'

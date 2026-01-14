@@ -3,6 +3,7 @@ Plotting and Visualization Module.
 This version draws a true-to-scale simulation of a 510x510mm physical panel.
 UPDATED: Sankey charts with Neon Palette, 3 types of Heatmaps, and polished styling.
 """
+import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 from typing import List, Dict, Any, Set, Tuple, Optional
@@ -453,6 +454,7 @@ def hex_to_rgba(hex_color: str, opacity: float = 0.5) -> str:
     except ValueError:
         return f'rgba(128, 128, 128, {opacity})' # Fallback grey
 
+@st.cache_data
 def create_defect_sankey(df: pd.DataFrame) -> go.Sankey:
     """
     Creates a Sankey diagram mapping Defect Types (Left) to Verification Status (Right).
@@ -664,6 +666,7 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
 
     return fig
 
+@st.cache_data
 def create_density_contour_map(
     df: pd.DataFrame,
     panel_rows: int,
@@ -875,6 +878,7 @@ def _configure_stress_map_layout(fig: go.Figure, panel_rows: int, panel_cols: in
         height=700
     )
 
+@st.cache_data
 def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int) -> go.Figure:
     """
     Creates the Cumulative Stress Heatmap with defect counts in cells.
@@ -907,6 +911,7 @@ def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int)
     _configure_stress_map_layout(fig, panel_rows, panel_cols, "Cumulative Stress Map (Total Defects per Unit)")
     return fig
 
+@st.cache_data
 def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_rows: int, panel_cols: int) -> go.Figure:
     """
     Creates a Delta Heatmap (Group A - Group B).
@@ -932,6 +937,7 @@ def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_row
     _configure_stress_map_layout(fig, panel_rows, panel_cols, "Delta Stress Map (Group A - Group B)")
     return fig
 
+@st.cache_data
 def create_cross_section_heatmap(
     matrix: np.ndarray,
     layer_labels: List[str],
