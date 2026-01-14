@@ -25,9 +25,11 @@ class ViewManager:
         if not self.store.layer_data:
             return
 
-        # Only render the top control bar if we are in the main 'Layer Inspection' mode
         if self.store.active_view == 'layer':
             self._render_layer_inspection_controls()
+            st.divider()
+        else:
+            self._render_analysis_page_controls()
             st.divider()
 
     def _render_layer_inspection_controls(self):
@@ -65,8 +67,6 @@ class ViewManager:
         # Prepare Data for Side Toggle
         # Default options
         side_options = ["Front", "Back"]
-        # If current layer has limited sides, we might want to disable one?
-        # But keeping it simple for now as per design.
         current_side_label = "Front" if self.store.selected_side == 'F' else "Back"
 
         # Prepare Data for Verification
@@ -112,7 +112,6 @@ class ViewManager:
                 label = st.session_state.side_selector_top
                 self.store.selected_side = 'F' if label == "Front" else 'B'
 
-            # Use pills if available for button-like toggle
             if hasattr(st, "pills"):
                  st.pills(
                      "Side",
@@ -144,11 +143,8 @@ class ViewManager:
                 "Quadrant",
                 options=quad_options,
                 index=curr_quad_idx,
-                key="quadrant_selection", # Updates store automatically via SessionStore proxy? No, store reads session state
+                key="quadrant_selection",
                 label_visibility="collapsed",
-                # Note: SessionStore properties might not auto-sync if we don't use on_change or property setter
-                # But app.py initializes widgets with keys.
-                # Ideally we explicitly set it.
                 on_change=lambda: setattr(self.store, 'quadrant_selection', st.session_state.quadrant_selection)
             )
 
@@ -166,49 +162,18 @@ class ViewManager:
         # --- Tabs for View Mode ---
         st.markdown("") # Spacer
         tab_labels = ["Defect View", "Summary View", "Pareto View"]
-        # Map tab labels to ViewMode values
         tab_map = {
             "Defect View": ViewMode.DEFECT.value,
             "Summary View": ViewMode.SUMMARY.value,
             "Pareto View": ViewMode.PARETO.value
         }
 
-        # Determine current tab index
         current_view = self.store.view_mode
-        # If current view is not one of these (e.g. legacy), default to Defect
         current_tab = "Defect View"
         for label, val in tab_map.items():
             if val == current_view:
                 current_tab = label
                 break
-
-        # We can't easily programmatically set the active tab in st.tabs
-        # Use st.radio or st.segmented_control (pills) for the look of tabs if we want state control?
-        # Standard st.tabs contains content.
-        # Design requirement: "Below Layer Selection Give Three tab option"
-        # Since st.tabs are containers, we wrap the content rendering in them.
-
-        # Implementation: We render the tabs here, and inside each tab, we call render_main_view logic?
-        # BUT render_main_view is called separately in app.py logic.
-        # Better approach: Use st.tabs to SET the view mode, or use custom styled radio/pills looking like tabs.
-        # Using actual st.tabs implies the content is inside.
-
-        # Let's use st.tabs and conditionally render content inside?
-        # Problem: st.tabs renders all tabs at once (or lazy loads).
-        # If we just want them to act as buttons:
-
-        # Use st.pills for "Tabs" look-alike if available, or just render the content using st.tabs wrapper in render_main_view
-        # But render_navigation is separated.
-
-        # Solution: We will NOT render st.tabs here. We will render st.tabs in render_main_view if mode is layer.
-        # Wait, the user said "Below Layer Selection Give Three tab option".
-        # If I put st.tabs in `render_navigation`, I can't easily put the chart area inside them unless I merge the functions.
-        # But `app.py` calls `render_navigation` (outside fragment) then `render_main_view` (inside fragment).
-
-        # To support "Tabs" that switch the view (and thus the fragment content):
-        # We can use a segmented control or pills here in `render_navigation` that updates `store.view_mode`.
-
-        st.write("") # Spacer
 
         def on_tab_change():
              label = st.session_state.view_mode_selector
@@ -235,10 +200,131 @@ class ViewManager:
                 label_visibility="collapsed"
             )
 
+    def _render_analysis_page_controls(self):
+        """Renders the Tabs and Context Filters for the Unified Analysis Page."""
+
+        # 1. Top Level Tabs
+        tabs = [
+            "Heatmap", "Stress Map", "Root Cause", "Insights", "Still Alive", "Multi-Layer"
+        ]
+
+        current_tab = "Heatmap"
+        if self.store.active_view == 'still_alive':
+            current_tab = "Still Alive"
+        elif self.store.active_view == 'multi_layer_defects':
+            current_tab = "Multi-Layer"
+        elif self.store.active_view == 'analysis_dashboard':
+             sub_map_rev = {
+                 ViewMode.HEATMAP.value: "Heatmap",
+                 ViewMode.STRESS.value: "Stress Map",
+                 ViewMode.ROOT_CAUSE.value: "Root Cause",
+                 ViewMode.INSIGHTS.value: "Insights"
+             }
+             current_tab = sub_map_rev.get(self.store.analysis_subview, "Heatmap")
+
+        def on_analysis_tab_change():
+             sel = st.session_state.analysis_tab_selector
+             if sel == "Still Alive":
+                 self.store.active_view = 'still_alive'
+             elif sel == "Multi-Layer":
+                 self.store.active_view = 'multi_layer_defects'
+             else:
+                 self.store.active_view = 'analysis_dashboard'
+                 sub_map = {
+                     "Heatmap": ViewMode.HEATMAP.value,
+                     "Stress Map": ViewMode.STRESS.value,
+                     "Root Cause": ViewMode.ROOT_CAUSE.value,
+                     "Insights": ViewMode.INSIGHTS.value
+                 }
+                 self.store.analysis_subview = sub_map[sel]
+
+        st.subheader("Analysis View")
+        if hasattr(st, "pills"):
+             st.pills(
+                 "Analysis Modules",
+                 tabs,
+                 selection_mode="single",
+                 default=current_tab,
+                 key="analysis_tab_selector",
+                 on_change=on_analysis_tab_change,
+                 label_visibility="collapsed"
+             )
+        else:
+             st.radio(
+                 "Analysis Modules",
+                 tabs,
+                 horizontal=True,
+                 key="analysis_tab_selector",
+                 index=tabs.index(current_tab),
+                 on_change=on_analysis_tab_change,
+                 label_visibility="collapsed"
+             )
+
+        st.divider()
+
+        # 2. Filter Rows (Context Aware)
+        # Order: Layer -> Side -> Verification (Inspection)
+
+        all_layers = sorted(self.store.layer_data.keys())
+
+        full_df = self.store.layer_data.get_combined_dataframe()
+        all_verifications = []
+        if not full_df.empty and 'Verification' in full_df.columns:
+            all_verifications = sorted(full_df['Verification'].dropna().astype(str).unique().tolist())
+
+        col_f1, col_f2, col_f3 = st.columns([2, 1, 2])
+
+        # Filter 1: Multi-Select Layer
+        with col_f1:
+             st.multiselect(
+                 "Select Layers",
+                 options=all_layers,
+                 default=self.store.multi_layer_selection if self.store.multi_layer_selection else all_layers,
+                 key="analysis_layer_select",
+                 on_change=lambda: setattr(self.store, 'multi_layer_selection', st.session_state.analysis_layer_select)
+             )
+
+        # Filter 2: Side Radio (Front/Back) - MOVED to Middle as requested
+        with col_f2:
+             st.radio(
+                 "Side",
+                 ["Front", "Back", "Both"],
+                 index=2, # Default Both
+                 horizontal=True,
+                 key="analysis_side_select"
+             )
+
+        # Filter 3: Multi-Select Verification - MOVED to End as requested
+        with col_f3:
+             default_ver = st.session_state.get('multi_verification_selection', all_verifications)
+             st.multiselect(
+                 "Filter Verification Status",
+                 options=all_verifications,
+                 default=default_ver,
+                 key="multi_verification_selection"
+             )
+
+        # 3. Context Specific Row
+        current_tab_val = current_tab
+
+        if current_tab_val == "Heatmap":
+             st.slider("Smoothing (Sigma)", min_value=1, max_value=20, value=5, key="heatmap_sigma")
+
+        elif current_tab_val == "Stress Map":
+             st.radio("Mode", ["Cumulative", "Delta Difference"], horizontal=True, key="stress_map_mode")
+
+        elif current_tab_val == "Root Cause":
+             c1, c2 = st.columns(2)
+             with c1:
+                 st.radio("Slice Axis", ["X (Column)", "Y (Row)"], horizontal=True, key="rca_axis")
+             with c2:
+                 max_idx = (self.store.analysis_params.get('panel_cols', 7) * 2) - 1
+                 st.slider("Slice Index", 0, max_idx, 0, key="rca_index")
+
+
     def render_main_view(self):
         """Dispatches the rendering to the appropriate view function."""
 
-        # Ensure we have data before trying to render views that require it
         if not self.store.layer_data:
              st.info("Please upload data and run analysis to proceed.")
              return
@@ -258,9 +344,6 @@ class ViewManager:
             tool.render_main()
 
         elif self.store.active_view == 'layer':
-            # Note: We are not using st.tabs container because the tabs are navigation controls
-            # (handled in render_navigation) that switch the `view_mode`.
-            # We just render the content for the selected mode.
             render_layer_view(
                 self.store,
                 self.store.view_mode,
@@ -268,5 +351,4 @@ class ViewManager:
                 self.store.verification_selection
             )
         else:
-            # Fallback
             st.warning(f"Unknown view: {self.store.active_view}")

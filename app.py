@@ -42,8 +42,6 @@ def main() -> None:
         st.title("🎛️ Control Panel")
 
         # --- 1. Analysis Configuration Form ---
-        # Note: We use st.form to group inputs, but use on_click for the submit
-        # to handle state updates efficiently.
         with st.form(key="analysis_form"):
             with st.expander("📁 Data Source & Configuration", expanded=True):
                 st.file_uploader(
@@ -112,113 +110,53 @@ def main() -> None:
 
         st.divider()
 
-        # --- Sidebar State Logic ---
+        # --- Sidebar Navigation & Reporting ---
 
-        # Only show advanced controls if data is loaded
         if store.layer_data:
             if st.button("🔄 Reset Analysis", type="secondary", help="Clears all loaded data and resets the tool."):
                 store.clear_all()
                 st.rerun()
 
-            # --- Analysis Tools (Strategy Pattern) ---
-            with st.expander("🔍 Analysis Tools", expanded=True):
-                st.caption("Select Analysis View")
-                # Extended Options including Still Alive and Multi-Layer
-                analysis_options = [
-                    ViewMode.HEATMAP.value,
-                    ViewMode.STRESS.value,
-                    ViewMode.ROOT_CAUSE.value,
-                    ViewMode.INSIGHTS.value,
-                    ViewMode.STILL_ALIVE.value,
-                    ViewMode.MULTI_LAYER.value
-                ]
+            st.markdown("### Navigation")
 
-                # We need to sync `store.active_view` and `store.analysis_subview`
-                # If active_view is 'layer', we might want to unselect the radio or show a "Layer View" option?
-                # For simplicity, let's treat "Layer View" as the default state when NOT in Analysis Dashboard.
-                # However, the user wants Still Alive/Multi-Layer reachable from here.
-                # Let's add "Layer Inspection" as the first option to allow returning to it.
+            # Main View Toggle in Sidebar (Layer Inspection vs Analysis)
+            # We use this to switch the top-level mode
 
-                # NOTE: ViewMode.DEFECT is "Defect View", which is a sub-view of Layer Inspection.
-                # We'll use a custom string "Layer Inspection" to represent the main view.
-                LAYER_INSPECTION_LABEL = "Layer Inspection"
-                full_options = [LAYER_INSPECTION_LABEL] + analysis_options
-
-                # Determine current selection based on store state
-                current_selection = LAYER_INSPECTION_LABEL
-                if store.active_view == 'layer':
-                    current_selection = LAYER_INSPECTION_LABEL
-                elif store.active_view == 'still_alive':
-                    current_selection = ViewMode.STILL_ALIVE.value
-                elif store.active_view == 'multi_layer_defects':
-                    current_selection = ViewMode.MULTI_LAYER.value
-                elif store.active_view == 'analysis_dashboard':
-                    current_selection = store.analysis_subview
-
-                def on_view_change():
-                    selection = st.session_state.main_view_selector
-                    if selection == LAYER_INSPECTION_LABEL:
-                        store.active_view = 'layer'
-                    elif selection == ViewMode.STILL_ALIVE.value:
-                        store.active_view = 'still_alive'
-                    elif selection == ViewMode.MULTI_LAYER.value:
-                        store.active_view = 'multi_layer_defects'
+            def set_main_mode(mode: str):
+                if mode == 'layer':
+                    store.active_view = 'layer'
+                else:
+                    # Default to Heatmap when switching to Analysis if not already set
+                    if store.active_view == 'layer':
+                         store.active_view = 'analysis_dashboard'
+                         store.analysis_subview = ViewMode.HEATMAP.value
                     else:
-                        store.active_view = 'analysis_dashboard'
-                        store.analysis_subview = selection
+                         # Keep current analysis view but ensure active_view is correct
+                         if store.active_view not in ['still_alive', 'multi_layer_defects']:
+                              store.active_view = 'analysis_dashboard'
 
-                st.radio(
-                    "Go to:",
-                    full_options,
-                    index=full_options.index(current_selection) if current_selection in full_options else 0,
-                    key="main_view_selector",
-                    on_change=on_view_change
+            col_nav1, col_nav2 = st.columns(2)
+            with col_nav1:
+                is_layer = store.active_view == 'layer'
+                st.button(
+                    "Layer Inspection",
+                    type="primary" if is_layer else "secondary",
+                    use_container_width=True,
+                    on_click=lambda: set_main_mode('layer')
                 )
-
-                st.divider()
-
-                # Render Sub-controls for specific analysis tools if active
-                if store.active_view == 'analysis_dashboard':
-                    tool_instance = get_analysis_tool(store.analysis_subview, store)
-                    if tool_instance:
-                        tool_instance.render_sidebar()
-
-                # Render Still Alive Sidebar controls if active
-                if store.active_view == 'still_alive':
-                     from src.views.still_alive import render_still_alive_sidebar
-                     render_still_alive_sidebar(store)
-
-                # Render Multi-Layer Sidebar controls if active
-                if store.active_view == 'multi_layer_defects':
-                    with st.expander("🛠️ Multi-Layer Filters", expanded=True):
-                        all_layers = sorted(store.layer_data.keys())
-                        all_sides = set()
-                        for l_data in store.layer_data.values():
-                            all_sides.update(l_data.keys())
-
-                        side_map = {'F': 'Front', 'B': 'Back'}
-                        side_map_rev = {'Front': 'F', 'Back': 'B'}
-                        available_side_labels = sorted([side_map.get(s, s) for s in all_sides])
-
-                        st.multiselect(
-                            "Select Layers",
-                            options=all_layers,
-                            default=all_layers,
-                            key="multi_layer_selection"
-                        )
-
-                        sel_sides_labels = st.multiselect(
-                             "Select Sides",
-                             options=available_side_labels,
-                             default=available_side_labels,
-                             key="multi_side_selection_widget"
-                        )
-                        store.multi_side_selection = [side_map_rev.get(label, label) for label in sel_sides_labels]
+            with col_nav2:
+                is_analysis = store.active_view != 'layer'
+                st.button(
+                    "Analysis Page",
+                    type="primary" if is_analysis else "secondary",
+                    use_container_width=True,
+                    on_click=lambda: set_main_mode('analysis')
+                )
 
             st.divider()
 
             # --- Reporting ---
-            with st.expander("📥 Reporting", expanded=True):
+            with st.expander("📥 Reporting", expanded=False):
                 st.subheader("Generate Report")
                 col_rep1, col_rep2 = st.columns(2)
                 with col_rep1:
@@ -234,11 +172,6 @@ def main() -> None:
                     include_png_all = st.checkbox("Defect Maps (PNG)", value=False)
                 with col_img2:
                     include_pareto_png = st.checkbox("Pareto Charts (PNG)", value=False)
-
-                # Disable if in analysis view? Or keep enabled?
-                # Original logic disabled it for some views. Let's keep it generally enabled but maybe warn?
-                # We'll stick to original logic: Layer Data is always source of truth.
-                # disable_layer_controls was previously used.
 
                 if st.button("Generate Download Package"):
                     with st.spinner("Generating Package..."):
