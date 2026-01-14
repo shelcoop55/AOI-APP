@@ -345,6 +345,7 @@ def get_true_defect_coordinates(layer_data: Dict[int, Dict[str, pd.DataFrame]]) 
     # Rename for consistency in output if needed, but set expects tuples
     return set(map(tuple, defect_coords_df.to_numpy()))
 
+@st.cache_data
 def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> pd.DataFrame:
     """
     Aggregates and filters defect data from all layers for the Multi-Layer Defect View.
@@ -387,6 +388,7 @@ def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> 
         return pd.concat(combined_data, ignore_index=True)
     return pd.DataFrame()
 
+@st.cache_data
 def aggregate_stress_data(
     layer_data: Dict[int, Dict[str, pd.DataFrame]],
     selected_keys: List[Tuple[int, str]],
@@ -480,6 +482,7 @@ def aggregate_stress_data(
         max_count=max_count_acc
     )
 
+@st.cache_data
 def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], panel_rows: int, panel_cols: int) -> Optional[YieldKillerMetrics]:
     """
     Calculates the 'Yield Killer' KPIs: Worst Layer, Worst Unit, Side Bias.
@@ -544,6 +547,7 @@ def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], pane
         side_bias_diff=int(diff)
     )
 
+@st.cache_data
 def get_cross_section_matrix(
     layer_data: Dict[int, Dict[str, pd.DataFrame]],
     slice_axis: str,
