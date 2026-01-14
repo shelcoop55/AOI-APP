@@ -167,6 +167,20 @@ def main() -> None:
 
             with st.expander("📊 Analysis Controls", expanded=True):
                 view_mode = st.radio("Select View", ViewMode.values(), disabled=disable_layer_controls)
+
+                # --- Contour Settings (Heatmap Only) ---
+                if view_mode == ViewMode.HEATMAP.value:
+                    st.markdown("**Contour Settings**")
+                    show_points = st.checkbox("Overlay Defect Points", value=False)
+                    show_grid = st.checkbox("Show Unit Grid Overlay", value=True)
+                    smoothing_factor = st.slider("Smoothing (Bin Size)", min_value=10, max_value=100, value=30)
+                    saturation_cap = st.slider("Color Saturation Cap (Defects)", min_value=0, max_value=100, value=0, help="0 = Auto")
+                else:
+                    show_points = False
+                    show_grid = True
+                    smoothing_factor = 30
+                    saturation_cap = 0
+
                 quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), disabled=disable_layer_controls)
                 verification_options = ['All'] + sorted(active_df['Verification'].unique().tolist()) if not active_df.empty else ['All']
                 verification_selection = st.radio("Filter by Verification Status", options=verification_options, index=0, disabled=disable_layer_controls)
@@ -405,7 +419,15 @@ def main() -> None:
                          # ... (Existing Heatmaps)
                          full_side_df = side_df
                          st.plotly_chart(create_unit_grid_heatmap(full_side_df, panel_rows, panel_cols), use_container_width=True)
-                         st.plotly_chart(create_density_contour_map(full_side_df, panel_rows, panel_cols), use_container_width=True)
+
+                         contour_fig = create_density_contour_map(
+                             full_side_df, panel_rows, panel_cols,
+                             show_points=show_points,
+                             smoothing_factor=smoothing_factor,
+                             saturation_cap=saturation_cap,
+                             show_grid=show_grid
+                         )
+                         st.plotly_chart(contour_fig, use_container_width=True)
                     elif view_mode == ViewMode.INSIGHTS.value:
                          st.plotly_chart(create_defect_sunburst(display_df), use_container_width=True)
                          sankey = create_defect_sankey(display_df)
