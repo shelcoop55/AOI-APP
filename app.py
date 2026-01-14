@@ -33,6 +33,11 @@ from src.reporting import generate_excel_report, generate_coordinate_list_report
 from src.enums import ViewMode, Quadrant
 from src.utils import get_bu_name_from_filename
 from src.documentation import TECHNICAL_DOCUMENTATION
+from src.state import SessionStore
+from src.analysis import get_analysis_tool
+from src.views.still_alive import render_still_alive_view
+from src.views.multi_layer import render_multi_layer_view
+from src.views.layer_view import render_layer_view
 
 def load_css(file_path: str) -> None:
     """Loads a CSS file and injects it into the Streamlit app."""
@@ -57,13 +62,7 @@ def main() -> None:
     load_css("assets/styles.css")
 
     # --- Initialize Session State ---
-    if 'report_bytes' not in st.session_state: st.session_state.report_bytes = None
-    if 'layer_data' not in st.session_state: st.session_state.layer_data = {}
-    if 'selected_layer' not in st.session_state: st.session_state.selected_layer = None
-    if 'selected_side' not in st.session_state: st.session_state.selected_side = 'F'
-    if 'analysis_params' not in st.session_state: st.session_state.analysis_params = {}
-    if 'active_view' not in st.session_state: st.session_state.active_view = 'layer'
-    if 'analysis_subview' not in st.session_state: st.session_state.analysis_subview = ViewMode.HEATMAP.value
+    store = SessionStore()
 
     # --- Sidebar Control Panel ---
     with st.sidebar:
@@ -78,24 +77,23 @@ def main() -> None:
 
         st.divider()
 
-        is_still_alive_view = st.session_state.active_view == 'still_alive'
-        is_multi_layer_view = st.session_state.active_view == 'multi_layer_defects'
-        is_analysis_dashboard = st.session_state.active_view == 'analysis_dashboard'
+        is_still_alive_view = store.active_view == 'still_alive'
+        is_multi_layer_view = store.active_view == 'multi_layer_defects'
+        is_analysis_dashboard = store.active_view == 'analysis_dashboard'
 
-        if st.session_state.get('layer_data'):
+        if store.layer_data:
 
             if st.button("🔄 Reset Analysis", type="secondary", help="Clears all loaded data and resets the tool."):
-                st.session_state.clear()
+                store.clear_all()
                 st.rerun()
 
             # Define controls state for downstream widgets (Reporting)
             disable_layer_controls = is_analysis_dashboard or is_still_alive_view or is_multi_layer_view
 
-            # --- Analysis Dashboard Controls ---
-            if is_analysis_dashboard:
-                with st.expander("📈 Analysis Dashboard", expanded=True):
-                    analysis_options = [ViewMode.HEATMAP.value, ViewMode.STRESS.value, ViewMode.ROOT_CAUSE.value, ViewMode.INSIGHTS.value]
-                    st.session_state.analysis_subview = st.radio("Select Analysis Module", analysis_options)
+            # --- Analysis Dashboard Controls (Moved to Main Page) ---
+            # if is_analysis_dashboard:
+            #     # Moved to Main Page Layout
+            #     pass
 
             # --- Multi-Layer Filters ---
             selected_layers_multi = []
@@ -103,9 +101,9 @@ def main() -> None:
 
             if is_multi_layer_view:
                 with st.expander("🛠️ Multi-Layer Filters", expanded=True):
-                    all_layers = sorted(st.session_state.layer_data.keys())
+                    all_layers = sorted(store.layer_data.keys())
                     all_sides = set()
-                    for l_data in st.session_state.layer_data.values():
+                    for l_data in store.layer_data.values():
                         all_sides.update(l_data.keys())
 
                     side_map = {'F': 'Front', 'B': 'Back'}
@@ -116,84 +114,56 @@ def main() -> None:
                     selected_sides_labels = st.multiselect("Select Sides", options=available_side_labels, default=available_side_labels)
                     selected_sides_multi = [side_map_rev.get(label, label) for label in selected_sides_labels]
 
-            # --- Analysis Specific Filters (Context Aware) ---
-            stress_mode = "Cumulative"
-            selected_keys_stress = []
-            delta_group_a_keys = []
-            delta_group_b_keys = []
-            slice_axis = 'Y'
-            slice_index = 0
-
-            # Heatmap Settings
-            smoothing_factor = 30
-            saturation_cap = 0
-            show_points = False
-            show_grid = True # Default True, overriden if heatmap selected
-
             # Common Layer-Side Logic for Analysis Views
             available_options = []
             option_map = {}
-            all_layer_nums = sorted(st.session_state.layer_data.keys())
+            all_layer_nums = sorted(store.layer_data.keys())
             for num in all_layer_nums:
-                sides = sorted(st.session_state.layer_data[num].keys())
+                sides = sorted(store.layer_data[num].keys())
                 for side in sides:
                     side_label = "Front" if side == 'F' else "Back"
                     label = f"Layer {num} ({side_label})"
                     available_options.append(label)
                     option_map[label] = (num, side)
 
-            # Heatmap specific filters
-            selected_keys_heatmap = []
+            # Default selection for filters
+            default_selection_keys = [option_map[k] for k in available_options]
 
-            if is_analysis_dashboard:
-                subview = st.session_state.analysis_subview
+            # --- Analysis Tools (Strategy Pattern) ---
+            with st.expander("🔍 Analysis Tools", expanded=True):
+                st.caption("Advanced Defect Analysis")
 
-                if subview == ViewMode.STRESS.value:
-                    with st.expander("🔥 Stress Map Controls", expanded=True):
-                        stress_mode = st.radio("Analysis Mode", ["Cumulative", "Delta (Difference)"])
+                # Subview Selection
+                analysis_options = [ViewMode.HEATMAP.value, ViewMode.STRESS.value, ViewMode.ROOT_CAUSE.value, ViewMode.INSIGHTS.value]
 
-                        if stress_mode == "Delta (Difference)":
-                            st.markdown("**Group A - Group B**")
-                            sel_a = st.multiselect("Select Group A (Reference)", options=available_options, default=available_options)
-                            sel_b = st.multiselect("Select Group B (Comparison)", options=available_options, default=[])
+                if store.analysis_subview not in analysis_options:
+                     store.analysis_subview = ViewMode.HEATMAP.value
 
-                            delta_group_a_keys = [option_map[k] for k in sel_a]
-                            delta_group_b_keys = [option_map[k] for k in sel_b]
-                        else:
-                            sel_cumulative = st.multiselect("Select Data to Analyze", options=available_options, default=available_options)
-                            selected_keys_stress = [option_map[k] for k in sel_cumulative]
+                subview_val = st.radio("Select Module", analysis_options, index=analysis_options.index(store.analysis_subview))
+                store.analysis_subview = subview_val
 
-                elif subview == ViewMode.ROOT_CAUSE.value:
-                     with st.expander("🔬 Cross-Section Controls", expanded=True):
-                        st.markdown("Virtual Z-Axis Slicer")
-                        slice_axis_label = st.radio("Slice Axis", ["By Row (Y)", "By Column (X)"], index=0)
-                        slice_axis = 'Y' if "Row" in slice_axis_label else 'X'
+                if st.button("🚀 Show Analysis Dashboard", use_container_width=True):
+                    store.active_view = 'analysis_dashboard'
+                    st.rerun()
 
-                        max_idx = (panel_rows * 2) - 1 if slice_axis == 'Y' else (panel_cols * 2) - 1
-                        slice_index = st.slider(f"Select {slice_axis} Index", min_value=0, max_value=max_idx, value=int(max_idx/2))
+                st.divider()
 
-                elif subview == ViewMode.HEATMAP.value:
-                    with st.expander("🌡️ Heatmap Settings", expanded=True):
-                        sel_heatmap = st.multiselect("Select Data to Analyze", options=available_options, default=available_options)
-                        selected_keys_heatmap = [option_map[k] for k in sel_heatmap]
-
-                        smoothing_factor = st.slider("Smoothing (Bin Size)", min_value=10, max_value=100, value=30)
-                        saturation_cap = st.slider("Color Saturation Cap (Defects)", min_value=0, max_value=100, value=0, help="0 = Auto")
-                        # Grid and Points removed as per request
-                        show_grid = False
+                # Delegate Control Rendering
+                tool_instance = get_analysis_tool(subview_val, store)
+                tool_instance.render_sidebar()
 
             # --- Layer Inspection Controls (Legacy) ---
             active_df = pd.DataFrame()
-            selected_layer_num = st.session_state.get('selected_layer')
+            selected_layer_num = store.selected_layer
             if selected_layer_num:
-                layer_info = st.session_state.layer_data.get(selected_layer_num, {})
-                active_df = layer_info.get(st.session_state.selected_side, pd.DataFrame())
+                layer_info = store.layer_data.get(selected_layer_num, {})
+                active_df = layer_info.get(store.selected_side, pd.DataFrame())
 
             # Only show Layer Inspection if in Layer View
-            if st.session_state.active_view == 'layer':
+            if store.active_view == 'layer':
                 with st.expander("📊 Layer Inspection", expanded=True):
                     # Simplified View Options (Removed Heatmap/Insights from here as they moved to Analysis)
-                    layer_view_options = [ViewMode.DEFECT.value, ViewMode.PARETO.value]
+                    layer_view_options = [ViewMode.DEFECT.value, ViewMode.PARETO.value, ViewMode.SUMMARY.value]
                     view_mode = st.radio("Select View", layer_view_options)
 
                     quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values())
@@ -227,255 +197,132 @@ def main() -> None:
 
                 if st.button("Generate Download Package", disabled=disable_layer_controls):
                     with st.spinner("Generating Package..."):
-                        # ... (existing report logic)
-                        pass # Kept brief for diff clarity; full logic exists in file.
+                        # Prepare data
+                        full_df = store.layer_data.get_combined_dataframe()
+                        true_defect_coords = get_true_defect_coordinates(store.layer_data)
 
-                params_local = st.session_state.get('analysis_params', {})
+                        # Generate ZIP
+                        store.report_bytes = generate_zip_package(
+                            full_df=full_df,
+                            panel_rows=panel_rows,
+                            panel_cols=panel_cols,
+                            quadrant_selection=quadrant_selection,
+                            verification_selection=verification_selection,
+                            source_filename="Multiple Files",
+                            true_defect_coords=true_defect_coords,
+                            include_excel=include_excel,
+                            include_coords=include_coords,
+                            include_map=include_map,
+                            include_insights=include_insights,
+                            include_png_all_layers=include_png_all,
+                            include_pareto_png=include_pareto_png,
+                            layer_data=store.layer_data
+                        )
+                        st.success("Package generated successfully!")
+
+                params_local = store.analysis_params
                 lot_num_str = f"_{params_local.get('lot_number', '')}" if params_local.get('lot_number') else ""
-                zip_filename = f"defect_package_layer_{st.session_state.selected_layer}{lot_num_str}.zip"
-                st.download_button("Download Package (ZIP)", data=st.session_state.report_bytes or b"", file_name=zip_filename, mime="application/zip", disabled=st.session_state.report_bytes is None)
+                zip_filename = f"defect_package_layer_{store.selected_layer}{lot_num_str}.zip"
+                st.download_button("Download Package (ZIP)", data=store.report_bytes or b"", file_name=zip_filename, mime="application/zip", disabled=store.report_bytes is None)
 
     # --- Main Content Area ---
     st.title("📊 Panel Defect Analysis Tool")
     st.markdown("<br>", unsafe_allow_html=True)
 
     if submitted:
-        st.session_state.layer_data = load_data(uploaded_files, panel_rows, panel_cols)
-        if st.session_state.layer_data:
-            st.session_state.selected_layer = max(st.session_state.layer_data.keys())
-            st.session_state.active_view = 'layer'
-            layer_info = st.session_state.layer_data.get(st.session_state.selected_layer, {})
+        store.layer_data = load_data(uploaded_files, panel_rows, panel_cols)
+        if store.layer_data:
+            store.selected_layer = max(store.layer_data.keys())
+            store.active_view = 'layer'
+            layer_info = store.layer_data.get(store.selected_layer, {})
             if 'F' in layer_info:
-                st.session_state.selected_side = 'F'
+                store.selected_side = 'F'
             elif 'B' in layer_info:
-                st.session_state.selected_side = 'B'
+                store.selected_side = 'B'
             elif layer_info:
-                st.session_state.selected_side = next(iter(layer_info.keys()))
+                store.selected_side = next(iter(layer_info.keys()))
         else:
-            st.session_state.selected_layer = None
-        st.session_state.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
-        st.session_state.report_bytes = None
+            store.selected_layer = None
+        store.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
+        store.report_bytes = None
         st.rerun()
 
-    if st.session_state.get('layer_data'):
-        params = st.session_state.analysis_params
+    if store.layer_data:
+        params = store.analysis_params
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
 
         # --- View Selection Bar ---
         with st.expander("Select View", expanded=True):
-            layer_keys = sorted(st.session_state.layer_data.keys())
+            layer_keys = sorted(store.layer_data.keys())
             bu_names = {}
             for num in layer_keys:
-                first_side_key = next(iter(st.session_state.layer_data[num]))
-                bu_names[num] = get_bu_name_from_filename(st.session_state.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0])
+                first_side_key = next(iter(store.layer_data[num]))
+                bu_names[num] = get_bu_name_from_filename(store.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0])
 
-            # Total buttons = layers + 4 (Still Alive, Multi-Layer, Stress Map, Root Cause)
-            num_buttons = len(layer_keys) + 4
+            # Total buttons = layers + 2 (Still Alive, Multi-Layer) - Analysis moved to Sidebar
+            num_buttons = len(layer_keys) + 2
             cols = st.columns(num_buttons)
 
             # Layer Buttons
             for i, layer_num in enumerate(layer_keys):
                 with cols[i]:
                     bu_name = bu_names.get(layer_num, f"Layer {layer_num}")
-                    is_active = st.session_state.active_view == 'layer' and st.session_state.selected_layer == layer_num
+                    is_active = store.active_view == 'layer' and store.selected_layer == layer_num
                     if st.button(bu_name, key=f"layer_btn_{layer_num}", use_container_width=True, type="primary" if is_active else "secondary"):
-                        st.session_state.active_view = 'layer'
-                        st.session_state.selected_layer = layer_num
-                        layer_info = st.session_state.layer_data.get(layer_num, {})
+                        store.set_layer_view(layer_num)
+                        # Auto select side
+                        layer_info = store.layer_data.get(layer_num, {})
                         if 'F' in layer_info:
-                            st.session_state.selected_side = 'F'
+                            store.selected_side = 'F'
                         elif 'B' in layer_info:
-                            st.session_state.selected_side = 'B'
+                            store.selected_side = 'B'
                         elif layer_info:
-                             st.session_state.selected_side = next(iter(layer_info.keys()))
+                             store.selected_side = next(iter(layer_info.keys()))
                         st.rerun()
 
             # Still Alive
-            with cols[num_buttons - 4]:
-                is_active = st.session_state.active_view == 'still_alive'
+            with cols[num_buttons - 2]:
+                is_active = store.active_view == 'still_alive'
                 if st.button("Still Alive", key="still_alive_btn", use_container_width=True, type="primary" if is_active else "secondary"):
-                    st.session_state.active_view = 'still_alive'
+                    store.active_view = 'still_alive'
                     st.rerun()
 
             # Multi-Layer
-            with cols[num_buttons - 3]:
-                is_active = st.session_state.active_view == 'multi_layer_defects'
+            with cols[num_buttons - 1]:
+                is_active = store.active_view == 'multi_layer_defects'
                 if st.button("Multi-Layer Defects", key="multi_layer_defects_btn", use_container_width=True, type="primary" if is_active else "secondary"):
-                    st.session_state.active_view = 'multi_layer_defects'
-                    st.rerun()
-
-            # Analysis Dashboard (Consolidated)
-            with cols[num_buttons - 2]: # Merging slots, layout logic simplified
-                is_active = st.session_state.active_view == 'analysis_dashboard'
-                if st.button("Analysis", key="analysis_dashboard_btn", use_container_width=True, type="primary" if is_active else "secondary"):
-                    st.session_state.active_view = 'analysis_dashboard'
+                    store.active_view = 'multi_layer_defects'
                     st.rerun()
 
             # Side Selection (Only for Layer View)
-            if st.session_state.active_view == 'layer' and st.session_state.selected_layer:
-                layer_info = st.session_state.layer_data.get(st.session_state.selected_layer, {})
+            if store.active_view == 'layer' and store.selected_layer:
+                layer_info = store.layer_data.get(store.selected_layer, {})
                 if len(layer_info) >= 1:
                     side_cols = st.columns(max(len(layer_info), 2))
                     for i, side in enumerate(sorted(layer_info.keys())):
                         with side_cols[i]:
                             side_name = "Front" if side == 'F' else "Back"
-                            is_side_active = st.session_state.selected_side == side
+                            is_side_active = store.selected_side == side
                             if st.button(side_name, key=f"side_btn_{side}", use_container_width=True, type="primary" if is_side_active else "secondary"):
-                                st.session_state.selected_side = side
+                                store.selected_side = side
                                 st.rerun()
 
         st.divider()
 
         # --- View Logic ---
-        if st.session_state.active_view == 'still_alive':
-            # ... (Existing Still Alive Logic)
-            st.header("Still Alive Panel Yield Map")
-            map_col, summary_col = st.columns([2.5, 1])
-            with map_col:
-                true_defect_coords = get_true_defect_coordinates(st.session_state.layer_data)
-                fig = create_still_alive_figure(panel_rows, panel_cols, true_defect_coords)
-                st.plotly_chart(fig, use_container_width=True)
-            # ... (Summary Column Logic kept same)
-            with summary_col:
-                total_cells = (panel_rows * 2) * (panel_cols * 2)
-                defective_cell_count = len(true_defect_coords)
-                alive_cell_count = total_cells - defective_cell_count
-                yield_percentage = (alive_cell_count / total_cells) * 100 if total_cells > 0 else 0
-                st.subheader("Yield Summary")
-                st.metric("Panel Yield", f"{yield_percentage:.2f}%")
-                st.metric("Surviving Cells", f"{alive_cell_count:,} / {total_cells:,}")
-                st.metric("Defective Cells", f"{defective_cell_count:,}")
+        if store.active_view == 'still_alive':
+            render_still_alive_view(store)
 
-        elif st.session_state.active_view == 'multi_layer_defects':
-            st.header("Multi-Layer Combined Defect Map")
-            st.info("Visualizing 'True Defects' from selected layers. Colors indicate the source layer.")
+        elif store.active_view == 'multi_layer_defects':
+            render_multi_layer_view(store, selected_layers_multi, selected_sides_multi)
 
-            combined_df = prepare_multi_layer_data(st.session_state.layer_data)
+        elif store.active_view == 'analysis_dashboard':
+            # Delegate to Strategy
+            tool = get_analysis_tool(store.analysis_subview, store)
+            tool.render_main()
 
-            if not combined_df.empty:
-                if selected_layers_multi:
-                    combined_df = combined_df[combined_df['LAYER_NUM'].isin(selected_layers_multi)]
-                else: combined_df = pd.DataFrame()
-
-                if not combined_df.empty and selected_sides_multi:
-                    combined_df = combined_df[combined_df['SIDE'].isin(selected_sides_multi)]
-                elif not selected_sides_multi: combined_df = pd.DataFrame()
-
-            if not combined_df.empty:
-                fig = create_multi_layer_defect_map(combined_df, panel_rows, panel_cols)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No data matches current filters.")
-
-        elif st.session_state.active_view == 'analysis_dashboard':
-            subview = st.session_state.analysis_subview
-
-            if subview == ViewMode.STRESS.value:
-                st.header("Cumulative Stress Map Analysis")
-                st.info("Aggregates defects into a master grid. Includes Back-Side alignment.")
-
-                # 1. Prepare Data
-                if stress_mode == "Cumulative":
-                    stress_data = aggregate_stress_data(st.session_state.layer_data, selected_keys_stress, panel_rows, panel_cols)
-                    fig = create_stress_heatmap(stress_data, panel_rows, panel_cols)
-                else: # Delta
-                    stress_data_a = aggregate_stress_data(st.session_state.layer_data, delta_group_a_keys, panel_rows, panel_cols)
-                    stress_data_b = aggregate_stress_data(st.session_state.layer_data, delta_group_b_keys, panel_rows, panel_cols)
-                    fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols)
-
-                # 2. Render Plot
-                st.plotly_chart(fig, use_container_width=True)
-
-            elif subview == ViewMode.ROOT_CAUSE.value:
-                st.header("Root Cause & Diagnostics Dashboard")
-
-                # 1. Automated Yield Killer Metrics
-                metrics = calculate_yield_killers(st.session_state.layer_data, panel_rows, panel_cols)
-                if metrics:
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("🔥 Top Killer Layer", metrics.top_killer_layer, f"{metrics.top_killer_count} Defects", delta_color="inverse")
-                    col2.metric("📍 Worst Unit Location", metrics.worst_unit, f"{metrics.worst_unit_count} Defects (Cumulative)", delta_color="inverse")
-                    col3.metric("⚖️ Side Bias", metrics.side_bias, f"{metrics.side_bias_diff} Diff")
-                else:
-                    st.info("No defect data available to calculate KPIs.")
-
-                st.divider()
-
-                # 2. Virtual Cross-Section
-                st.subheader("Virtual Cross-Section (Z-Axis Slicer)")
-                st.info(f"Visualizing vertical defect propagation. Slicing by {slice_axis} Index: {slice_index}")
-
-                matrix, layer_labels, axis_labels = get_cross_section_matrix(st.session_state.layer_data, slice_axis, slice_index, panel_rows, panel_cols)
-
-                fig = create_cross_section_heatmap(
-                    matrix, layer_labels, axis_labels,
-                    f"Slicing Axis: {slice_axis} at Index {slice_index}"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-            elif subview == ViewMode.HEATMAP.value:
-                st.header("Heatmap Analysis")
-                st.info("Visualizing smoothed defect density across selected layers.")
-
-                # Combine selected data
-                combined_heatmap_df = pd.DataFrame()
-                if selected_keys_heatmap:
-                    dfs_to_concat = []
-                    for layer_num, side in selected_keys_heatmap:
-                        df = st.session_state.layer_data.get(layer_num, {}).get(side)
-                        if df is not None and not df.empty:
-                            dfs_to_concat.append(df)
-
-                    if dfs_to_concat:
-                        combined_heatmap_df = pd.concat(dfs_to_concat, ignore_index=True)
-
-                if not combined_heatmap_df.empty:
-                    contour_fig = create_density_contour_map(
-                        combined_heatmap_df, panel_rows, panel_cols,
-                        show_points=show_points,
-                        smoothing_factor=smoothing_factor,
-                        saturation_cap=saturation_cap,
-                        show_grid=show_grid # Hardcoded False above
-                    )
-                    st.plotly_chart(contour_fig, use_container_width=True)
-                else:
-                    st.warning("No data available for the selected layers.")
-
-            elif subview == ViewMode.INSIGHTS.value:
-                st.header("Insights & Sankey View")
-                layer_info = st.session_state.layer_data.get(st.session_state.selected_layer, {})
-                display_df = layer_info.get(st.session_state.selected_side)
-
-                if display_df is not None and not display_df.empty:
-                    st.caption(f"Analyzing: Layer {st.session_state.selected_layer} - {st.session_state.selected_side}")
-                    st.plotly_chart(create_defect_sunburst(display_df), use_container_width=True)
-                    sankey = create_defect_sankey(display_df)
-                    if sankey: st.plotly_chart(sankey, use_container_width=True)
-                else:
-                    st.warning("No data available.")
-
-        elif st.session_state.active_view == 'layer':
-            # ... (Existing Layer View Logic)
-            selected_layer_num = st.session_state.get('selected_layer')
-            if selected_layer_num:
-                # ... (Logic to render create_defect_map_figure etc.)
-                layer_info = st.session_state.layer_data.get(selected_layer_num, {})
-                side_df = layer_info.get(st.session_state.selected_side)
-
-                if side_df is not None and not side_df.empty:
-                    filtered_df = side_df[side_df['Verification'] == verification_selection] if verification_selection != 'All' else side_df
-                    display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
-
-                    if view_mode == ViewMode.DEFECT.value:
-                        fig = create_defect_map_figure(display_df, panel_rows, panel_cols, quadrant_selection, lot_number)
-                        st.plotly_chart(fig, use_container_width=True)
-                    elif view_mode == ViewMode.PARETO.value:
-                        fig = create_pareto_figure(display_df, quadrant_selection)
-                        st.plotly_chart(fig, use_container_width=True)
-                    elif view_mode == ViewMode.SUMMARY.value:
-                         # ... (Summary Logic - placeholder for existing code)
-                         st.info("Summary View loaded.")
-                         pass
+        elif store.active_view == 'layer':
+            render_layer_view(store, view_mode, quadrant_selection, verification_selection)
 
     else:
         st.header("Welcome to the Panel Defect Analysis Tool!")

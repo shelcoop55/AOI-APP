@@ -69,6 +69,38 @@ def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int
 # --- Public API Functions ---
 # ==============================================================================
 
+def apply_panel_theme(fig: go.Figure, title: str = "", height: int = 800) -> go.Figure:
+    """
+    Applies the standard engineering styling to any figure.
+    This centralized function replaces redundant layout code in specific plotting functions.
+    """
+    fig.update_layout(
+        title=dict(text=title, font=dict(color=TEXT_COLOR, size=18), x=0.5, xanchor='center'),
+        plot_bgcolor=PLOT_AREA_COLOR,
+        paper_bgcolor=BACKGROUND_COLOR,
+        height=height,
+        font=dict(color=TEXT_COLOR),
+        # Default Axis Styling (can be overridden)
+        xaxis=dict(
+            showgrid=False, zeroline=False, showline=True,
+            linewidth=2, linecolor=GRID_COLOR, mirror=True,
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        yaxis=dict(
+            showgrid=False, zeroline=False, showline=True,
+            linewidth=2, linecolor=GRID_COLOR, mirror=True,
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR),
+            scaleanchor="x", scaleratio=1
+        ),
+        legend=dict(
+            title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR),
+            bgcolor=BACKGROUND_COLOR, bordercolor=GRID_COLOR, borderwidth=1,
+            x=1.02, y=1, xanchor='left', yanchor='top'
+        ),
+        hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif")
+    )
+    return fig
+
 def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', fill: bool = True) -> List[Dict[str, Any]]:
     """
     Creates the visual shapes for the panel grid in a fixed 510x510mm coordinate system.
@@ -236,7 +268,7 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
                     hovertemplate=hovertemplate
                 ))
 
-    # Add Grid and Layout
+    # Add Grid
     fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All'))
 
     # Calculate ticks (reused from standard map logic)
@@ -248,28 +280,22 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
     x_tick_text = list(range(panel_cols * 2))
     y_tick_text = list(range(panel_rows * 2))
 
+    apply_panel_theme(fig, "Multi-Layer Combined Defect Map (True Defects Only)")
+
     fig.update_layout(
-        title=dict(text="Multi-Layer Combined Defect Map (True Defects Only)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
         xaxis=dict(
             title="Unit Column Index",
             tickvals=x_tick_vals_q1 + x_tick_vals_q2,
             ticktext=x_tick_text,
-            range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], constrain='domain',
-            showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+            range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], constrain='domain'
         ),
         yaxis=dict(
             title="Unit Row Index",
             tickvals=y_tick_vals_q1 + y_tick_vals_q3,
             ticktext=y_tick_text,
-            range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)],
-            scaleanchor="x", scaleratio=1,
-            showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+            range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)]
         ),
-        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR,
-        legend=dict(title=dict(text="Build-Up Layer"), title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
-        hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"), height=800
+        legend=dict(title=dict(text="Build-Up Layer"))
     )
 
     return fig
@@ -302,12 +328,11 @@ def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int,
 
     final_title = title if title else f"Panel Defect Map - Quadrant: {quadrant_selection}"
 
+    apply_panel_theme(fig, final_title)
+
     fig.update_layout(
-        title=dict(text=final_title, font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
-        xaxis=dict(title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=x_tick_vals_q1 + x_tick_vals_q2 if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, constrain='domain', showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-        yaxis=dict(title="Unit Row Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=y_tick_vals_q1 + y_tick_vals_q3 if show_ticks else [], ticktext=y_tick_text if show_ticks else [], range=y_axis_range, scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
-        hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"), height=800
+        xaxis=dict(title="Unit Column Index", tickvals=x_tick_vals_q1 + x_tick_vals_q2 if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, constrain='domain'),
+        yaxis=dict(title="Unit Row Index", tickvals=y_tick_vals_q1 + y_tick_vals_q3 if show_ticks else [], ticktext=y_tick_text if show_ticks else [], range=y_axis_range)
     )
 
     if lot_number and quadrant_selection == Quadrant.ALL.value:
@@ -355,12 +380,11 @@ def create_pareto_figure(df: pd.DataFrame, quadrant_selection: str = Quadrant.AL
     else:
         fig.add_trace(create_pareto_trace(df))
 
+    apply_panel_theme(fig, f"Defect Pareto - Quadrant: {quadrant_selection}", height=600)
+
     fig.update_layout(
-        title=dict(text=f"Defect Pareto - Quadrant: {quadrant_selection}", font=dict(color=TEXT_COLOR)),
-        xaxis=dict(title="Defect Type", categoryorder='total descending', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-        yaxis=dict(title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, height=600,
-        legend=dict(font=dict(color=TEXT_COLOR))
+        xaxis=dict(title="Defect Type", categoryorder='total descending'),
+        yaxis=dict(showgrid=True) # Override to show grid on Pareto
     )
     return fig
 
@@ -382,14 +406,29 @@ def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:
         traces.append(go.Bar(name=details['name'], x=x_axis_data, y=grouped[status_code], marker_color=details['color']))
     return traces
 
-def create_still_alive_map(panel_rows: int, panel_cols: int, true_defect_coords: Set[Tuple[int, int]]) -> List[Dict[str, Any]]:
+def create_still_alive_map(
+    panel_rows: int,
+    panel_cols: int,
+    true_defect_data: Dict[Tuple[int, int], Dict[str, Any]]
+) -> Tuple[List[Dict[str, Any]], List[go.Scatter]]:
     """
-    Creates the shapes for the 'Still Alive' map by drawing colored cells and an overlay grid.
+    Creates the shapes for the 'Still Alive' map AND invisible scatter points for tooltips.
+
+    Returns:
+        (shapes, traces)
     """
     shapes = []
+    traces = []
+
     total_cols, total_rows = panel_cols * 2, panel_rows * 2
     all_origins = {'Q1': (0, 0), 'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0), 'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE), 'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)}
     cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+
+    # Prepare lists for scatter trace (Tooltips)
+    hover_x = []
+    hover_y = []
+    hover_text = []
+    hover_colors = []
 
     # 1. Draw the colored cells first (without borders)
     for row in range(total_rows):
@@ -399,20 +438,64 @@ def create_still_alive_map(panel_rows: int, panel_cols: int, true_defect_coords:
             quad_key = f"Q{quadrant_row * 2 + quadrant_col + 1}"
             x_origin, y_origin = all_origins[quad_key]
             x0, y0 = x_origin + local_col * cell_width, y_origin + local_row * cell_height
-            fill_color = DEFECTIVE_CELL_COLOR if (col, row) in true_defect_coords else ALIVE_CELL_COLOR
+
+            # Determine status
+            is_dead = (col, row) in true_defect_data
+
+            if is_dead:
+                metadata = true_defect_data[(col, row)]
+                first_killer = metadata['first_killer_layer']
+
+                # Color logic: Revert to binary RED for all defects
+                fill_color = DEFECTIVE_CELL_COLOR
+
+                # Add to hover data (Keep Autopsy Tooltip)
+                center_x = x0 + cell_width/2
+                center_y = y0 + cell_height/2
+                hover_x.append(center_x)
+                hover_y.append(center_y)
+
+                tooltip = (
+                    f"<b>Unit: ({col}, {row})</b><br>"
+                    f"First Killer: Layer {first_killer}<br>"
+                    f"Details: {metadata['defect_summary']}"
+                )
+                hover_text.append(tooltip)
+                # Hover dots should also match the cell color (Red) to be invisible
+                hover_colors.append(fill_color)
+
+            else:
+                fill_color = ALIVE_CELL_COLOR
+
             shapes.append({'type': 'rect', 'x0': x0, 'y0': y0, 'x1': x0 + cell_width, 'y1': y0 + cell_height, 'fillcolor': fill_color, 'line': {'width': 0}, 'layer': 'below'})
 
-    # 2. Draw grid lines over the colored cells by calling create_grid_shapes with fill=False
+    # 2. Draw grid lines over the colored cells
     shapes.extend(create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False))
 
-    return shapes
+    # 3. Create Scatter Trace for Hover
+    if hover_x:
+        traces.append(go.Scatter(
+            x=hover_x,
+            y=hover_y,
+            mode='markers',
+            marker=dict(size=0, color=hover_colors, opacity=0), # Invisible markers
+            text=hover_text,
+            hoverinfo='text'
+        ))
 
-def create_still_alive_figure(panel_rows: int, panel_cols: int, true_defect_coords: Set[Tuple[int, int]]) -> go.Figure:
+    return shapes, traces
+
+def create_still_alive_figure(
+    panel_rows: int,
+    panel_cols: int,
+    true_defect_data: Dict[Tuple[int, int], Dict[str, Any]]
+) -> go.Figure:
     """
-    Creates the Still Alive Map Figure (Shapes + Layout).
+    Creates the Still Alive Map Figure (Shapes + Layout + Tooltips).
     """
-    fig = go.Figure()
-    map_shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
+    map_shapes, hover_traces = create_still_alive_map(panel_rows, panel_cols, true_defect_data)
+
+    fig = go.Figure(data=hover_traces) # Add hover traces
 
     cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
     x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
@@ -422,21 +505,19 @@ def create_still_alive_figure(panel_rows: int, panel_cols: int, true_defect_coor
     x_tick_text = list(range(panel_cols * 2))
     y_tick_text = list(range(panel_rows * 2))
 
+    apply_panel_theme(fig, f"Still Alive Map ({len(true_defect_data)} Defective Cells)")
+
     fig.update_layout(
-        title=dict(text=f"Still Alive Map ({len(true_defect_coords)} Defective Cells)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
         xaxis=dict(
             title="Unit Column Index", range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], constrain='domain',
-            tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text,
-            showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor=GRID_COLOR, mirror=True,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+            tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text
         ),
         yaxis=dict(
             title="Unit Row Index", range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)],
-            tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text,
-            scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor=GRID_COLOR, mirror=True,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+            tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text
         ),
-        plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=map_shapes, height=800, margin=dict(l=20, r=20, t=80, b=20)
+        shapes=map_shapes, margin=dict(l=20, r=20, t=80, b=20),
+        showlegend=False
     )
     return fig
 
@@ -574,16 +655,13 @@ def create_defect_sankey(df: pd.DataFrame) -> go.Sankey:
         textfont=dict(size=14, color=TEXT_COLOR, family="Roboto")
     )])
 
+    apply_panel_theme(fig, "Defect Type → Verification Flow Analysis", height=700)
+
     fig.update_layout(
-        title=dict(
-            text="Defect Type → Verification Flow Analysis",
-            font=dict(size=22, color=TEXT_COLOR, family="Roboto")
-        ),
         font=dict(size=12, color=TEXT_COLOR),
-        height=700,
-        paper_bgcolor=BACKGROUND_COLOR,
-        plot_bgcolor=PLOT_AREA_COLOR,
-        margin=dict(l=20, r=20, t=60, b=20)
+        margin=dict(l=20, r=20, t=60, b=20),
+        xaxis=dict(showgrid=False, showline=False), # Sankey doesn't need axes
+        yaxis=dict(showgrid=False, showline=False)
     )
     return fig
 
@@ -639,27 +717,20 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
     total_global_cols = panel_cols * 2
     total_global_rows = panel_rows * 2
 
+    apply_panel_theme(fig, "1. Unit Grid Density (Yield Loss Map)", height=700)
+
     fig.update_layout(
-        title=dict(text="1. Unit Grid Density (Yield Loss Map)", font=dict(color=TEXT_COLOR, size=18)),
         xaxis=dict(
             title="Global Unit Column",
             tickmode='linear', dtick=1,
-            showgrid=False, zeroline=False,
             range=[-0.5, total_global_cols - 0.5],
-            constrain='domain',
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+            constrain='domain'
         ),
         yaxis=dict(
             title="Global Unit Row",
             tickmode='linear', dtick=1,
-            showgrid=False, zeroline=False,
-            range=[-0.5, total_global_rows - 0.5],
-            scaleanchor="x", scaleratio=1,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
-        ),
-        plot_bgcolor=PLOT_AREA_COLOR,
-        paper_bgcolor=BACKGROUND_COLOR,
-        height=700
+            range=[-0.5, total_global_rows - 0.5]
+        )
     )
 
     return fig
@@ -753,28 +824,22 @@ def create_density_contour_map(
         y_tick_vals.append(center_mm)
         y_tick_text.append(str(i))
 
+    apply_panel_theme(fig, "2. Smoothed Defect Density (Hotspots)", height=700)
+
     fig.update_layout(
-        title=dict(text="2. Smoothed Defect Density (Hotspots)", font=dict(color=TEXT_COLOR, size=18)),
         xaxis=dict(
             title="Unit Column Index (Approx)",
             tickvals=x_tick_vals,
             ticktext=x_tick_text,
-            showgrid=False, zeroline=False, showline=True, mirror=True,
-            range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], constrain='domain',
-            tickfont=dict(color=TEXT_COLOR), title_font=dict(color=TEXT_COLOR)
+            range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], constrain='domain'
         ),
         yaxis=dict(
             title="Unit Row Index (Approx)",
             tickvals=y_tick_vals,
             ticktext=y_tick_text,
-            showgrid=False, zeroline=False, showline=True, mirror=True,
-            range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2], scaleanchor="x", scaleratio=1,
-            tickfont=dict(color=TEXT_COLOR), title_font=dict(color=TEXT_COLOR)
+            range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2]
         ),
-        shapes=shapes,
-        plot_bgcolor=PLOT_AREA_COLOR,
-        paper_bgcolor=BACKGROUND_COLOR,
-        height=700
+        shapes=shapes
     )
     return fig
 
@@ -843,38 +908,6 @@ def create_defect_sunburst(df: pd.DataFrame) -> go.Figure:
 
     return fig
 
-# ==============================================================================
-# --- NEW: Stress Map Functions ---
-# ==============================================================================
-
-def _configure_stress_map_layout(fig: go.Figure, panel_rows: int, panel_cols: int, title: str):
-    """Shared layout configuration for stress maps."""
-    total_cols = panel_cols * 2
-    total_rows = panel_rows * 2
-
-    fig.update_layout(
-        title=dict(text=title, font=dict(color=TEXT_COLOR, size=18), x=0.5, xanchor='center'),
-        xaxis=dict(
-            title="Unit Index X",
-            tickmode='linear', dtick=1,
-            showgrid=False, zeroline=False,
-            range=[-0.5, total_cols - 0.5],
-            constrain='domain',
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
-        ),
-        yaxis=dict(
-            title="Unit Index Y",
-            tickmode='linear', dtick=1,
-            showgrid=False, zeroline=False,
-            range=[-0.5, total_rows - 0.5],
-            scaleanchor="x", scaleratio=1,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
-        ),
-        plot_bgcolor=PLOT_AREA_COLOR,
-        paper_bgcolor=BACKGROUND_COLOR,
-        height=700
-    )
-
 def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int) -> go.Figure:
     """
     Creates the Cumulative Stress Heatmap with defect counts in cells.
@@ -904,7 +937,24 @@ def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int)
         colorbar=dict(title='Defects', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
     ))
 
-    _configure_stress_map_layout(fig, panel_rows, panel_cols, "Cumulative Stress Map (Total Defects per Unit)")
+    total_cols = panel_cols * 2
+    total_rows = panel_rows * 2
+
+    apply_panel_theme(fig, "Cumulative Stress Map (Total Defects per Unit)", height=700)
+
+    fig.update_layout(
+        xaxis=dict(
+            title="Unit Index X",
+            tickmode='linear', dtick=1,
+            range=[-0.5, total_cols - 0.5],
+            constrain='domain'
+        ),
+        yaxis=dict(
+            title="Unit Index Y",
+            tickmode='linear', dtick=1,
+            range=[-0.5, total_rows - 0.5]
+        )
+    )
     return fig
 
 def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_rows: int, panel_cols: int) -> go.Figure:
@@ -929,7 +979,24 @@ def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_row
         colorbar=dict(title='Delta (A - B)', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
     ))
 
-    _configure_stress_map_layout(fig, panel_rows, panel_cols, "Delta Stress Map (Group A - Group B)")
+    total_cols = panel_cols * 2
+    total_rows = panel_rows * 2
+
+    apply_panel_theme(fig, "Delta Stress Map (Group A - Group B)", height=700)
+
+    fig.update_layout(
+        xaxis=dict(
+            title="Unit Index X",
+            tickmode='linear', dtick=1,
+            range=[-0.5, total_cols - 0.5],
+            constrain='domain'
+        ),
+        yaxis=dict(
+            title="Unit Index Y",
+            tickmode='linear', dtick=1,
+            range=[-0.5, total_rows - 0.5]
+        )
+    )
     return fig
 
 def create_cross_section_heatmap(
@@ -967,22 +1034,11 @@ def create_cross_section_heatmap(
         colorbar=dict(title='Defects', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
     ))
 
+    apply_panel_theme(fig, f"Virtual Cross-Section: {slice_desc}", height=600)
+
     fig.update_layout(
-        title=dict(text=f"Virtual Cross-Section: {slice_desc}", font=dict(color=TEXT_COLOR, size=18), x=0.5, xanchor='center'),
-        xaxis=dict(
-            title="Unit Index (Slice Position)",
-            showgrid=False, zeroline=False,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
-        ),
-        yaxis=dict(
-            title="Layer Stack",
-            autorange="reversed", # Ensure Layer 1 is at top
-            showgrid=False, zeroline=False,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
-        ),
-        plot_bgcolor=PLOT_AREA_COLOR,
-        paper_bgcolor=BACKGROUND_COLOR,
-        height=600
+        xaxis=dict(title="Unit Index (Slice Position)"),
+        yaxis=dict(title="Layer Stack", autorange="reversed") # Ensure Layer 1 is at top
     )
 
     return fig

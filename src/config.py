@@ -12,6 +12,9 @@ PANEL_HEIGHT = 600
 # The physical gap between the quadrants on the panel.
 GAP_SIZE = 20
 
+# Derived constants that were causing import errors
+QUADRANT_WIDTH = PANEL_WIDTH / 2
+QUADRANT_HEIGHT = PANEL_HEIGHT / 2
 
 # --- Style Theme: Post-Etch AOI Panel ---
 # This palette is designed to look like a copper-clad panel from the PCB/IC Substrate industry.
