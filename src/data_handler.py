@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 # Import constants from the configuration file
 from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES
+from .models import PanelData, BuildUpLayer
 
 # --- DERIVED PHYSICAL CONSTANTS ---
 # These constants are calculated from the primary dimensions in config.py
@@ -84,16 +85,18 @@ def load_data(
     uploaded_files: List[BytesIO],
     panel_rows: int,
     panel_cols: int,
-) -> Dict[int, Dict[str, pd.DataFrame]]:
+) -> PanelData:
     """
     Loads defect data from multiple build-up layer files, validates filenames
     (e.g., BU-01F..., BU-01B...), and processes each layer's data.
-    Returns a nested dictionary mapping layer numbers to sides ('F' or 'B')
-    to their corresponding DataFrames.
+    Returns a PanelData object containing all layers.
     """
-    layer_data = {}
+    panel_data = PanelData()
 
     if uploaded_files:
+        # Temporary storage for concatenation
+        temp_data: Dict[int, Dict[str, List[pd.DataFrame]]] = {}
+
         for uploaded_file in uploaded_files:
             file_name = uploaded_file.name
             match = re.match(r"BU-(\d{2})\s*([FB])", file_name, re.IGNORECASE)
@@ -146,10 +149,10 @@ def load_data(
                     total_width_units = 2 * panel_cols
                     df['PHYSICAL_X'] = (total_width_units - 1) - df['UNIT_INDEX_X']
 
-                if layer_num not in layer_data: layer_data[layer_num] = {}
-                if side not in layer_data[layer_num]: layer_data[layer_num][side] = []
+                if layer_num not in temp_data: temp_data[layer_num] = {}
+                if side not in temp_data[layer_num]: temp_data[layer_num][side] = []
 
-                layer_data[layer_num][side].append(df)
+                temp_data[layer_num][side].append(df)
 
             except ValueError:
                 st.error(f"Error in '{file_name}': A sheet named 'Defects' was not found.")
@@ -158,28 +161,25 @@ def load_data(
                 st.error(f"An unexpected error occurred while reading '{file_name}': {e}")
                 continue
         
-        # Consolidate dataframes for each layer/side
-        for layer_num, sides in layer_data.items():
+        # Build PanelData
+        for layer_num, sides in temp_data.items():
             for side, dfs in sides.items():
-                layer_data[layer_num][side] = _add_plotting_coordinates(
-                    pd.concat(dfs, ignore_index=True), panel_rows, panel_cols
-                )
+                merged_df = pd.concat(dfs, ignore_index=True)
+                layer_obj = BuildUpLayer(layer_num, side, merged_df, panel_rows, panel_cols)
+                panel_data.add_layer(layer_obj)
 
-        if layer_data:
-            st.sidebar.success(f"{len(layer_data)} layer(s) loaded successfully!")
+        if panel_data:
+            st.sidebar.success(f"{len(temp_data)} layer(s) loaded successfully!")
 
     else:
         st.sidebar.info("No file uploaded. Displaying sample data for 3 layers (all with Front/Back).")
         total_units_x = 2 * panel_cols
         total_units_y = 2 * panel_rows
-        layer_data = {}
 
         # 3 Layers
         layers_to_generate = [1, 2, 3]
 
         for layer_num in layers_to_generate:
-            layer_data[layer_num] = {}
-
             # Random False Alarm Rate for this layer (50% - 60%)
             false_alarm_rate = np.random.uniform(0.5, 0.6)
 
@@ -222,104 +222,20 @@ def load_data(
                 }
 
                 df = pd.DataFrame(defect_data)
-                # Ensure PHYSICAL_X is present in sample data
-                df['PHYSICAL_X'] = df['UNIT_INDEX_X']
-                if side == 'B':
-                    total_width_units = 2 * panel_cols
-                    df['PHYSICAL_X'] = (total_width_units - 1) - df['UNIT_INDEX_X']
+                layer_obj = BuildUpLayer(layer_num, side, df, panel_rows, panel_cols)
+                panel_data.add_layer(layer_obj)
 
-                layer_data[layer_num][side] = _add_plotting_coordinates(df, panel_rows, panel_cols)
+    return panel_data
 
-    return layer_data
-
-
-def _add_plotting_coordinates(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> pd.DataFrame:
-    """
-    Adds plotting coordinates to a DataFrame.
-    Calculates both Raw coordinates (for Individual View) and Physical coordinates (for Heatmaps/Yield).
-    """
-    if df.empty:
-        return df
-
-    cell_width = QUADRANT_WIDTH / panel_cols
-    cell_height = QUADRANT_HEIGHT / panel_rows
-
-    # --- 1. RAW COORDINATES (Based on UNIT_INDEX_X) ---
-    # Used for Individual Layer Map (Back side unflipped)
-
-    # Calculate Raw Quadrant
-    conditions_raw = [
-        (df['UNIT_INDEX_X'] < panel_cols) & (df['UNIT_INDEX_Y'] < panel_rows),
-        (df['UNIT_INDEX_X'] >= panel_cols) & (df['UNIT_INDEX_Y'] < panel_rows),
-        (df['UNIT_INDEX_X'] < panel_cols) & (df['UNIT_INDEX_Y'] >= panel_rows),
-        (df['UNIT_INDEX_X'] >= panel_cols) & (df['UNIT_INDEX_Y'] >= panel_rows)
-    ]
-    choices = ['Q1', 'Q2', 'Q3', 'Q4']
-    df['QUADRANT'] = np.select(conditions_raw, choices, default='Other')
-
-    # Calculate Raw Plotting Coordinates
-    local_index_x_raw = df['UNIT_INDEX_X'] % panel_cols
-    local_index_y = df['UNIT_INDEX_Y'] % panel_rows # Y is always consistent
-
-    plot_x_base_raw = local_index_x_raw * cell_width
-    plot_y_base = local_index_y * cell_height
-
-    x_offset_raw = np.where(df['UNIT_INDEX_X'] >= panel_cols, QUADRANT_WIDTH + GAP_SIZE, 0)
-    y_offset = np.where(df['UNIT_INDEX_Y'] >= panel_rows, QUADRANT_HEIGHT + GAP_SIZE, 0)
-
-    # Common Jitter
-    jitter_x = np.random.rand(len(df)) * cell_width * 0.8 + (cell_width * 0.1)
-    jitter_y = np.random.rand(len(df)) * cell_height * 0.8 + (cell_height * 0.1)
-
-    df['plot_x'] = plot_x_base_raw + x_offset_raw + jitter_x
-    df['plot_y'] = plot_y_base + y_offset + jitter_y
-
-
-    # --- 2. PHYSICAL COORDINATES (Based on PHYSICAL_X) ---
-    # Used for Multi-Layer Map, Still Alive Map, Heatmaps (Back side flipped)
-
-    if 'PHYSICAL_X' not in df.columns:
-         df['PHYSICAL_X'] = df['UNIT_INDEX_X']
-
-    # Calculate Physical Quadrant
-    conditions_phys = [
-        (df['PHYSICAL_X'] < panel_cols) & (df['UNIT_INDEX_Y'] < panel_rows),
-        (df['PHYSICAL_X'] >= panel_cols) & (df['UNIT_INDEX_Y'] < panel_rows),
-        (df['PHYSICAL_X'] < panel_cols) & (df['UNIT_INDEX_Y'] >= panel_rows),
-        (df['PHYSICAL_X'] >= panel_cols) & (df['UNIT_INDEX_Y'] >= panel_rows)
-    ]
-    df['PHYSICAL_QUADRANT'] = np.select(conditions_phys, choices, default='Other')
-
-    # Calculate Physical Plotting Coordinates
-    local_index_x_phys = df['PHYSICAL_X'] % panel_cols
-    plot_x_base_phys = local_index_x_phys * cell_width
-    x_offset_phys = np.where(df['PHYSICAL_X'] >= panel_cols, QUADRANT_WIDTH + GAP_SIZE, 0)
-
-    # We re-use jitter_x so that the same defect doesn't jump around randomly between views
-    df['physical_plot_x'] = plot_x_base_phys + x_offset_phys + jitter_x
-    
-    return df
-
-def get_true_defect_coordinates(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> Set[Tuple[int, int]]:
+def get_true_defect_coordinates(panel_data: PanelData) -> Set[Tuple[int, int]]:
     """
     Aggregates all "True" defects from all layers and sides to find unique
     defective cell coordinates for the Still Alive map.
-
-    Updated Logic:
-    A "True Defect" is any defect whose Verification value is NOT in the SAFE_VERIFICATION_VALUES list.
     """
-    if not isinstance(layer_data, dict) or not layer_data:
+    if not panel_data:
         return set()
 
-    all_dfs = []
-    for layer, sides in layer_data.items():
-        for side, df in sides.items():
-            all_dfs.append(df)
-
-    if not all_dfs:
-        return set()
-
-    all_layers_df = pd.concat(all_dfs, ignore_index=True)
+    all_layers_df = panel_data.get_combined_dataframe()
 
     if all_layers_df.empty or 'Verification' not in all_layers_df.columns:
         return set()
@@ -346,85 +262,50 @@ def get_true_defect_coordinates(layer_data: Dict[int, Dict[str, pd.DataFrame]]) 
     return set(map(tuple, defect_coords_df.to_numpy()))
 
 @st.cache_data
-def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> pd.DataFrame:
+def prepare_multi_layer_data(panel_data: PanelData) -> pd.DataFrame:
     """
     Aggregates and filters defect data from all layers for the Multi-Layer Defect View.
-
-    Logic:
-    1. Iterates through all layers and sides in layer_data.
-    2. Filters out 'Safe' verification values (False Alarms).
-    3. Adds a 'Layer_Label' column (e.g., 'Layer 1 (Front)').
-    4. Adds a 'LAYER_NUM' column (int) for color mapping.
-    5. Returns a single combined DataFrame.
     """
-    combined_data = []
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
-
-    if not layer_data:
+    if not panel_data:
         return pd.DataFrame()
 
-    for layer_num, sides in layer_data.items():
-        for side, df in sides.items():
-            if df.empty: continue
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
 
-            # Create a copy to avoid SettingWithCopy warnings
-            df_copy = df.copy()
+    def true_defect_filter(df):
+        if 'Verification' in df.columns:
+            return df[~df['Verification'].str.upper().isin(safe_values_upper)]
+        return df
 
-            # Filter for True Defects
-            if 'Verification' in df_copy.columns:
-                is_true_defect = ~df_copy['Verification'].str.upper().isin(safe_values_upper)
-                df_copy = df_copy[is_true_defect]
-
-            if df_copy.empty: continue
-
-            # Add Layer Label and Layer Num
-            side_name = "Front" if side == 'F' else "Back"
-            df_copy['Layer_Label'] = f"Layer {layer_num} ({side_name})"
-            df_copy['LAYER_NUM'] = layer_num
-
-            combined_data.append(df_copy)
-
-    if combined_data:
-        return pd.concat(combined_data, ignore_index=True)
-    return pd.DataFrame()
+    return panel_data.get_combined_dataframe(filter_func=true_defect_filter)
 
 @st.cache_data
 def aggregate_stress_data(
-    layer_data: Dict[int, Dict[str, pd.DataFrame]],
+    panel_data: PanelData,
     selected_keys: List[Tuple[int, str]],
     panel_rows: int,
     panel_cols: int
 ) -> StressMapData:
     """
     Aggregates data for the Cumulative Stress Map using specific (Layer, Side) keys.
-
-    Args:
-        selected_keys: List of tuples (layer_num, side) e.g., [(1, 'F'), (1, 'B')]
     """
     total_cols = panel_cols * 2
     total_rows = panel_rows * 2
 
-    # Initialize Grids
     grid_counts = np.zeros((total_rows, total_cols), dtype=int)
-    # Using 'object' dtype for string arrays to hold arbitrary length strings
     hover_text = np.empty((total_rows, total_cols), dtype=object)
     hover_text[:] = ""
 
-    # Helper structures for drill-down
-    # cell_defects[(y, x)] = { 'Short': 10, 'Open': 5 }
     cell_defects: Dict[Tuple[int, int], Dict[str, int]] = {}
-
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
 
     total_defects_acc = 0
     max_count_acc = 0
 
-    # Iterate selected keys
     for layer_num, side in selected_keys:
-        if layer_num not in layer_data: continue
-        if side not in layer_data[layer_num]: continue
+        layer = panel_data.get_layer(layer_num, side)
+        if not layer: continue
 
-        df = layer_data[layer_num][side]
+        df = layer.data
         if df.empty: continue
 
         # Filter True Defects
@@ -483,33 +364,20 @@ def aggregate_stress_data(
     )
 
 @st.cache_data
-def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], panel_rows: int, panel_cols: int) -> Optional[YieldKillerMetrics]:
+def calculate_yield_killers(panel_data: PanelData, panel_rows: int, panel_cols: int) -> Optional[YieldKillerMetrics]:
     """
     Calculates the 'Yield Killer' KPIs: Worst Layer, Worst Unit, Side Bias.
     """
-    if not layer_data: return None
+    if not panel_data: return None
 
-    # Flatten all data into one DF
-    all_defects = []
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
 
-    for layer, sides in layer_data.items():
-        for side, df in sides.items():
-            if df.empty: continue
-            df_copy = df.copy()
-            # Filter True
-            if 'Verification' in df_copy.columns:
-                is_true = ~df_copy['Verification'].str.upper().isin(safe_values_upper)
-                df_copy = df_copy[is_true]
+    def true_defect_filter(df):
+        if 'Verification' in df.columns:
+            return df[~df['Verification'].str.upper().isin(safe_values_upper)]
+        return df
 
-            if df_copy.empty: continue
-
-            df_copy['LAYER_NUM'] = layer # Ensure column exists
-            all_defects.append(df_copy)
-
-    if not all_defects: return None
-
-    combined_df = pd.concat(all_defects, ignore_index=True)
+    combined_df = panel_data.get_combined_dataframe(filter_func=true_defect_filter)
 
     if combined_df.empty: return None
 
@@ -549,7 +417,7 @@ def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], pane
 
 @st.cache_data
 def get_cross_section_matrix(
-    layer_data: Dict[int, Dict[str, pd.DataFrame]],
+    panel_data: PanelData,
     slice_axis: str,
     x_range: Tuple[int, int],
     y_range: Tuple[int, int],
@@ -558,23 +426,11 @@ def get_cross_section_matrix(
 ) -> Tuple[np.ndarray, List[str], List[str]]:
     """
     Constructs the 2D cross-section matrix for Root Cause Analysis based on a Region of Interest.
-
-    Args:
-        slice_axis: 'X' (View along Column, axis is Y) or 'Y' (View along Row, axis is X).
-        x_range: Tuple (min, max) for X-axis filtering.
-        y_range: Tuple (min, max) for Y-axis filtering.
-
-    Returns:
-        (matrix, layer_labels, axis_labels)
     """
-    sorted_layers = sorted(layer_data.keys())
+    sorted_layers = panel_data.get_all_layer_nums()
     num_layers = len(sorted_layers)
     if num_layers == 0:
         return np.zeros((0,0)), [], []
-
-    # 1. Determine Matrix Dimensions based on Projection Axis (slice_axis)
-    # If slice_axis == 'Y' (Row View), we project onto X. Matrix width is length of x_range.
-    # If slice_axis == 'X' (Col View), we project onto Y. Matrix width is length of y_range.
 
     if slice_axis == 'Y':
         # Projection Axis is X
@@ -593,8 +449,9 @@ def get_cross_section_matrix(
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
 
     for i, layer_num in enumerate(sorted_layers):
-        sides = layer_data[layer_num]
-        for side, df in sides.items():
+        sides = panel_data._layers[layer_num] # Direct access to dict for now
+        for side, layer_obj in sides.items():
+            df = layer_obj.data
             if df.empty: continue
 
             df_copy = df.copy()
@@ -604,7 +461,7 @@ def get_cross_section_matrix(
 
             if df_copy.empty: continue
 
-            # 2. Filter by ROI (Both X and Y ranges)
+            # 2. Filter by ROI
             relevant_defects = df_copy[
                 (df_copy['UNIT_INDEX_X'] >= x_range[0]) & (df_copy['UNIT_INDEX_X'] <= x_range[1]) &
                 (df_copy['UNIT_INDEX_Y'] >= y_range[0]) & (df_copy['UNIT_INDEX_Y'] <= y_range[1])
@@ -612,17 +469,14 @@ def get_cross_section_matrix(
 
             if relevant_defects.empty: continue
 
-            # 3. Aggregate based on Projection Axis
+            # 3. Aggregate
             if slice_axis == 'Y':
-                # View along Row. Plot X-axis is UNIT_INDEX_X.
                 counts = relevant_defects.groupby('UNIT_INDEX_X').size()
                 for x_idx, count in counts.items():
-                    # Map global index to matrix index (0 to width)
                     if x_range[0] <= x_idx <= x_range[1]:
                         col_idx = int(x_idx) - x_range[0]
                         matrix[i, col_idx] += count
             else:
-                # View along Column. Plot X-axis is UNIT_INDEX_Y.
                 counts = relevant_defects.groupby('UNIT_INDEX_Y').size()
                 for y_idx, count in counts.items():
                     if y_range[0] <= y_idx <= y_range[1]:
