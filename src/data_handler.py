@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from typing import List, Dict, Set, Tuple, Any
+from typing import List, Dict, Set, Tuple, Any, Optional
 from io import BytesIO
 from dataclasses import dataclass
 
@@ -66,10 +66,18 @@ class StressMapData:
     """Container for stress map aggregation results."""
     grid_counts: np.ndarray          # 2D array of total defect counts
     hover_text: np.ndarray           # 2D array of hover text strings
-    dominant_layer: np.ndarray       # 2D array of layer IDs with max defects
-    dominant_count: np.ndarray       # 2D array of count for dominant layer
     total_defects: int               # Total defects in selection
     max_count: int                   # Max count in any single cell
+
+@dataclass
+class YieldKillerMetrics:
+    """Container for Root Cause Analysis KPIs."""
+    top_killer_layer: str
+    top_killer_count: int
+    worst_unit: str  # Format "X:col, Y:row"
+    worst_unit_count: int
+    side_bias: str   # "Front Side", "Back Side", or "Balanced"
+    side_bias_diff: int
 
 @st.cache_data
 def load_data(
@@ -381,18 +389,15 @@ def prepare_multi_layer_data(layer_data: Dict[int, Dict[str, pd.DataFrame]]) -> 
 
 def aggregate_stress_data(
     layer_data: Dict[int, Dict[str, pd.DataFrame]],
-    selected_layers: List[int],
+    selected_keys: List[Tuple[int, str]],
     panel_rows: int,
     panel_cols: int
 ) -> StressMapData:
     """
-    Aggregates data for the Cumulative Stress Map.
+    Aggregates data for the Cumulative Stress Map using specific (Layer, Side) keys.
 
-    Returns a StressMapData object containing:
-    - grid_counts: (Rows x Cols) grid of defect counts.
-    - hover_text: (Rows x Cols) grid of formatted strings for tooltips.
-    - dominant_layer: (Rows x Cols) grid of Layer ID with most defects.
-    - dominant_count: (Rows x Cols) grid of count for that dominant layer.
+    Args:
+        selected_keys: List of tuples (layer_num, side) e.g., [(1, 'F'), (1, 'B')]
     """
     total_cols = panel_cols * 2
     total_rows = panel_rows * 2
@@ -402,64 +407,51 @@ def aggregate_stress_data(
     # Using 'object' dtype for string arrays to hold arbitrary length strings
     hover_text = np.empty((total_rows, total_cols), dtype=object)
     hover_text[:] = ""
-    dominant_layer = np.zeros((total_rows, total_cols), dtype=int)
-    dominant_count = np.zeros((total_rows, total_cols), dtype=int)
 
     # Helper structures for drill-down
     # cell_defects[(y, x)] = { 'Short': 10, 'Open': 5 }
     cell_defects: Dict[Tuple[int, int], Dict[str, int]] = {}
-    # cell_layers[(y, x)] = { 1: 20, 2: 5 }
-    cell_layers: Dict[Tuple[int, int], Dict[int, int]] = {}
 
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
 
     total_defects_acc = 0
     max_count_acc = 0
 
-    # Iterate selected layers
-    for layer_num in selected_layers:
+    # Iterate selected keys
+    for layer_num, side in selected_keys:
         if layer_num not in layer_data: continue
+        if side not in layer_data[layer_num]: continue
 
-        for side, df in layer_data[layer_num].items():
-            if df.empty: continue
+        df = layer_data[layer_num][side]
+        if df.empty: continue
 
-            # Filter True Defects
-            df_true = df.copy()
-            if 'Verification' in df_true.columns:
-                is_true = ~df_true['Verification'].str.upper().isin(safe_values_upper)
-                df_true = df_true[is_true]
+        # Filter True Defects
+        df_true = df.copy()
+        if 'Verification' in df_true.columns:
+            is_true = ~df_true['Verification'].str.upper().isin(safe_values_upper)
+            df_true = df_true[is_true]
 
-            if df_true.empty: continue
+        if df_true.empty: continue
 
-            # Use PHYSICAL COORDINATES for global grid mapping
-            # Ensure PHYSICAL_X exists
-            if 'PHYSICAL_X' not in df_true.columns:
-                # Should not happen if loaded correctly, but safety
-                df_true['PHYSICAL_X'] = df_true['UNIT_INDEX_X']
-                if side == 'B':
-                    width = panel_cols * 2
-                    df_true['PHYSICAL_X'] = (width - 1) - df_true['UNIT_INDEX_X']
+        # Use RAW COORDINATES (UNIT_INDEX_X) as per request, do NOT flip.
 
-            # Iterate rows
-            for _, row in df_true.iterrows():
-                gx = int(row['PHYSICAL_X'])
-                gy = int(row['UNIT_INDEX_Y'])
-                dtype = str(row['DEFECT_TYPE'])
+        # Iterate rows
+        for _, row in df_true.iterrows():
+            gx = int(row['UNIT_INDEX_X'])
+            gy = int(row['UNIT_INDEX_Y'])
+            dtype = str(row['DEFECT_TYPE'])
 
-                # Boundary check (safety)
-                if 0 <= gx < total_cols and 0 <= gy < total_rows:
-                    grid_counts[gy, gx] += 1
-                    total_defects_acc += 1
+            # Boundary check (safety)
+            if 0 <= gx < total_cols and 0 <= gy < total_rows:
+                grid_counts[gy, gx] += 1
+                total_defects_acc += 1
 
-                    # Track Defect Types
-                    if (gy, gx) not in cell_defects: cell_defects[(gy, gx)] = {}
-                    cell_defects[(gy, gx)][dtype] = cell_defects[(gy, gx)].get(dtype, 0) + 1
+                # Track Defect Types
+                if (gy, gx) not in cell_defects: cell_defects[(gy, gx)] = {}
+                cell_defects[(gy, gx)][dtype] = cell_defects[(gy, gx)].get(dtype, 0) + 1
 
-                    # Track Layers
-                    if (gy, gx) not in cell_layers: cell_layers[(gy, gx)] = {}
-                    cell_layers[(gy, gx)][layer_num] = cell_layers[(gy, gx)].get(layer_num, 0) + 1
 
-    # Post-process for Hover Text and Dominant Layer
+    # Post-process for Hover Text
     for y in range(total_rows):
         for x in range(total_cols):
             count = grid_counts[y, x]
@@ -478,23 +470,157 @@ def aggregate_stress_data(
                     tooltip += f"<br>... (+{len(sorted_defects)-3} types)"
 
                 hover_text[y, x] = tooltip
-
-                # 2. Dominant Layer
-                layers_map = cell_layers.get((y, x), {})
-                if layers_map:
-                    # Sort by count desc, then by layer num asc (tie breaker)
-                    sorted_layers = sorted(layers_map.items(), key=lambda item: (-item[1], item[0]))
-                    best_layer, best_count = sorted_layers[0]
-                    dominant_layer[y, x] = best_layer
-                    dominant_count[y, x] = best_count
             else:
                 hover_text[y, x] = "No Defects"
 
     return StressMapData(
         grid_counts=grid_counts,
         hover_text=hover_text,
-        dominant_layer=dominant_layer,
-        dominant_count=dominant_count,
         total_defects=total_defects_acc,
         max_count=max_count_acc
     )
+
+def calculate_yield_killers(layer_data: Dict[int, Dict[str, pd.DataFrame]], panel_rows: int, panel_cols: int) -> Optional[YieldKillerMetrics]:
+    """
+    Calculates the 'Yield Killer' KPIs: Worst Layer, Worst Unit, Side Bias.
+    """
+    if not layer_data: return None
+
+    # Flatten all data into one DF
+    all_defects = []
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+
+    for layer, sides in layer_data.items():
+        for side, df in sides.items():
+            if df.empty: continue
+            df_copy = df.copy()
+            # Filter True
+            if 'Verification' in df_copy.columns:
+                is_true = ~df_copy['Verification'].str.upper().isin(safe_values_upper)
+                df_copy = df_copy[is_true]
+
+            if df_copy.empty: continue
+
+            df_copy['LAYER_NUM'] = layer # Ensure column exists
+            all_defects.append(df_copy)
+
+    if not all_defects: return None
+
+    combined_df = pd.concat(all_defects, ignore_index=True)
+
+    if combined_df.empty: return None
+
+    # 1. Worst Layer
+    layer_counts = combined_df['LAYER_NUM'].value_counts()
+    top_killer_layer_id = layer_counts.idxmax()
+    top_killer_count = layer_counts.max()
+    top_killer_label = f"Layer {top_killer_layer_id}"
+
+    # 2. Worst Unit (Use RAW COORDINATES - UNIT_INDEX_X as per request)
+    unit_counts = combined_df.groupby(['UNIT_INDEX_X', 'UNIT_INDEX_Y']).size()
+    worst_unit_coords = unit_counts.idxmax() # Tuple (x, y)
+    worst_unit_count = unit_counts.max()
+    worst_unit_label = f"X:{worst_unit_coords[0]}, Y:{worst_unit_coords[1]}"
+
+    # 3. Side Bias
+    side_counts = combined_df['SIDE'].value_counts()
+    f_count = side_counts.get('F', 0)
+    b_count = side_counts.get('B', 0)
+
+    diff = abs(f_count - b_count)
+    if f_count > b_count:
+        bias = "Front Side"
+    elif b_count > f_count:
+        bias = "Back Side"
+    else:
+        bias = "Balanced"
+
+    return YieldKillerMetrics(
+        top_killer_layer=top_killer_label,
+        top_killer_count=int(top_killer_count),
+        worst_unit=worst_unit_label,
+        worst_unit_count=int(worst_unit_count),
+        side_bias=bias,
+        side_bias_diff=int(diff)
+    )
+
+def get_cross_section_matrix(
+    layer_data: Dict[int, Dict[str, pd.DataFrame]],
+    slice_axis: str,
+    slice_index: int,
+    panel_rows: int,
+    panel_cols: int
+) -> Tuple[np.ndarray, List[str], List[str]]:
+    """
+    Constructs the 2D cross-section matrix for Root Cause Analysis.
+
+    Args:
+        slice_axis: 'X' (Slice by Column, show Layers vs Y) or 'Y' (Slice by Row, show Layers vs X)
+        slice_index: The index of the row/col to slice.
+
+    Returns:
+        (matrix, layer_labels, axis_labels)
+        matrix: 2D array (Num Layers x Width/Height) containing defect counts.
+        layer_labels: List of strings for Y-axis (Layer 1, Layer 2...) - Sorted.
+        axis_labels: List of strings for X-axis (Unit 0, Unit 1...).
+    """
+    sorted_layers = sorted(layer_data.keys())
+    num_layers = len(sorted_layers)
+    if num_layers == 0:
+        return np.zeros((0,0)), [], []
+
+    # Dimensions
+    total_width = panel_cols * 2
+    total_height = panel_rows * 2
+
+    # Define matrix shape based on slice direction
+    # If Slicing Y (Row): Result is (Layers x Width) -> X-axis is Unit X
+    # If Slicing X (Col): Result is (Layers x Height) -> X-axis is Unit Y
+
+    width_dim = total_width if slice_axis == 'Y' else total_height
+    matrix = np.zeros((num_layers, width_dim), dtype=int)
+
+    layer_labels = [f"L{num}" for num in sorted_layers]
+    axis_labels = [str(i) for i in range(width_dim)]
+
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+
+    for i, layer_num in enumerate(sorted_layers):
+        sides = layer_data[layer_num]
+        for side, df in sides.items():
+            if df.empty: continue
+
+            df_copy = df.copy()
+            if 'Verification' in df_copy.columns:
+                is_true = ~df_copy['Verification'].str.upper().isin(safe_values_upper)
+                df_copy = df_copy[is_true]
+
+            if df_copy.empty: continue
+
+            # Filter to the slice
+            # If Slicing Y (Row): Keep rows where UNIT_INDEX_Y == slice_index
+            # If Slicing X (Col): Keep rows where PHYSICAL_X == slice_index
+
+            if slice_axis == 'Y':
+                # Slice by Row. We want defects at this Y.
+                # Plot X-axis will be UNIT_INDEX_X (Raw).
+                relevant_defects = df_copy[df_copy['UNIT_INDEX_Y'] == slice_index]
+                if not relevant_defects.empty:
+                    # Count defects per X column
+                    counts = relevant_defects.groupby('UNIT_INDEX_X').size()
+                    for x_idx, count in counts.items():
+                        if 0 <= x_idx < total_width:
+                            matrix[i, int(x_idx)] += count
+
+            else: # Slice 'X'
+                # Slice by Column. We want defects at this X (UNIT_INDEX_X).
+                # Plot X-axis will be UNIT_INDEX_Y.
+                relevant_defects = df_copy[df_copy['UNIT_INDEX_X'] == slice_index]
+                if not relevant_defects.empty:
+                    # Count defects per Y row
+                    counts = relevant_defects.groupby('UNIT_INDEX_Y').size()
+                    for y_idx, count in counts.items():
+                         if 0 <= y_idx < total_height:
+                            matrix[i, int(y_idx)] += count
+
+    return matrix, layer_labels, axis_labels

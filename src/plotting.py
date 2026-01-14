@@ -215,11 +215,12 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
                                  "File: %{customdata[6]}"
                                  "<extra></extra>")
 
-                # USE PHYSICAL PLOTTING COORDINATES (Aligned)
-                x_coords = dff['physical_plot_x'] if 'physical_plot_x' in dff.columns else dff['plot_x']
+                # USE RAW COORDINATES (Unaligned) as per request
+                # x_coords = dff['physical_plot_x'] if 'physical_plot_x' in dff.columns else dff['plot_x']
 
+                # Use raw plot_x (which is based on UNIT_INDEX_X)
                 fig.add_trace(go.Scatter(
-                    x=x_coords,
+                    x=dff['plot_x'],
                     y=dff['plot_y'],
                     mode='markers',
                     marker=dict(
@@ -918,60 +919,57 @@ def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_row
     _configure_stress_map_layout(fig, panel_rows, panel_cols, "Delta Stress Map (Group A - Group B)")
     return fig
 
-def create_dominant_layer_map(data: StressMapData, panel_rows: int, panel_cols: int) -> go.Figure:
+def create_cross_section_heatmap(
+    matrix: np.ndarray,
+    layer_labels: List[str],
+    axis_labels: List[str],
+    slice_desc: str
+) -> go.Figure:
     """
-    Creates a Categorical Heatmap showing which Layer contributed the most defects.
+    Creates the Z-Axis Cross Section Heatmap (Virtual Slice).
     """
-    if data.total_defects == 0:
-        return go.Figure(layout=dict(
-            title=dict(text="No True Defects Found in Selection", font=dict(color=TEXT_COLOR)),
-            paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=PLOT_AREA_COLOR
-        ))
+    # Inverse Y-axis so Layer 1 is at top (if not already handled by input order)
+    # Actually, Heatmap Y-axis 0 is usually bottom. We need to flip visual range or data order.
+    # We'll just set 'autorange="reversed"' in layout for Y axis so top of list is top of chart.
 
-    # We use a Scatter plot with square markers to handle categorical colors more easily than heatmap
-    rows, cols = data.grid_counts.shape
+    if matrix.size == 0:
+         return go.Figure(layout=dict(title=dict(text="No Data for Cross-Section", font=dict(color=TEXT_COLOR))))
 
-    x_vals = []
-    y_vals = []
-    colors = []
-    texts = []
-    hovers = []
+    # Mask zeros
+    z_data = matrix.astype(float)
+    z_data[z_data == 0] = np.nan
 
-    for y in range(rows):
-        for x in range(cols):
-            layer_id = data.dominant_layer[y, x]
-            if layer_id > 0:
-                x_vals.append(x)
-                y_vals.append(y)
+    text_data = matrix.astype(str)
+    text_data[matrix == 0] = ""
 
-                # Color mapping
-                color_idx = layer_id % len(NEON_PALETTE)
-                colors.append(NEON_PALETTE[color_idx])
-
-                # Text: Layer ID
-                texts.append(f"L{layer_id}")
-
-                # Hover
-                count = data.dominant_count[y, x]
-                total = data.grid_counts[y, x]
-                hovers.append(f"Unit: ({x}, {y})<br>Dominant: Layer {layer_id} ({count}/{total})")
-
-    fig = go.Figure(data=go.Scatter(
-        x=x_vals,
-        y=y_vals,
-        mode='markers+text',
-        marker=dict(
-            symbol='square',
-            size=30, # Large squares to fill grid (approx) - ideally Heatmap is better for sizing but this works for categories
-            color=colors,
-            line=dict(width=1, color='black')
-        ),
-        text=texts,
-        textfont=dict(color='black', size=12), # Black text on Neon colors usually readable
-        textposition="middle center",
-        hovertext=hovers,
-        hoverinfo="text"
+    fig = go.Figure(data=go.Heatmap(
+        z=z_data,
+        x=axis_labels,
+        y=layer_labels,
+        text=text_data,
+        texttemplate="%{text}",
+        textfont={"color": "white"},
+        colorscale='Magma',
+        xgap=2, ygap=2,
+        colorbar=dict(title='Defects', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
     ))
 
-    _configure_stress_map_layout(fig, panel_rows, panel_cols, "Dominant Layer Analysis (Layer with Max Defects)")
+    fig.update_layout(
+        title=dict(text=f"Virtual Cross-Section: {slice_desc}", font=dict(color=TEXT_COLOR, size=18), x=0.5, xanchor='center'),
+        xaxis=dict(
+            title="Unit Index (Slice Position)",
+            showgrid=False, zeroline=False,
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        yaxis=dict(
+            title="Layer Stack",
+            autorange="reversed", # Ensure Layer 1 is at top
+            showgrid=False, zeroline=False,
+            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+        ),
+        plot_bgcolor=PLOT_AREA_COLOR,
+        paper_bgcolor=BACKGROUND_COLOR,
+        height=600
+    )
+
     return fig

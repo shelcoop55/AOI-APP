@@ -1,7 +1,7 @@
 """
 Main Application File for the Defect Analysis Streamlit Dashboard.
 This version implements a true-to-scale simulation of a 510x510mm physical panel.
-It includes the Defect Map, Pareto Chart, Summary View, Still Alive map, and Stress Map Analysis.
+It includes the Defect Map, Pareto Chart, Summary View, Still Alive map, Stress Map Analysis, and Root Cause Analysis.
 """
 import streamlit as st
 import plotly.graph_objects as go
@@ -16,6 +16,7 @@ from src.config import (
 )
 from src.data_handler import (
     load_data, get_true_defect_coordinates, prepare_multi_layer_data, aggregate_stress_data,
+    calculate_yield_killers, get_cross_section_matrix,
     QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
 )
 from src.plotting import (
@@ -25,7 +26,8 @@ from src.plotting import (
     create_defect_sankey, create_defect_sunburst,
     create_still_alive_figure, create_defect_map_figure, create_pareto_figure,
     create_unit_grid_heatmap, create_density_contour_map, create_hexbin_density_map,
-    create_multi_layer_defect_map, create_stress_heatmap, create_delta_heatmap, create_dominant_layer_map
+    create_multi_layer_defect_map, create_stress_heatmap, create_delta_heatmap,
+    create_cross_section_heatmap
 )
 from src.reporting import generate_excel_report, generate_coordinate_list_report, generate_zip_package
 from src.enums import ViewMode, Quadrant
@@ -78,6 +80,7 @@ def main() -> None:
         is_still_alive_view = st.session_state.active_view == 'still_alive'
         is_multi_layer_view = st.session_state.active_view == 'multi_layer_defects'
         is_stress_view = st.session_state.active_view == 'stress_map'
+        is_root_cause_view = st.session_state.active_view == 'root_cause'
 
         if st.session_state.get('layer_data'):
 
@@ -106,27 +109,51 @@ def main() -> None:
 
             # --- Stress Map Filters ---
             stress_mode = "Cumulative"
-            selected_layers_stress = []
-            delta_group_a = []
-            delta_group_b = []
-            yield_threshold = 0
+            selected_keys_stress = []
+            delta_group_a_keys = []
+            delta_group_b_keys = []
 
             if is_stress_view:
                 with st.expander("🔥 Stress Map Controls", expanded=True):
-                    all_layers = sorted(st.session_state.layer_data.keys())
+                    # Build available Layer-Side options
+                    available_options = []
+                    option_map = {} # "Layer 1 (Front)" -> (1, 'F')
 
-                    stress_mode = st.radio("Analysis Mode", ["Cumulative", "Delta (Difference)", "Dominant Layer"])
+                    all_layer_nums = sorted(st.session_state.layer_data.keys())
+                    for num in all_layer_nums:
+                        sides = sorted(st.session_state.layer_data[num].keys())
+                        for side in sides:
+                            side_label = "Front" if side == 'F' else "Back"
+                            label = f"Layer {num} ({side_label})"
+                            available_options.append(label)
+                            option_map[label] = (num, side)
+
+                    stress_mode = st.radio("Analysis Mode", ["Cumulative", "Delta (Difference)"])
 
                     if stress_mode == "Delta (Difference)":
                         st.markdown("**Group A - Group B**")
-                        delta_group_a = st.multiselect("Select Group A (Reference)", options=all_layers, default=all_layers)
-                        delta_group_b = st.multiselect("Select Group B (Comparison)", options=all_layers, default=[])
-                    else:
-                        selected_layers_stress = st.multiselect("Select Layers to Analyze", options=all_layers, default=all_layers)
+                        sel_a = st.multiselect("Select Group A (Reference)", options=available_options, default=available_options)
+                        sel_b = st.multiselect("Select Group B (Comparison)", options=available_options, default=[])
 
-                    st.divider()
-                    st.markdown("**Yield Impact Simulation**")
-                    yield_threshold = st.slider("Hotspot Threshold (Defects)", min_value=0, max_value=50, value=0, help="Mask cells with defects > threshold (simulate fixing them). 0 = No masking.")
+                        delta_group_a_keys = [option_map[k] for k in sel_a]
+                        delta_group_b_keys = [option_map[k] for k in sel_b]
+                    else:
+                        sel_cumulative = st.multiselect("Select Data to Analyze", options=available_options, default=available_options)
+                        selected_keys_stress = [option_map[k] for k in sel_cumulative]
+
+            # --- Root Cause Filters ---
+            slice_axis = 'Y'
+            slice_index = 0
+
+            if is_root_cause_view:
+                 with st.expander("🔬 Cross-Section Controls", expanded=True):
+                    st.markdown("Virtual Z-Axis Slicer")
+                    slice_axis_label = st.radio("Slice Axis", ["By Row (Y)", "By Column (X)"], index=0)
+                    slice_axis = 'Y' if "Row" in slice_axis_label else 'X'
+
+                    max_idx = (panel_rows * 2) - 1 if slice_axis == 'Y' else (panel_cols * 2) - 1
+                    slice_index = st.slider(f"Select {slice_axis} Index", min_value=0, max_value=max_idx, value=int(max_idx/2))
+
 
             # --- Analysis Controls (Layer View) ---
             active_df = pd.DataFrame()
@@ -136,7 +163,7 @@ def main() -> None:
                 active_df = layer_info.get(st.session_state.selected_side, pd.DataFrame())
 
             # Disable controls if in special views
-            disable_layer_controls = is_still_alive_view or is_multi_layer_view or is_stress_view
+            disable_layer_controls = is_still_alive_view or is_multi_layer_view or is_stress_view or is_root_cause_view
 
             with st.expander("📊 Analysis Controls", expanded=True):
                 view_mode = st.radio("Select View", ViewMode.values(), disabled=disable_layer_controls)
@@ -208,8 +235,8 @@ def main() -> None:
                 first_side_key = next(iter(st.session_state.layer_data[num]))
                 bu_names[num] = get_bu_name_from_filename(st.session_state.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0])
 
-            # Total buttons = layers + 3 (Still Alive, Multi-Layer, Stress Map)
-            num_buttons = len(layer_keys) + 3
+            # Total buttons = layers + 4 (Still Alive, Multi-Layer, Stress Map, Root Cause)
+            num_buttons = len(layer_keys) + 4
             cols = st.columns(num_buttons)
 
             # Layer Buttons
@@ -230,24 +257,31 @@ def main() -> None:
                         st.rerun()
 
             # Still Alive
-            with cols[num_buttons - 3]:
+            with cols[num_buttons - 4]:
                 is_active = st.session_state.active_view == 'still_alive'
                 if st.button("Still Alive", key="still_alive_btn", use_container_width=True, type="primary" if is_active else "secondary"):
                     st.session_state.active_view = 'still_alive'
                     st.rerun()
 
             # Multi-Layer
-            with cols[num_buttons - 2]:
+            with cols[num_buttons - 3]:
                 is_active = st.session_state.active_view == 'multi_layer_defects'
                 if st.button("Multi-Layer Defects", key="multi_layer_defects_btn", use_container_width=True, type="primary" if is_active else "secondary"):
                     st.session_state.active_view = 'multi_layer_defects'
                     st.rerun()
 
-            # Stress Map (NEW)
-            with cols[num_buttons - 1]:
+            # Stress Map
+            with cols[num_buttons - 2]:
                 is_active = st.session_state.active_view == 'stress_map'
                 if st.button("Stress Map", key="stress_map_btn", use_container_width=True, type="primary" if is_active else "secondary"):
                     st.session_state.active_view = 'stress_map'
+                    st.rerun()
+
+            # Root Cause (NEW)
+            with cols[num_buttons - 1]:
+                is_active = st.session_state.active_view == 'root_cause'
+                if st.button("Root Cause", key="root_cause_btn", use_container_width=True, type="primary" if is_active else "secondary"):
+                    st.session_state.active_view = 'root_cause'
                     st.rerun()
 
             # Side Selection (Only for Layer View)
@@ -308,54 +342,46 @@ def main() -> None:
 
         elif st.session_state.active_view == 'stress_map':
             st.header("Cumulative Stress Map Analysis")
-            st.info("Aggregates defects across layers into a master grid (12x12). Includes Back-Side alignment.")
+            st.info("Aggregates defects into a master grid. Includes Back-Side alignment.")
 
             # 1. Prepare Data
             if stress_mode == "Cumulative":
-                stress_data = aggregate_stress_data(st.session_state.layer_data, selected_layers_stress, panel_rows, panel_cols)
+                stress_data = aggregate_stress_data(st.session_state.layer_data, selected_keys_stress, panel_rows, panel_cols)
                 fig = create_stress_heatmap(stress_data, panel_rows, panel_cols)
-            elif stress_mode == "Dominant Layer":
-                stress_data = aggregate_stress_data(st.session_state.layer_data, selected_layers_stress, panel_rows, panel_cols)
-                fig = create_dominant_layer_map(stress_data, panel_rows, panel_cols)
             else: # Delta
-                stress_data_a = aggregate_stress_data(st.session_state.layer_data, delta_group_a, panel_rows, panel_cols)
-                stress_data_b = aggregate_stress_data(st.session_state.layer_data, delta_group_b, panel_rows, panel_cols)
+                stress_data_a = aggregate_stress_data(st.session_state.layer_data, delta_group_a_keys, panel_rows, panel_cols)
+                stress_data_b = aggregate_stress_data(st.session_state.layer_data, delta_group_b_keys, panel_rows, panel_cols)
                 fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols)
-                # Use data A for yield simulation as reference? Or sum?
-                # For simplicity, we use the Union of A+B for yield base, or just disable yield sim in Delta mode.
-                stress_data = stress_data_a # Placeholder for metric calculation below if needed
 
             # 2. Render Plot
             st.plotly_chart(fig, use_container_width=True)
 
-            # 3. Yield Simulation Metrics
-            if stress_mode != "Delta (Difference)":
-                st.divider()
-                st.subheader("Yield Impact Simulation")
+        elif st.session_state.active_view == 'root_cause':
+            st.header("Root Cause & Diagnostics Dashboard")
 
-                total_cells = (panel_rows * 2) * (panel_cols * 2)
+            # 1. Automated Yield Killer Metrics
+            metrics = calculate_yield_killers(st.session_state.layer_data, panel_rows, panel_cols)
+            if metrics:
+                col1, col2, col3 = st.columns(3)
+                col1.metric("🔥 Top Killer Layer", metrics.top_killer_layer, f"{metrics.top_killer_count} Defects", delta_color="inverse")
+                col2.metric("📍 Worst Unit Location", metrics.worst_unit, f"{metrics.worst_unit_count} Defects (Cumulative)", delta_color="inverse")
+                col3.metric("⚖️ Side Bias", metrics.side_bias, f"{metrics.side_bias_diff} Diff")
+            else:
+                st.info("No defect data available to calculate KPIs.")
 
-                # Actual (Current)
-                # Count cells with > 0 defects
-                defective_cells_actual = np.count_nonzero(stress_data.grid_counts)
-                yield_actual = ((total_cells - defective_cells_actual) / total_cells) * 100 if total_cells > 0 else 0
+            st.divider()
 
-                # Simulated (Masked)
-                if yield_threshold > 0:
-                    # Mask cells where count > threshold. Treat them as "Fixed" (0 defects).
-                    # So we only count cells where 0 < count <= threshold
-                    sim_defective = np.count_nonzero((stress_data.grid_counts > 0) & (stress_data.grid_counts <= yield_threshold))
-                    yield_sim = ((total_cells - sim_defective) / total_cells) * 100 if total_cells > 0 else 0
+            # 2. Virtual Cross-Section
+            st.subheader("Virtual Cross-Section (Z-Axis Slicer)")
+            st.info(f"Visualizing vertical defect propagation. Slicing by {slice_axis} Index: {slice_index}")
 
-                    delta_yield = yield_sim - yield_actual
+            matrix, layer_labels, axis_labels = get_cross_section_matrix(st.session_state.layer_data, slice_axis, slice_index, panel_rows, panel_cols)
 
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Actual Yield", f"{yield_actual:.2f}%")
-                    col2.metric("Simulated Yield", f"{yield_sim:.2f}%", delta=f"{delta_yield:.2f}%")
-                    col3.info(f"Threshold: > {yield_threshold} defects masked (Simulating fix of hotspots)")
-                else:
-                    st.metric("Actual Yield", f"{yield_actual:.2f}%")
-                    st.caption("Increase threshold slider in sidebar to simulate yield improvement.")
+            fig = create_cross_section_heatmap(
+                matrix, layer_labels, axis_labels,
+                f"Slicing Axis: {slice_axis} at Index {slice_index}"
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
         elif st.session_state.active_view == 'layer':
             # ... (Existing Layer View Logic)
@@ -387,7 +413,7 @@ def main() -> None:
                          if sankey: st.plotly_chart(sankey, use_container_width=True)
                     elif view_mode == ViewMode.SUMMARY.value:
                          # ... (Summary Logic - placeholder for existing code)
-                         st.info("Summary View loaded.") # Replaced large block for brevity, assuming existing logic remains or is re-inserted if I had full file content in context
+                         st.info("Summary View loaded.")
                          pass
 
     else:
