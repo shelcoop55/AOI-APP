@@ -156,6 +156,9 @@ class PanelData:
         return bool(self._layers)
 
     # --- Compatibility Interface (mimics Dict behaviour for easier migration) ---
+    def __iter__(self):
+        return iter(self._layers)
+
     def keys(self):
         return self._layers.keys()
 

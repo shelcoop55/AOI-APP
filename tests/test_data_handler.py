@@ -55,7 +55,7 @@ def test_load_data_multilayer(test_excel_file, monkeypatch):
 
     layer_data = data_handler.load_data(test_excel_file, 1, 1)
 
-    assert isinstance(layer_data, dict)
+    # assert isinstance(layer_data, dict) # No longer a dict
     assert 1 in layer_data
     assert 'F' in layer_data[1]
     df = layer_data[1]['F']
@@ -73,7 +73,7 @@ def test_load_data_sample_generation(monkeypatch):
 
     layer_data = data_handler.load_data([], panel_rows=7, panel_cols=7)
 
-    assert isinstance(layer_data, dict)
+    # assert isinstance(layer_data, dict)
     assert set(layer_data.keys()) == {1, 2, 3}
     # All layers should now have Front and Back sides
     for i in range(1, 4):
@@ -81,8 +81,9 @@ def test_load_data_sample_generation(monkeypatch):
 
     # Check counts for a few examples (now random between 100-150)
     for layer_num in layer_data:
-        for side in layer_data[layer_num]:
-            df = layer_data[layer_num][side]
+        # accessing layer_data[layer_num] returns dict {side: df} via proxy
+        sides_dict = layer_data[layer_num]
+        for side, df in sides_dict.items():
             assert 100 <= len(df) <= 150
 
             # Verify Defect Types are from the simple list
@@ -123,16 +124,22 @@ def test_load_data_missing_columns(test_excel_file_missing_cols, monkeypatch):
 
 def test_get_true_defect_coordinates():
     """Tests the aggregation of 'True' defect coordinates across multiple layers and sides."""
+    from src.models import PanelData, BuildUpLayer
+
     layer_1_front = pd.DataFrame({'UNIT_INDEX_X': [1, 2], 'UNIT_INDEX_Y': [1, 2], 'Verification': ['T', 'F']})
     layer_2_front = pd.DataFrame({'UNIT_INDEX_X': [1, 3], 'UNIT_INDEX_Y': [1, 3], 'Verification': ['T', 'T']})
     layer_2_back = pd.DataFrame({'UNIT_INDEX_X': [4, 5], 'UNIT_INDEX_Y': [4, 5], 'Verification': ['T', 'TA']})
 
-    layer_data = {
-        1: {'F': layer_1_front},
-        2: {'F': layer_2_front, 'B': layer_2_back}
-    }
+    panel_data = PanelData()
+    panel_data.add_layer(BuildUpLayer(1, 'F', layer_1_front, 7, 7))
+    panel_data.add_layer(BuildUpLayer(2, 'F', layer_2_front, 7, 7))
+    panel_data.add_layer(BuildUpLayer(2, 'B', layer_2_back, 7, 7))
 
-    result = get_true_defect_coordinates(layer_data)
+    result = get_true_defect_coordinates(panel_data)
 
-    expected = {(1, 1), (3, 3), (4, 4)}
-    assert result == expected
+    # Expected: Keys of result dict
+    # Layer 2 Back at (4, 4) is flipped. Panel Cols=7. Physical X = (14-1) - 4 = 9.
+    expected_keys = {(1, 1), (3, 3), (9, 4)}
+    # (5,5) is TA (Acceptable) so filtered out.
+
+    assert set(result.keys()) == expected_keys
