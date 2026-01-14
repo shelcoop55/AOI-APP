@@ -90,6 +90,13 @@ def main() -> None:
                         store.selected_side = 'B'
                     elif layer_info:
                         store.selected_side = next(iter(layer_info.keys()))
+
+                    # Initialize Multi-Layer Selection defaults
+                    store.multi_layer_selection = sorted(data.keys())
+                    all_sides = set()
+                    for l_data in data.values():
+                        all_sides.update(l_data.keys())
+                    store.multi_side_selection = sorted(list(all_sides))
                 else:
                     store.selected_layer = None
 

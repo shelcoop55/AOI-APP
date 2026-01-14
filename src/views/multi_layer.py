@@ -10,8 +10,9 @@ def render_multi_layer_view(store: SessionStore, selected_layers: list, selected
 
     params = store.analysis_params
     panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
+    panel_uid = store.layer_data.id
 
-    combined_df = prepare_multi_layer_data(store.layer_data)
+    combined_df = prepare_multi_layer_data(store.layer_data, panel_uid)
 
     if not combined_df.empty:
         if selected_layers:

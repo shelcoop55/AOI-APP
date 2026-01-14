@@ -311,7 +311,7 @@ def get_true_defect_coordinates(
     return result
 
 @st.cache_data
-def prepare_multi_layer_data(_panel_data: PanelData) -> pd.DataFrame:
+def prepare_multi_layer_data(_panel_data: PanelData, panel_uid: str = "") -> pd.DataFrame:
     """
     Aggregates and filters defect data from all layers for the Multi-Layer Defect View.
     """
