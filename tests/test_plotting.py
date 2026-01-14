@@ -68,12 +68,18 @@ def test_create_still_alive_map():
     panel_rows, panel_cols = 2, 2
     total_cells = (panel_rows * 2) * (panel_cols * 2)
 
-    # Define some cells as having "True" defects.
-    true_defect_coords = {(0, 0), (1, 1), (3, 2)}
+    # Define some cells as having "True" defects with metadata.
+    # Dict[Tuple[int, int], Dict[str, Any]]
+    true_defect_coords = {
+        (0, 0): {'first_killer_layer': 1, 'defect_summary': 'L1: 1'},
+        (1, 1): {'first_killer_layer': 2, 'defect_summary': 'L2: 1'},
+        (3, 2): {'first_killer_layer': 1, 'defect_summary': 'L1: 1'}
+    }
 
-    shapes = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
+    shapes, traces = create_still_alive_map(panel_rows, panel_cols, true_defect_coords)
 
     assert isinstance(shapes, list)
+    assert isinstance(traces, list)
 
     # Test colored cells
     colored_cells = [s for s in shapes if s.get('type') == 'rect' and s.get('line', {}).get('width') == 0]
@@ -84,6 +90,10 @@ def test_create_still_alive_map():
     # Test grid lines (they have a width > 0)
     grid_lines = [s for s in shapes if s.get('type') == 'line']
     assert len(grid_lines) > 0, "Grid lines should be drawn over the colored cells"
+
+    # Test Traces (Tooltips)
+    assert len(traces) == 1
+    assert len(traces[0].x) == len(true_defect_coords)
 
 def test_create_defect_sankey_overlap():
     """

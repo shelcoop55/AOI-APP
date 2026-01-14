@@ -247,8 +247,8 @@ def create_multi_layer_defect_map(df: pd.DataFrame, panel_rows: int, panel_cols:
                                  "File: %{customdata[6]}"
                                  "<extra></extra>")
 
-                # USE PHYSICAL COORDINATES (Aligned) for stacking analysis
-                x_coords = dff['physical_plot_x'] if 'physical_plot_x' in dff.columns else dff['plot_x']
+                # USE RAW COORDINATES (No Flip) as per user request
+                x_coords = dff['plot_x']
 
                 fig.add_trace(go.Scatter(
                     x=x_coords,

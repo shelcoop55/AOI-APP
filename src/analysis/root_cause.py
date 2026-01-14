@@ -10,29 +10,41 @@ class RootCauseTool(AnalysisTool):
         return "Root Cause Analysis"
 
     def render_sidebar(self):
-        st.markdown("**Cross-Section Settings**")
+        with st.expander("Cross-Section Controls", expanded=True):
+            st.markdown("Virtual Z-Axis Slicer")
 
-        params = self.store.analysis_params
-        panel_rows = params.get("panel_rows", 7)
-        panel_cols = params.get("panel_cols", 7)
+            params = self.store.analysis_params
+            panel_rows = params.get("panel_rows", 7)
+            panel_cols = params.get("panel_cols", 7)
 
-        max_x = (panel_cols * 2) - 1
-        max_y = (panel_rows * 2) - 1
+            max_x = (panel_cols * 2) - 1
+            max_y = (panel_rows * 2) - 1
 
-        st.caption("Region of Interest (ROI)")
+            # Persistent State
+            if 'rc_slice_axis' not in st.session_state: st.session_state.rc_slice_axis = 'Y'
+            if 'rc_slice_index' not in st.session_state: st.session_state.rc_slice_index = 0
 
-        # We need persistant state for sliders
-        if 'rc_x_range' not in st.session_state: st.session_state.rc_x_range = (0, max_x)
-        if 'rc_y_range' not in st.session_state: st.session_state.rc_y_range = (0, max_y)
-        if 'rc_slice_axis' not in st.session_state: st.session_state.rc_slice_axis = 'Y'
+            # Slice Axis Control
+            axis_options = ["By Row (Y)", "By Column (X)"]
+            current_index = 0 if st.session_state.rc_slice_axis == 'Y' else 1
+            selected_axis = st.radio("Slice Axis", axis_options, index=current_index)
 
-        st.session_state.rc_x_range = st.slider("X Range (Cols)", min_value=0, max_value=max_x, value=st.session_state.rc_x_range)
-        st.session_state.rc_y_range = st.slider("Y Range (Rows)", min_value=0, max_value=max_y, value=st.session_state.rc_y_range)
+            # Update State
+            new_axis = 'Y' if "Row" in selected_axis else 'X'
+            if new_axis != st.session_state.rc_slice_axis:
+                st.session_state.rc_slice_axis = new_axis
+                st.session_state.rc_slice_index = 0 # Reset index on axis switch
 
-        st.caption("Projection Axis")
-        # Radio returns label, we map back
-        axis_label = st.radio("View Projection", ["By Row (onto X)", "By Col (onto Y)"], index=0 if st.session_state.rc_slice_axis == 'Y' else 1)
-        st.session_state.rc_slice_axis = 'Y' if "Row" in axis_label else 'X'
+            # Slice Index Control
+            limit = max_y if st.session_state.rc_slice_axis == 'Y' else max_x
+            label_char = "Y" if st.session_state.rc_slice_axis == 'Y' else "X"
+
+            st.session_state.rc_slice_index = st.slider(
+                f"Select {label_char} Index",
+                min_value=0,
+                max_value=limit,
+                value=min(st.session_state.rc_slice_index, limit)
+            )
 
     def render_main(self):
         st.header("Root Cause & Diagnostics Dashboard")
@@ -51,19 +63,18 @@ class RootCauseTool(AnalysisTool):
 
         st.divider()
 
-        x_range = st.session_state.rc_x_range
-        y_range = st.session_state.rc_y_range
         slice_axis = st.session_state.rc_slice_axis
+        slice_index = st.session_state.rc_slice_index
 
-        proj_desc = "X-Axis" if slice_axis == 'Y' else "Y-Axis"
-        st.info(f"Visualizing vertical defect propagation within ROI (X: {x_range}, Y: {y_range}). Projecting onto {proj_desc}.")
+        axis_name = "Row" if slice_axis == 'Y' else "Column"
+        st.info(f"Visualizing vertical defect stack for {axis_name} Index: {slice_index}.")
 
         matrix, layer_labels, axis_labels = get_cross_section_matrix(
-            self.store.layer_data, slice_axis, x_range, y_range, panel_rows, panel_cols
+            self.store.layer_data, slice_axis, slice_index, panel_rows, panel_cols
         )
 
         fig = create_cross_section_heatmap(
             matrix, layer_labels, axis_labels,
-            f"ROI Slice: X{x_range} / Y{y_range} (View: {slice_axis})"
+            f"Virtual Slice: {axis_name} {slice_index}"
         )
         st.plotly_chart(fig, use_container_width=True)

@@ -2,8 +2,12 @@ import pytest
 import pandas as pd
 from src.data_handler import prepare_multi_layer_data
 from src.config import SAFE_VERIFICATION_VALUES
+from src.models import PanelData, BuildUpLayer
+import streamlit as st
+import importlib
+from src import data_handler
 
-def test_prepare_multi_layer_data():
+def test_prepare_multi_layer_data(monkeypatch):
     """
     Tests that prepare_multi_layer_data correctly:
     1. Aggregates data from multiple layers/sides.
@@ -43,13 +47,16 @@ def test_prepare_multi_layer_data():
         'plot_y': [3, 3]
     })
 
-    layer_data = {
-        1: {'F': df_l1_f, 'B': df_l1_b},
-        2: {'F': df_l2_f}
-    }
+    panel_data = PanelData()
+    panel_data.add_layer(BuildUpLayer(1, 'F', df_l1_f, 7, 7))
+    panel_data.add_layer(BuildUpLayer(1, 'B', df_l1_b, 7, 7))
+    panel_data.add_layer(BuildUpLayer(2, 'F', df_l2_f, 7, 7))
+
+    monkeypatch.setattr(st, "cache_data", lambda func: func)
+    importlib.reload(data_handler) # Reload to apply mock
 
     # Execute Function
-    result_df = prepare_multi_layer_data(layer_data)
+    result_df = data_handler.prepare_multi_layer_data(panel_data)
 
     # Assertions
 
@@ -75,18 +82,24 @@ def test_prepare_multi_layer_data():
     assert 'LAYER_NUM' in result_df.columns
     assert sorted(result_df['LAYER_NUM'].unique().tolist()) == [1]
 
-def test_prepare_multi_layer_data_empty():
+def test_prepare_multi_layer_data_empty(monkeypatch):
     """Test with empty input."""
-    result = prepare_multi_layer_data({})
+    monkeypatch.setattr(st, "cache_data", lambda func: func)
+    importlib.reload(data_handler)
+
+    result = data_handler.prepare_multi_layer_data(PanelData())
     assert result.empty
 
-def test_prepare_multi_layer_data_no_verification_col():
+def test_prepare_multi_layer_data_no_verification_col(monkeypatch):
     """Test robustness when Verification column is missing (should default to keep if logic allows, or handle gracefully)."""
+    monkeypatch.setattr(st, "cache_data", lambda func: func)
+    importlib.reload(data_handler)
 
-    df = pd.DataFrame({'DEFECT_ID': [1], 'Layer_Label': ['Test']})
-    layer_data = {1: {'F': df}}
+    df = pd.DataFrame({'DEFECT_ID': [1], 'Layer_Label': ['Test'], 'UNIT_INDEX_X': [0], 'UNIT_INDEX_Y': [0]})
+    panel_data = PanelData()
+    panel_data.add_layer(BuildUpLayer(1, 'F', df, 7, 7))
 
-    result = prepare_multi_layer_data(layer_data)
+    result = data_handler.prepare_multi_layer_data(panel_data)
     assert len(result) == 1
     assert result.iloc[0]['Layer_Label'] == 'Layer 1 (Front)'
     assert result.iloc[0]['LAYER_NUM'] == 1
