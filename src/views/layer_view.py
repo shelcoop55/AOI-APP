@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.colors as mcolors
 from src.state import SessionStore
 from src.enums import ViewMode, Quadrant
 from src.plotting import create_defect_map_figure, create_pareto_figure
+from src.config import SAFE_VERIFICATION_VALUES, PLOT_AREA_COLOR, PANEL_COLOR
 
 def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: str, verification_selection: str):
     params = store.analysis_params
@@ -25,43 +27,159 @@ def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: s
                 fig = create_pareto_figure(display_df, quadrant_selection)
                 st.plotly_chart(fig, use_container_width=True)
             elif view_mode == ViewMode.SUMMARY.value:
-                render_summary_view(display_df, quadrant_selection)
+                # Pass necessary context to the summary view
+                render_summary_view(
+                    display_df=display_df,
+                    quadrant_selection=quadrant_selection,
+                    panel_rows=panel_rows,
+                    panel_cols=panel_cols,
+                    layer_info=layer_info,
+                    selected_layer_num=selected_layer_num,
+                    filtered_df=filtered_df # Passed for Quarterly breakdown logic
+                )
 
-def render_summary_view(df: pd.DataFrame, quadrant: str):
-    """Renders the Summary Dashboard for the current layer."""
-    st.subheader(f"Layer Summary - Quadrant: {quadrant}")
+def render_summary_view(
+    display_df: pd.DataFrame,
+    quadrant_selection: str,
+    panel_rows: int,
+    panel_cols: int,
+    layer_info: dict,
+    selected_layer_num: int,
+    filtered_df: pd.DataFrame
+):
+    """
+    Renders the detailed Statistical Summary Dashboard.
+    Logic restored from user request.
+    """
+    st.header(f"Statistical Summary for Layer {selected_layer_num}, Quadrant: {quadrant_selection}")
 
-    if df.empty:
-        st.warning("No data available for summary.")
+    if display_df.empty:
+        st.info("No defects to summarize in the selected quadrant.")
         return
 
-    # Metrics
-    total_defects = len(df)
+    # Helper set for safe values check
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
 
-    # Calculate Yield (Approximate based on defect count vs total units not readily avail here without panel dims, but we have df)
-    # We'll just show counts for now.
+    if quadrant_selection != Quadrant.ALL.value:
+        total_defects = len(display_df)
+        total_cells = panel_rows * panel_cols
+        defect_density = total_defects / total_cells if total_cells > 0 else 0
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Defects", total_defects)
+        # For yield calculations, we need the full layer data (all sides)
+        # layer_info values are DFs (or objects we can extract DFs from)
+        full_layer_dfs = []
+        for val in layer_info.values():
+            if hasattr(val, 'data'): # Handle BuildUpLayer object
+                full_layer_dfs.append(val.data)
+            else:
+                full_layer_dfs.append(val)
 
-    if 'Verification' in df.columns:
-        verified_count = df[df['Verification'] != 'Under Verification'].shape[0]
-        col2.metric("Verified Units", verified_count)
+        full_layer_df = pd.concat(full_layer_dfs, ignore_index=True)
+        yield_df = full_layer_df[full_layer_df['QUADRANT'] == quadrant_selection]
 
-    # Top Defect Type
-    if not df.empty:
-        top_defect = df['DEFECT_TYPE'].mode()
-        top_defect_str = top_defect[0] if not top_defect.empty else "N/A"
-        col3.metric("Top Defect Type", top_defect_str)
+        # Logic: True defect if NOT in safe list
+        true_yield_defects = yield_df[~yield_df['Verification'].str.upper().isin(safe_values_upper)]
+        combined_defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+        yield_estimate = (total_cells - combined_defective_cells) / total_cells if total_cells > 0 else 0
 
-    st.divider()
+        # For the displayed metric, only count true defects on the selected side
+        selected_side_yield_df = display_df[display_df['QUADRANT'] == quadrant_selection]
+        true_defects_selected_side = selected_side_yield_df[~selected_side_yield_df['Verification'].str.upper().isin(safe_values_upper)]
+        defective_cells_selected_side = len(true_defects_selected_side[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
 
-    # Top 5 Defects Table
-    st.markdown("##### Top 5 Defect Types")
-    top_5 = df['DEFECT_TYPE'].value_counts().head(5).reset_index()
-    top_5.columns = ['Defect Type', 'Count']
-    st.dataframe(top_5, use_container_width=True)
+        st.markdown("### Key Performance Indicators (KPIs)")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Defect Count", f"{total_defects:,}")
+        col2.metric("True Defective Cells", f"{defective_cells_selected_side:,}")
+        col3.metric("Defect Density", f"{defect_density:.2f} defects/cell")
+        col4.metric("Yield Estimate", f"{yield_estimate:.2%}")
+        st.divider()
+        st.markdown("### Top Defect Types")
 
-    # Simple Bar Chart
-    st.markdown("##### Defect Distribution")
-    st.bar_chart(df['DEFECT_TYPE'].value_counts())
+        # Check if verification data exists (using the flag from the first row)
+        has_verification = display_df['HAS_VERIFICATION_DATA'].iloc[0] if not display_df.empty and 'HAS_VERIFICATION_DATA' in display_df.columns else False
+
+        if has_verification:
+                # Group by both Defect Type and Verification Status
+            top_offenders = display_df.groupby(['DEFECT_TYPE', 'Verification']).size().reset_index(name='Count')
+            top_offenders.rename(columns={'DEFECT_TYPE': 'Defect Type'}, inplace=True)
+            top_offenders = top_offenders.sort_values(by='Count', ascending=False).reset_index(drop=True)
+        else:
+            # Standard grouping by Defect Type only
+            top_offenders = display_df['DEFECT_TYPE'].value_counts().reset_index()
+            top_offenders.columns = ['Defect Type', 'Count']
+
+        top_offenders['Percentage'] = (top_offenders['Count'] / total_defects) * 100
+        theme_cmap = mcolors.LinearSegmentedColormap.from_list("theme_cmap", [PLOT_AREA_COLOR, PANEL_COLOR])
+        st.dataframe(top_offenders.style.format({'Percentage': '{:.2f}%'}).background_gradient(cmap=theme_cmap, subset=['Count']), use_container_width=True)
+    else:
+        st.markdown("### Panel-Wide KPIs (Filtered)")
+        total_defects = len(display_df)
+        total_cells = (panel_rows * panel_cols) * 4
+        defect_density = total_defects / total_cells if total_cells > 0 else 0
+
+        # For yield calculations, we need the full layer data (all sides)
+        full_layer_dfs = []
+        for val in layer_info.values():
+            if hasattr(val, 'data'):
+                full_layer_dfs.append(val.data)
+            else:
+                full_layer_dfs.append(val)
+        full_layer_df = pd.concat(full_layer_dfs, ignore_index=True)
+
+        # Logic: True defect if NOT in safe list
+        true_yield_defects = full_layer_df[~full_layer_df['Verification'].str.upper().isin(safe_values_upper)]
+        combined_defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+        yield_estimate = (total_cells - combined_defective_cells) / total_cells if total_cells > 0 else 0
+
+        # For the displayed metric, only count true defects on the selected side
+        true_defects_selected_side = display_df[~display_df['Verification'].str.upper().isin(safe_values_upper)]
+        defective_cells_selected_side = len(true_defects_selected_side[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Filtered Defect Count", f"{total_defects:,}")
+        col2.metric("True Defective Cells", f"{defective_cells_selected_side:,}")
+        col3.metric("Filtered Defect Density", f"{defect_density:.2f} defects/cell")
+        col4.metric("Filtered Yield Estimate", f"{yield_estimate:.2%}")
+        st.divider()
+        st.markdown("### Quarterly KPI Breakdown")
+        kpi_data = []
+        quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+        total_cells_per_quad = panel_rows * panel_cols
+
+        # We need the full layer df for per-quadrant yield calc
+        full_layer_df_static = full_layer_df.copy()
+
+        for quad in quadrants:
+            quad_view_df = filtered_df[filtered_df['QUADRANT'] == quad]
+            total_quad_defects = len(quad_view_df)
+
+            # For yield calculations
+            yield_df = full_layer_df_static[full_layer_df_static['QUADRANT'] == quad]
+
+            # Logic: True defect if NOT in safe list
+            true_yield_defects = yield_df[~yield_df['Verification'].str.upper().isin(safe_values_upper)]
+            combined_defective_cells = len(true_yield_defects[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+            yield_estimate = (total_cells_per_quad - combined_defective_cells) / total_cells_per_quad if total_cells_per_quad > 0 else 0
+
+            # For the displayed metric, only count true defects on the selected side
+            selected_side_yield_df = quad_view_df[~quad_view_df['Verification'].str.upper().isin(safe_values_upper)]
+            defective_cells_selected_side = len(selected_side_yield_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
+
+            # Count "Safe" (Non-Defects) and "True" (Defects) for the breakdown
+            safe_count = len(quad_view_df[quad_view_df['Verification'].str.upper().isin(safe_values_upper)])
+            true_count = total_quad_defects - safe_count
+
+            kpi_data.append({
+                "Quadrant": quad,
+                "Total Points": total_quad_defects,
+                "True Defects": true_count,
+                "Non-Defects (Safe)": safe_count,
+                "True Defective Cells": defective_cells_selected_side,
+                "Yield": f"{yield_estimate:.2%}"
+            })
+        if kpi_data:
+            kpi_df = pd.DataFrame(kpi_data)
+            st.dataframe(kpi_df, use_container_width=True)
+        else:
+            st.info("No data to display for the quarterly breakdown based on current filters.")
