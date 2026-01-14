@@ -664,10 +664,18 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
 
     return fig
 
-def create_density_contour_map(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> go.Figure:
+def create_density_contour_map(
+    df: pd.DataFrame,
+    panel_rows: int,
+    panel_cols: int,
+    show_points: bool = False,
+    smoothing_factor: int = 30,
+    saturation_cap: int = 0,
+    show_grid: bool = True
+) -> go.Figure:
     """
     2. Smoothed Density Contour Map (Weather Map).
-    Renamed from 'create_hexbin_heatmap'.
+    Supports points overlay, variable smoothing, saturation cap, and grid toggle.
     """
     if df.empty:
         return go.Figure()
@@ -682,26 +690,87 @@ def create_density_contour_map(df: pd.DataFrame, panel_rows: int, panel_cols: in
     if df_true.empty:
         return go.Figure(layout=dict(title="No True Defects Found"))
 
-    # Use Histogram2dContour for smooth density
-    # USE RAW PLOTTING COORDINATES (No Flip)
+    fig = go.Figure()
 
-    fig = go.Figure(go.Histogram2dContour(
+    # 1. Contour Layer
+    # Configure saturation
+    zmax = saturation_cap if saturation_cap > 0 else None
+
+    fig.add_trace(go.Histogram2dContour(
         x=df_true['plot_x'],
         y=df_true['plot_y'],
         colorscale='Turbo', # Vibrant, engineering style
         reversescale=False,
         ncontours=30,
+        nbinsx=smoothing_factor, # Adjustable smoothing
+        nbinsy=smoothing_factor,
+        zmax=zmax,
         contours=dict(coloring='heatmap', showlabels=True, labelfont=dict(color='white')),
         hoverinfo='x+y+z'
     ))
 
-    # Overlay Grid
-    shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False)
+    # 2. Points Overlay (Hybrid View)
+    if show_points:
+        # Re-use trace logic or simple scatter
+        fig.add_trace(go.Scatter(
+            x=df_true['plot_x'],
+            y=df_true['plot_y'],
+            mode='markers',
+            marker=dict(color='white', size=3, opacity=0.5),
+            hoverinfo='skip', # Contour has hover
+            name='Defects'
+        ))
+
+    # 3. Grid Overlay
+    shapes = []
+    if show_grid:
+        shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False)
+
+    # 4. Axis Labels (Mapped to Unit Index)
+    # Convert mm ticks to Unit Index
+    cell_width = QUADRANT_WIDTH / panel_cols
+    cell_height = QUADRANT_HEIGHT / panel_rows
+
+    total_cols = panel_cols * 2
+    total_rows = panel_rows * 2
+
+    # Generate ticks at the center of each unit
+    x_tick_vals = []
+    x_tick_text = []
+    for i in range(total_cols):
+        # Calculate center of unit i
+        # Handle Gap: If i >= panel_cols, add GAP_SIZE
+        offset = GAP_SIZE if i >= panel_cols else 0
+        center_mm = (i * cell_width) + (cell_width / 2) + offset
+        x_tick_vals.append(center_mm)
+        x_tick_text.append(str(i))
+
+    y_tick_vals = []
+    y_tick_text = []
+    for i in range(total_rows):
+        offset = GAP_SIZE if i >= panel_rows else 0
+        center_mm = (i * cell_height) + (cell_height / 2) + offset
+        y_tick_vals.append(center_mm)
+        y_tick_text.append(str(i))
 
     fig.update_layout(
         title=dict(text="2. Smoothed Defect Density (Hotspots)", font=dict(color=TEXT_COLOR, size=18)),
-        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], constrain='domain', tickfont=dict(color=TEXT_COLOR)),
-        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
+        xaxis=dict(
+            title="Unit Column Index (Approx)",
+            tickvals=x_tick_vals,
+            ticktext=x_tick_text,
+            showgrid=False, zeroline=False, showline=True, mirror=True,
+            range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], constrain='domain',
+            tickfont=dict(color=TEXT_COLOR), title_font=dict(color=TEXT_COLOR)
+        ),
+        yaxis=dict(
+            title="Unit Row Index (Approx)",
+            tickvals=y_tick_vals,
+            ticktext=y_tick_text,
+            showgrid=False, zeroline=False, showline=True, mirror=True,
+            range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2], scaleanchor="x", scaleratio=1,
+            tickfont=dict(color=TEXT_COLOR), title_font=dict(color=TEXT_COLOR)
+        ),
         shapes=shapes,
         plot_bgcolor=PLOT_AREA_COLOR,
         paper_bgcolor=BACKGROUND_COLOR,
