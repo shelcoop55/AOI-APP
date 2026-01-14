@@ -611,10 +611,9 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
     # Map to Global Indices
     global_indices = []
     for _, row in df_true.iterrows():
-        # USE PHYSICAL COORDINATES AND QUADRANT
-        # Fallback to Raw if Physical not present (safety)
-        u_x = int(row['PHYSICAL_X']) if 'PHYSICAL_X' in row else int(row['UNIT_INDEX_X'])
-        q = row['PHYSICAL_QUADRANT'] if 'PHYSICAL_QUADRANT' in row else row['QUADRANT']
+        # USE RAW COORDINATES (UNIT_INDEX_X) as per request (No Flip)
+        u_x = int(row['UNIT_INDEX_X'])
+        q = row['QUADRANT']
         u_y = int(row['UNIT_INDEX_Y'])
 
         g_x = u_x + (panel_cols if q in ['Q2', 'Q4'] else 0)
@@ -684,11 +683,10 @@ def create_density_contour_map(df: pd.DataFrame, panel_rows: int, panel_cols: in
         return go.Figure(layout=dict(title="No True Defects Found"))
 
     # Use Histogram2dContour for smooth density
-    # USE PHYSICAL PLOTTING COORDINATES
-    x_coords = df_true['physical_plot_x'] if 'physical_plot_x' in df_true.columns else df_true['plot_x']
+    # USE RAW PLOTTING COORDINATES (No Flip)
 
     fig = go.Figure(go.Histogram2dContour(
-        x=x_coords,
+        x=df_true['plot_x'],
         y=df_true['plot_y'],
         colorscale='Turbo', # Vibrant, engineering style
         reversescale=False,
@@ -711,60 +709,6 @@ def create_density_contour_map(df: pd.DataFrame, panel_rows: int, panel_cols: in
     )
     return fig
 
-def create_hexbin_density_map(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> go.Figure:
-    """
-    3. True Hexagonal Binning Density Map.
-    Simulates hexbin using a high-res Histogram2d or Scatter if needed,
-    but since Plotly JS has specific hexbin limitations, we'll use a styled Histogram2d
-    that looks techy, or rely on aggregation.
-
-    Actually, to get a TRUE Hexbin look without Scipy, we can use a scatter plot
-    where we round coordinates to a hex grid manually.
-
-    Simplified approach for robustness: Use a pixelated 'Density Heatmap' (Histogram2d)
-    with a distinct look from the Contour map.
-    """
-    if df.empty:
-        return go.Figure()
-
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
-    if 'Verification' in df.columns:
-        df_true = df[~df['Verification'].str.upper().isin(safe_values_upper)].copy()
-    else:
-        df_true = df.copy()
-
-    if df_true.empty:
-        return go.Figure()
-
-    # We will use Histogram2d (Rectangular bins) but styled to look like a "Tech Raster"
-    # This differentiates it from the Grid (Unit based) and Contour (Smooth).
-    # This is a "Physical Coordinate Raster".
-
-    # USE PHYSICAL PLOTTING COORDINATES
-    x_coords = df_true['physical_plot_x'] if 'physical_plot_x' in df_true.columns else df_true['plot_x']
-
-    fig = go.Figure(go.Histogram2d(
-        x=x_coords,
-        y=df_true['plot_y'],
-        colorscale='Viridis',
-        zsmooth=False, # Pixelated look
-        nbinsx=50,     # High resolution
-        nbinsy=50,
-        colorbar=dict(title='Density', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
-    ))
-
-    shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False)
-
-    fig.update_layout(
-        title=dict(text="3. High-Res Coordinate Density (Raster)", font=dict(color=TEXT_COLOR, size=18)),
-        xaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], constrain='domain', tickfont=dict(color=TEXT_COLOR)),
-        yaxis=dict(showgrid=False, zeroline=False, showline=True, mirror=True, range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2], scaleanchor="x", scaleratio=1, tickfont=dict(color=TEXT_COLOR)),
-        shapes=shapes,
-        plot_bgcolor=PLOT_AREA_COLOR,
-        paper_bgcolor=BACKGROUND_COLOR,
-        height=700
-    )
-    return fig
 
 def create_defect_sunburst(df: pd.DataFrame) -> go.Figure:
     """
