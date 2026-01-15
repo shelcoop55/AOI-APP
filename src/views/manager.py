@@ -9,6 +9,8 @@ from src.views.multi_layer import render_multi_layer_view
 from src.views.layer_view import render_layer_view
 from src.documentation import render_documentation
 from src.analysis import get_analysis_tool
+from src.reporting import generate_zip_package
+from src.data_handler import get_true_defect_coordinates
 import streamlit.components.v1 as components
 
 class ViewManager:
@@ -32,12 +34,13 @@ class ViewManager:
             return
 
         # --- Top Navigation Bar (Global) ---
-        # "Layer Inspection", "Analysis Page", "Documentation"
-        nav_cols = st.columns(3, gap="small")
+        # "Layer Inspection", "Analysis Page", "Reporting", "Documentation"
+        nav_cols = st.columns(4, gap="small")
 
         def set_mode(m):
             if m == 'layer': self.store.active_view = 'layer'
             elif m == 'documentation': self.store.active_view = 'documentation'
+            elif m == 'reporting': self.store.active_view = 'reporting'
             else:
                 # Analysis default
                 if self.store.active_view not in ['still_alive', 'multi_layer_defects', 'analysis_dashboard']:
@@ -61,17 +64,21 @@ class ViewManager:
         is_doc = self.store.active_view == 'documentation'
         nav_cols[2].button("Documentation", type="primary" if is_doc else "secondary", use_container_width=True, on_click=lambda: set_mode('documentation'))
 
-        st.divider()
+        # Reporting Button
+        is_rep = self.store.active_view == 'reporting'
+        nav_cols[3].button("Reporting", type="primary" if is_rep else "secondary", use_container_width=True, on_click=lambda: set_mode('reporting'))
+
+        # st.divider() # Removed as per user request
 
         if self.store.active_view == 'layer':
             self._render_layer_inspection_controls()
-            st.divider()
-        elif self.store.active_view == 'documentation':
-            # No specific controls for documentation
+            # st.divider() # Removed as per user request
+        elif self.store.active_view in ['documentation', 'reporting']:
+            # No specific controls for documentation or reporting
             pass
         else:
             self._render_analysis_page_controls()
-            st.divider()
+            # st.divider() # Removed as per user request
 
     def _render_layer_inspection_controls(self):
         """Renders the top control row for Layer Inspection."""
@@ -160,77 +167,78 @@ class ViewManager:
 
         # --- Layout: Rows of Buttons ---
 
-        # Header removed to save space
-        if layer_options:
-            l_cols = st.columns(len(layer_options), gap="small")
-            for i, (label, col) in enumerate(zip(layer_options, l_cols)):
-                 layer_num = layer_option_map[label]
-                 is_active = (layer_num == self.store.selected_layer)
+        with st.expander("Filter Options", expanded=True):
+            # Header removed to save space
+            if layer_options:
+                l_cols = st.columns(len(layer_options), gap="small")
+                for i, (label, col) in enumerate(zip(layer_options, l_cols)):
+                     layer_num = layer_option_map[label]
+                     is_active = (layer_num == self.store.selected_layer)
 
-                 def on_layer_click(n):
-                     def cb():
-                         self.store.set_layer_view(n)
-                         # Auto-select side logic
-                         info = self.store.layer_data.get(n, {})
-                         if 'F' in info:
-                             self.store.selected_side = 'F'
-                         elif 'B' in info:
-                             self.store.selected_side = 'B'
-                         elif info:
-                             self.store.selected_side = next(iter(info.keys()))
-                     return cb
+                     def on_layer_click(n):
+                         def cb():
+                             self.store.set_layer_view(n)
+                             # Auto-select side logic
+                             info = self.store.layer_data.get(n, {})
+                             if 'F' in info:
+                                 self.store.selected_side = 'F'
+                             elif 'B' in info:
+                                 self.store.selected_side = 'B'
+                             elif info:
+                                 self.store.selected_side = next(iter(info.keys()))
+                         return cb
 
-                 col.button(
-                     label,
-                     key=f"layer_btn_{i}",
-                     type="primary" if is_active else "secondary",
-                     use_container_width=True,
-                     on_click=on_layer_click(layer_num)
-                 )
+                     col.button(
+                         label,
+                         key=f"layer_btn_{i}",
+                         type="primary" if is_active else "secondary",
+                         use_container_width=True,
+                         on_click=on_layer_click(layer_num)
+                     )
 
-        c1, c2 = st.columns([1, 2], gap="medium")
+            c1, c2 = st.columns([1, 2], gap="medium")
 
-        # Side Selection
-        with c1:
-            # Header removed
-            s_cols = st.columns(len(side_options), gap="small")
-            for i, (label, col) in enumerate(zip(side_options, s_cols)):
-                code = 'F' if label == "Front" else 'B'
-                is_active = (code == self.store.selected_side)
+            # Side Selection
+            with c1:
+                # Header removed
+                s_cols = st.columns(len(side_options), gap="small")
+                for i, (label, col) in enumerate(zip(side_options, s_cols)):
+                    code = 'F' if label == "Front" else 'B'
+                    is_active = (code == self.store.selected_side)
 
-                def on_side_click(c):
-                    def cb():
-                        self.store.selected_side = c
-                    return cb
+                    def on_side_click(c):
+                        def cb():
+                            self.store.selected_side = c
+                        return cb
 
-                col.button(
-                    label,
-                    key=f"side_btn_{i}",
-                    type="primary" if is_active else "secondary",
-                    use_container_width=True,
-                    on_click=on_side_click(code)
-                )
+                    col.button(
+                        label,
+                        key=f"side_btn_{i}",
+                        type="primary" if is_active else "secondary",
+                        use_container_width=True,
+                        on_click=on_side_click(code)
+                    )
 
-        # Quadrant Selection
-        with c2:
-            # Header removed
-            quad_options = Quadrant.values()
-            q_cols = st.columns(len(quad_options), gap="small")
-            for i, (label, col) in enumerate(zip(quad_options, q_cols)):
-                is_active = (label == self.store.quadrant_selection)
+            # Quadrant Selection
+            with c2:
+                # Header removed
+                quad_options = Quadrant.values()
+                q_cols = st.columns(len(quad_options), gap="small")
+                for i, (label, col) in enumerate(zip(quad_options, q_cols)):
+                    is_active = (label == self.store.quadrant_selection)
 
-                def on_quad_click(l):
-                    def cb():
-                        self.store.quadrant_selection = l
-                    return cb
+                    def on_quad_click(l):
+                        def cb():
+                            self.store.quadrant_selection = l
+                        return cb
 
-                col.button(
-                    label,
-                    key=f"quad_btn_{i}",
-                    type="primary" if is_active else "secondary",
-                    use_container_width=True,
-                    on_click=on_quad_click(label)
-                )
+                    col.button(
+                        label,
+                        key=f"quad_btn_{i}",
+                        type="primary" if is_active else "secondary",
+                        use_container_width=True,
+                        on_click=on_quad_click(label)
+                    )
 
         # --- Tabs for View Mode (Full Width Buttons) ---
         st.markdown("") # Spacer
@@ -294,90 +302,7 @@ class ViewManager:
                  key="multi_verification_selection"
              )
 
-        # --- ROW 1: GLOBAL FILTERS (Layer Only) ---
-        # Headers removed as per request to save space
-
-        # Prepare Layer Buttons: [BU-XX (Comment)...]
-        layer_buttons_data = []
-        process_comment = self.store.analysis_params.get("process_comment", "")
-
-        # Logic to get BU Name or Layer Num
-        for num in all_layers:
-            bu_name = ""
-            try:
-                first_side_key = next(iter(self.store.layer_data[num]))
-                source_file = self.store.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0]
-                bu_name = get_bu_name_from_filename(str(source_file))
-            except: pass
-
-            base_label = bu_name if bu_name else f"Layer {num}"
-            label = f"{base_label} ({process_comment})" if process_comment else base_label
-            layer_buttons_data.append({'num': num, 'label': label})
-
-        # Render Layer Buttons Row
-        if layer_buttons_data:
-            btns = [d['label'] for d in layer_buttons_data]
-            l_cols = st.columns(len(btns), gap="small")
-            current_selection = self.store.multi_layer_selection if self.store.multi_layer_selection else all_layers
-
-            for i, d in enumerate(layer_buttons_data):
-                num = d['num']
-                is_sel = num in current_selection
-                def on_click_layer(n):
-                    def cb():
-                        new_sel = list(self.store.multi_layer_selection) if self.store.multi_layer_selection else list(all_layers)
-                        if n in new_sel:
-                            if len(new_sel) > 1: new_sel.remove(n)
-                        else: new_sel.append(n)
-                        self.store.multi_layer_selection = sorted(new_sel)
-                    return cb
-                l_cols[i].button(d['label'], key=f"an_btn_l_{num}", type="primary" if is_sel else "secondary", use_container_width=True, on_click=on_click_layer(num))
-
-        # --- ROW 2: SIDE + QUADRANT (50% / 50%) ---
-        c_sides, c_quads = st.columns(2, gap="medium")
-
-        # --- Sides Group ---
-        with c_sides:
-            # "Front" and "Back" as independent toggles.
-            current_sides = st.session_state.get("analysis_side_pills", ["Front", "Back"])
-            # Just 2 buttons, fill the column
-            s_cols = st.columns(2, gap="small")
-
-            def toggle_side(side):
-                def cb():
-                    new_sides = list(st.session_state.get("analysis_side_pills", ["Front", "Back"]))
-                    if side in new_sides:
-                        if len(new_sides) > 1: new_sides.remove(side) # Prevent empty
-                    else:
-                        new_sides.append(side)
-                    st.session_state["analysis_side_pills"] = new_sides
-                return cb
-
-            is_f = "Front" in current_sides
-            s_cols[0].button("Front", key="an_side_f", type="primary" if is_f else "secondary", use_container_width=True, on_click=toggle_side("Front"))
-
-            is_b = "Back" in current_sides
-            s_cols[1].button("Back", key="an_side_b", type="primary" if is_b else "secondary", use_container_width=True, on_click=toggle_side("Back"))
-
-        # --- Quadrants Group ---
-        with c_quads:
-            quad_opts = ["All", "Q1", "Q2", "Q3", "Q4"]
-            current_quad = st.session_state.get("analysis_quadrant_selection", "All")
-            q_cols = st.columns(len(quad_opts), gap="small")
-
-            def set_quad(q): st.session_state["analysis_quadrant_selection"] = q
-
-            for i, q_label in enumerate(quad_opts):
-                is_active = (current_quad == q_label)
-                q_cols[i].button(q_label, key=f"an_quad_{q_label}", type="primary" if is_active else "secondary", use_container_width=True, on_click=lambda q=q_label: set_quad(q))
-
-        st.divider()
-
-        # --- ROW 2: ANALYSIS MODULES (Tabs) ---
-        # "Documentation" moved to global nav
-        tabs = ["Still Alive", "Heatmap", "Stress Map", "Root Cause", "Insights", "Multi-Layer"]
-
-        # Logic to determine active tab text
+        # Logic to determine active tab text (Needed early for conditional rendering)
         current_tab_text = "Heatmap"
         if self.store.active_view == 'still_alive': current_tab_text = "Still Alive"
         elif self.store.active_view == 'multi_layer_defects': current_tab_text = "Multi-Layer"
@@ -389,6 +314,108 @@ class ViewManager:
                  ViewMode.INSIGHTS.value: "Insights"
              }
              current_tab_text = sub_map_rev.get(self.store.analysis_subview, "Heatmap")
+
+        with st.expander("Analysis Scope", expanded=True):
+            # --- ROW 1: GLOBAL FILTERS (Layer Only) ---
+            # Headers removed as per request to save space
+
+            # Prepare Layer Buttons: [BU-XX (Comment)...]
+            layer_buttons_data = []
+            process_comment = self.store.analysis_params.get("process_comment", "")
+
+            # Logic to get BU Name or Layer Num
+            for num in all_layers:
+                bu_name = ""
+                try:
+                    first_side_key = next(iter(self.store.layer_data[num]))
+                    source_file = self.store.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0]
+                    bu_name = get_bu_name_from_filename(str(source_file))
+                except: pass
+
+                base_label = bu_name if bu_name else f"Layer {num}"
+                label = f"{base_label} ({process_comment})" if process_comment else base_label
+                layer_buttons_data.append({'num': num, 'label': label})
+
+            # Render Layer Buttons Row
+            if layer_buttons_data:
+                btns = [d['label'] for d in layer_buttons_data]
+                l_cols = st.columns(len(btns), gap="small")
+                current_selection = self.store.multi_layer_selection if self.store.multi_layer_selection else all_layers
+
+                for i, d in enumerate(layer_buttons_data):
+                    num = d['num']
+                    is_sel = num in current_selection
+                    def on_click_layer(n):
+                        def cb():
+                            new_sel = list(self.store.multi_layer_selection) if self.store.multi_layer_selection else list(all_layers)
+                            if n in new_sel:
+                                if len(new_sel) > 1: new_sel.remove(n)
+                            else: new_sel.append(n)
+                            self.store.multi_layer_selection = sorted(new_sel)
+                        return cb
+                    l_cols[i].button(d['label'], key=f"an_btn_l_{num}", type="primary" if is_sel else "secondary", use_container_width=True, on_click=on_click_layer(num))
+
+            # --- ROW 2: SIDE + QUADRANT (50% / 50%) ---
+
+            # Show Quadrant only if NOT Root Cause or Multi-Layer
+            show_quadrant = current_tab_text not in ["Root Cause", "Multi-Layer"]
+
+            if show_quadrant:
+                c_sides, c_quads = st.columns(2, gap="medium")
+            else:
+                c_sides = st.container() # Just a container if no quadrant column needed
+                # To keep buttons left-aligned and reasonable size, we can put them in columns even inside the container
+                # or just use 2 columns and leave the second empty?
+                # Let's create columns inside the container block later.
+
+            # --- Sides Group ---
+            with c_sides:
+                # "Front" and "Back" as independent toggles.
+                current_sides = st.session_state.get("analysis_side_pills", ["Front", "Back"])
+                # Just 2 buttons
+                if not show_quadrant:
+                     # If we are in container mode (no quadrant), make sure buttons are not full width
+                     s_cols = st.columns(4, gap="small") # Use more columns to compress them to left
+                     # use first 2 columns
+                     target_cols = [s_cols[0], s_cols[1]]
+                else:
+                     s_cols = st.columns(2, gap="small")
+                     target_cols = s_cols
+
+                def toggle_side(side):
+                    def cb():
+                        new_sides = list(st.session_state.get("analysis_side_pills", ["Front", "Back"]))
+                        if side in new_sides:
+                            if len(new_sides) > 1: new_sides.remove(side) # Prevent empty
+                        else:
+                            new_sides.append(side)
+                        st.session_state["analysis_side_pills"] = new_sides
+                    return cb
+
+                is_f = "Front" in current_sides
+                target_cols[0].button("Front", key="an_side_f", type="primary" if is_f else "secondary", use_container_width=True, on_click=toggle_side("Front"))
+
+                is_b = "Back" in current_sides
+                target_cols[1].button("Back", key="an_side_b", type="primary" if is_b else "secondary", use_container_width=True, on_click=toggle_side("Back"))
+
+            # --- Quadrants Group ---
+            if show_quadrant:
+                with c_quads:
+                    quad_opts = ["All", "Q1", "Q2", "Q3", "Q4"]
+                    current_quad = st.session_state.get("analysis_quadrant_selection", "All")
+                    q_cols = st.columns(len(quad_opts), gap="small")
+
+                    def set_quad(q): st.session_state["analysis_quadrant_selection"] = q
+
+                    for i, q_label in enumerate(quad_opts):
+                        is_active = (current_quad == q_label)
+                        q_cols[i].button(q_label, key=f"an_quad_{q_label}", type="primary" if is_active else "secondary", use_container_width=True, on_click=lambda q=q_label: set_quad(q))
+
+        # st.divider() # Removed as per user request
+
+        # --- ROW 2: ANALYSIS MODULES (Tabs) ---
+        # "Documentation" moved to global nav
+        tabs = ["Still Alive", "Heatmap", "Stress Map", "Root Cause", "Insights", "Multi-Layer"]
 
         t_cols = st.columns(len(tabs), gap="small")
         for i, label in enumerate(tabs):
@@ -421,6 +448,74 @@ class ViewManager:
                  st.slider("Slice Index", 0, max_idx, 0, key="rca_index")
 
 
+    def render_reporting_view(self):
+        """Renders the dedicated Reporting View."""
+        st.header("📥 Generate Analysis Reports")
+        st.markdown("Use this page to generate and download comprehensive reports, including Excel data, defect maps, and charts.")
+
+        col1, col2 = st.columns(2, gap="medium")
+
+        with col1:
+            st.subheader("Report Content")
+            include_excel = st.checkbox("Excel Report", value=True, help="Includes summary stats, defect lists, and KPI tables.")
+            include_coords = st.checkbox("Coordinate List", value=True, help="Includes a list of defective cell coordinates.")
+
+            st.subheader("Visualizations")
+            include_map = st.checkbox("Defect Map (HTML)", value=True, help="Interactive HTML map of defects.")
+            include_insights = st.checkbox("Insights Charts", value=True, help="Interactive Sunburst and Sankey charts.")
+
+        with col2:
+            st.subheader("Image Exports")
+            st.markdown("*(Optional) Include static images for offline viewing.*")
+            include_png_all = st.checkbox("Defect Maps (PNG) - All Layers", value=False)
+            include_pareto_png = st.checkbox("Pareto Charts (PNG) - All Layers", value=False)
+            st.markdown("##### Additional Analysis Charts")
+            include_heatmap_png = st.checkbox("Heatmap (PNG)", value=False)
+            include_stress_png = st.checkbox("Stress Map (PNG)", value=False)
+            include_root_cause_png = st.checkbox("Root Cause (PNG)", value=False)
+            include_still_alive_png = st.checkbox("Still Alive Map (PNG)", value=False)
+
+        st.markdown("---")
+
+        if st.button("📦 Generate Download Package", type="primary", use_container_width=True):
+            with st.spinner("Generating Package..."):
+                full_df = self.store.layer_data.get_combined_dataframe()
+                true_defect_coords = get_true_defect_coordinates(self.store.layer_data)
+
+                self.store.report_bytes = generate_zip_package(
+                    full_df=full_df,
+                    panel_rows=self.store.analysis_params.get('panel_rows', 7),
+                    panel_cols=self.store.analysis_params.get('panel_cols', 7),
+                    quadrant_selection=self.store.quadrant_selection,
+                    verification_selection=self.store.verification_selection,
+                    source_filename="Multiple Files",
+                    true_defect_coords=true_defect_coords,
+                    include_excel=include_excel,
+                    include_coords=include_coords,
+                    include_map=include_map,
+                    include_insights=include_insights,
+                    include_png_all_layers=include_png_all,
+                    include_pareto_png=include_pareto_png,
+                    include_heatmap_png=include_heatmap_png,
+                    include_stress_png=include_stress_png,
+                    include_root_cause_png=include_root_cause_png,
+                    include_still_alive_png=include_still_alive_png,
+                    layer_data=self.store.layer_data
+                )
+                st.success("Package generated successfully!")
+
+        if self.store.report_bytes:
+            params_local = self.store.analysis_params
+            lot_num_str = f"_{params_local.get('lot_number', '')}" if params_local.get('lot_number') else ""
+            zip_filename = f"defect_package_layer_{self.store.selected_layer}{lot_num_str}.zip"
+            st.download_button(
+                "Download Package (ZIP)",
+                data=self.store.report_bytes,
+                file_name=zip_filename,
+                mime="application/zip",
+                type="primary",
+                use_container_width=True
+            )
 
     def render_main_view(self):
         """Dispatches the rendering to the appropriate view function."""
@@ -453,6 +548,9 @@ class ViewManager:
 
         elif self.store.active_view == 'documentation':
              render_documentation()
+
+        elif self.store.active_view == 'reporting':
+             self.render_reporting_view()
 
         else:
             st.warning(f"Unknown view: {self.store.active_view}")
