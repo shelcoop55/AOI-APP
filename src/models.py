@@ -5,6 +5,7 @@ Encapsulates logic for Build-Up Layers, Coordinate Transformations, and Defect D
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
+import uuid
 from typing import Dict, List, Optional
 from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT
 
@@ -115,6 +116,8 @@ class PanelData:
     def __init__(self):
         # Internal storage: layer_num -> side -> BuildUpLayer
         self._layers: Dict[int, Dict[str, BuildUpLayer]] = {}
+        # Unique ID for caching/hashing purposes
+        self.id = uuid.uuid4().hex
 
     def add_layer(self, layer: BuildUpLayer):
         if layer.layer_num not in self._layers:

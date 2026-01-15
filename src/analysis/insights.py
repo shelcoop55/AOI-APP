@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from src.analysis.base import AnalysisTool
 from src.plotting import create_defect_sunburst, create_defect_sankey
 
@@ -8,21 +9,48 @@ class InsightsTool(AnalysisTool):
         return "Insights & Sankey"
 
     def render_sidebar(self):
-        st.info("No specific settings for this view. It analyzes the currently selected single layer (from state).")
+        pass
 
     def render_main(self):
         st.header("Insights & Sankey View")
 
-        layer_num = self.store.selected_layer
-        side = self.store.selected_side
+        # User requirement: "When user have selected Insight View He will See First two only [Layer/Verif]"
+        # This implies aggregation across selected layers? Or still single layer?
+        # The prompt says "First two only because those are the one which is reuired".
+        # This strongly implies multi-layer context.
+        # But Sunburst/Sankey are typically dense.
+        # If I aggregate all selected layers, it might be messy.
+        # However, I should respect the selection.
 
-        layer = self.store.layer_data.get_layer(layer_num, side)
+        selected_layer_nums = self.store.multi_layer_selection or self.store.layer_data.get_all_layer_nums()
+        side_mode = st.session_state.get("analysis_side_select", "Both")
+        selected_verifs = st.session_state.get("multi_verification_selection", [])
 
-        if layer and not layer.data.empty:
-            display_df = layer.data
-            st.caption(f"Analyzing: Layer {layer_num} - {side}")
-            st.plotly_chart(create_defect_sunburst(display_df), use_container_width=True)
-            sankey = create_defect_sankey(display_df)
-            if sankey: st.plotly_chart(sankey, use_container_width=True)
+        # Collect Data
+        dfs = []
+        for layer_num in selected_layer_nums:
+            sides = []
+            if side_mode == "Front": sides = ['F']
+            elif side_mode == "Back": sides = ['B']
+            else: sides = ['F', 'B']
+
+            for s in sides:
+                layer = self.store.layer_data.get_layer(layer_num, s)
+                if layer and not layer.data.empty:
+                    dfs.append(layer.data)
+
+        if dfs:
+            combined_df = pd.concat(dfs, ignore_index=True)
+            # Filter Verif
+            if 'Verification' in combined_df.columns and selected_verifs:
+                 combined_df = combined_df[combined_df['Verification'].astype(str).isin(selected_verifs)]
+
+            if not combined_df.empty:
+                st.caption(f"Analyzing {len(combined_df)} defects from selected context.")
+                st.plotly_chart(create_defect_sunburst(combined_df), use_container_width=True)
+                sankey = create_defect_sankey(combined_df)
+                if sankey: st.plotly_chart(sankey, use_container_width=True)
+            else:
+                st.warning("No data after filtering.")
         else:
-            st.warning("No data available or no layer selected.")
+            st.warning("No data selected.")

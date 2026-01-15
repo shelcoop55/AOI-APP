@@ -16,6 +16,8 @@ class ViewMode(Enum):
     SUMMARY = "Summary View"
     INSIGHTS = "Insights View"
     ROOT_CAUSE = "Root Cause Analysis"
+    STILL_ALIVE = "Still Alive"
+    MULTI_LAYER = "Multi-Layer"
 
     @classmethod
     def values(cls) -> list[str]:

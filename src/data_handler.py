@@ -108,7 +108,8 @@ def load_data(
             layer_num, side = int(match.group(1)), match.group(2).upper()
 
             try:
-                df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='openpyxl')
+                # OPTIMIZATION: Use calamine engine for faster loading
+                df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='calamine')
                 df.rename(columns={'VERIFICATION': 'Verification'}, inplace=True)
                 df['SOURCE_FILE'] = file_name
                 df['SIDE'] = side
@@ -135,8 +136,17 @@ def load_data(
                     continue
 
                 df.dropna(subset=required_columns, inplace=True)
-                for col in ['UNIT_INDEX_X', 'UNIT_INDEX_Y']: df[col] = df[col].astype(int)
-                df['DEFECT_TYPE'] = df['DEFECT_TYPE'].str.strip()
+
+                # OPTIMIZATION: Type Hygiene to reduce memory usage
+                df['UNIT_INDEX_X'] = df['UNIT_INDEX_X'].astype('int32')
+                df['UNIT_INDEX_Y'] = df['UNIT_INDEX_Y'].astype('int32')
+                df['DEFECT_ID'] = pd.to_numeric(df['DEFECT_ID'], errors='coerce').fillna(-1).astype('int32')
+
+                # Convert string columns to categorical if cardinality is low
+                df['DEFECT_TYPE'] = df['DEFECT_TYPE'].str.strip().astype('category')
+                df['Verification'] = df['Verification'].astype('category')
+                df['SIDE'] = df['SIDE'].astype('category')
+                df['SOURCE_FILE'] = df['SOURCE_FILE'].astype('category')
 
                 # --- COORDINATE HANDLING (RAW vs PHYSICAL) ---
                 # RAW: UNIT_INDEX_X from the file (used for Individual Layer View).
@@ -230,7 +240,8 @@ def load_data(
 def get_true_defect_coordinates(
     panel_data: PanelData,
     excluded_layers: Optional[List[int]] = None,
-    excluded_defect_types: Optional[List[str]] = None
+    excluded_defect_types: Optional[List[str]] = None,
+    included_sides: Optional[List[str]] = None
 ) -> Dict[Tuple[int, int], Dict[str, Any]]:
     """
     Aggregates all "True" defects from all layers and sides to find unique
@@ -253,6 +264,10 @@ def get_true_defect_coordinates(
     # Filter Excluded Layers ("What-If" Logic)
     if excluded_layers:
         all_layers_df = all_layers_df[~all_layers_df['LAYER_NUM'].isin(excluded_layers)]
+
+    # Filter Included Sides
+    if included_sides:
+        all_layers_df = all_layers_df[all_layers_df['SIDE'].isin(included_sides)]
 
     if all_layers_df.empty:
         return {}
@@ -301,7 +316,7 @@ def get_true_defect_coordinates(
     return result
 
 @st.cache_data
-def prepare_multi_layer_data(_panel_data: PanelData) -> pd.DataFrame:
+def prepare_multi_layer_data(_panel_data: PanelData, panel_uid: str = "") -> pd.DataFrame:
     """
     Aggregates and filters defect data from all layers for the Multi-Layer Defect View.
     """
@@ -322,7 +337,9 @@ def aggregate_stress_data(
     _panel_data: PanelData,
     selected_keys: List[Tuple[int, str]],
     panel_rows: int,
-    panel_cols: int
+    panel_cols: int,
+    panel_uid: str = "",
+    verification_filter: Optional[List[str]] = None
 ) -> StressMapData:
     """
     Aggregates data for the Cumulative Stress Map using specific (Layer, Side) keys.
@@ -340,60 +357,92 @@ def aggregate_stress_data(
     total_defects_acc = 0
     max_count_acc = 0
 
+    # OPTIMIZATION: Vectorized Aggregation
+    dfs_to_agg = []
     for layer_num, side in selected_keys:
         layer = _panel_data.get_layer(layer_num, side)
-        if not layer: continue
+        if layer and not layer.data.empty:
+            dfs_to_agg.append(layer.data)
 
-        df = layer.data
-        if df.empty: continue
+    if not dfs_to_agg:
+        return StressMapData(grid_counts, hover_text, 0, 0)
 
-        # Filter True Defects
-        df_true = df.copy()
-        if 'Verification' in df_true.columns:
-            is_true = ~df_true['Verification'].str.upper().isin(safe_values_upper)
-            df_true = df_true[is_true]
+    combined_df = pd.concat(dfs_to_agg, ignore_index=True)
 
-        if df_true.empty: continue
+    # Filter True Defects (Standard)
+    if 'Verification' in combined_df.columns:
+        is_true = ~combined_df['Verification'].astype(str).str.upper().isin(safe_values_upper)
+        combined_df = combined_df[is_true]
 
-        # Use RAW COORDINATES (UNIT_INDEX_X) as per request, do NOT flip.
+    # Filter by Specific Selection (if provided)
+    if verification_filter and 'Verification' in combined_df.columns and not combined_df.empty:
+        combined_df = combined_df[combined_df['Verification'].astype(str).isin(verification_filter)]
 
-        # Iterate rows
-        for _, row in df_true.iterrows():
-            gx = int(row['UNIT_INDEX_X'])
-            gy = int(row['UNIT_INDEX_Y'])
-            dtype = str(row['DEFECT_TYPE'])
+    if combined_df.empty:
+         return StressMapData(grid_counts, hover_text, 0, 0)
 
-            # Boundary check (safety)
-            if 0 <= gx < total_cols and 0 <= gy < total_rows:
-                grid_counts[gy, gx] += 1
-                total_defects_acc += 1
+    # Vectorized Histogram
+    # Use RAW COORDINATES (UNIT_INDEX_X)
+    x_coords = combined_df['UNIT_INDEX_X'].values
+    y_coords = combined_df['UNIT_INDEX_Y'].values
 
-                # Track Defect Types
-                if (gy, gx) not in cell_defects: cell_defects[(gy, gx)] = {}
-                cell_defects[(gy, gx)][dtype] = cell_defects[(gy, gx)].get(dtype, 0) + 1
+    # Filter out of bounds
+    valid_mask = (x_coords >= 0) & (x_coords < total_cols) & (y_coords >= 0) & (y_coords < total_rows)
+    x_coords = x_coords[valid_mask]
+    y_coords = y_coords[valid_mask]
 
+    if len(x_coords) == 0:
+        return StressMapData(grid_counts, hover_text, 0, 0)
 
-    # Post-process for Hover Text
-    for y in range(total_rows):
-        for x in range(total_cols):
-            count = grid_counts[y, x]
-            if count > max_count_acc: max_count_acc = count
+    # 1. Grid Counts
+    hist, _, _ = np.histogram2d(
+        y_coords, x_coords,
+        bins=[total_rows, total_cols],
+        range=[[0, total_rows], [0, total_cols]]
+    )
+    grid_counts = hist.astype(int)
+    total_defects_acc = int(grid_counts.sum())
+    max_count_acc = int(grid_counts.max()) if total_defects_acc > 0 else 0
 
-            if count > 0:
-                # 1. Drill Down Tooltip
-                defects_map = cell_defects.get((y, x), {})
-                # Sort by count desc
-                sorted_defects = sorted(defects_map.items(), key=lambda item: item[1], reverse=True)
-                top_3 = sorted_defects[:3]
+    # 2. Hover Text (Group By Optimization)
+    # Group by cell and defect type to get counts
+    # We use valid mask on the df as well
+    valid_df = combined_df[valid_mask]
 
-                tooltip = f"<b>Total: {count}</b><br>"
-                tooltip += "<br>".join([f"{d[0]}: {d[1]}" for d in top_3])
-                if len(sorted_defects) > 3:
-                    tooltip += f"<br>... (+{len(sorted_defects)-3} types)"
+    # Group by (Y, X, Type) -> Count
+    type_counts = valid_df.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X', 'DEFECT_TYPE'], observed=True).size()
 
-                hover_text[y, x] = tooltip
-            else:
-                hover_text[y, x] = "No Defects"
+    # Reset index to iterate easily or pivot
+    # But since we need "Top 3 per cell", let's iterate over the GroupBy object of cells
+    # This is much faster than iterating 7000x7000 cells because we only touch active cells
+    grouped_cells = type_counts.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X'], observed=True)
+
+    hover_text[:] = "No Defects" # Reset default
+
+    for (gy, gx), sub_series in grouped_cells:
+        # sub_series index is (Y, X, Type), values are counts
+        # We want to extract Type and Count
+        # sub_series.index.get_level_values('DEFECT_TYPE')
+        cell_total = sub_series.sum()
+
+        # Get types and counts
+        # sub_series is a Series with MultiIndex. Dropping levels to get just Types is cleaner
+        counts_per_type = sub_series.droplevel([0, 1])
+
+        # Sort desc
+        sorted_types = counts_per_type.sort_values(ascending=False)
+
+        top_3 = sorted_types.head(3)
+
+        tooltip = f"<b>Total: {cell_total}</b><br>"
+        tooltip_lines = [f"{dtype}: {cnt}" for dtype, cnt in top_3.items()]
+        tooltip += "<br>".join(tooltip_lines)
+
+        remaining = len(sorted_types) - 3
+        if remaining > 0:
+            tooltip += f"<br>... (+{remaining} types)"
+
+        hover_text[gy, gx] = tooltip
 
     return StressMapData(
         grid_counts=grid_counts,

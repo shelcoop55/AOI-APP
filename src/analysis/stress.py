@@ -11,29 +11,7 @@ class StressMapTool(AnalysisTool):
         return "Stress Map"
 
     def render_sidebar(self):
-        st.markdown("**Stress Map Settings**")
-
-        # Local state for mode (could be in store if persistence needed, keeping local for now)
-        if 'stress_mode' not in st.session_state:
-            st.session_state.stress_mode = "Cumulative"
-
-        mode = st.radio("Analysis Mode", ["Cumulative", "Delta (Difference)"], key="stress_mode_radio")
-        st.session_state.stress_mode = mode
-
-        available_options = self._get_available_layer_options()
-        option_map = {opt[0]: opt[1] for opt in available_options} # Label -> (Layer, Side)
-
-        if mode == "Delta (Difference)":
-            st.markdown("**Group A - Group B**")
-            sel_a = st.multiselect("Group A (Ref)", options=list(option_map.keys()), default=list(option_map.keys()))
-            sel_b = st.multiselect("Group B (Comp)", options=list(option_map.keys()), default=[])
-
-            # Store in session state for render_main
-            st.session_state.delta_group_a = [option_map[k] for k in sel_a]
-            st.session_state.delta_group_b = [option_map[k] for k in sel_b]
-        else:
-            sel_cumulative = st.multiselect("Select Data", options=list(option_map.keys()), default=list(option_map.keys()))
-            st.session_state.selected_keys_stress = [option_map[k] for k in sel_cumulative]
+        pass
 
     def render_main(self):
         st.header("Cumulative Stress Map Analysis")
@@ -41,27 +19,73 @@ class StressMapTool(AnalysisTool):
 
         params = self.store.analysis_params
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
-        mode = st.session_state.get('stress_mode', 'Cumulative')
+        panel_uid = self.store.layer_data.id
 
-        if mode == "Cumulative":
-            keys = st.session_state.get('selected_keys_stress', [])
-            stress_data = aggregate_stress_data(self.store.layer_data, keys, panel_rows, panel_cols)
-            fig = create_stress_heatmap(stress_data, panel_rows, panel_cols)
+        # READ INPUTS
+        # 1. Mode (Cumulative vs Delta)
+        # manager.py stores "stress_map_mode"
+        mode = st.session_state.get('stress_mode', 'Cumulative') # From sidebar if legacy? No, use new key
+        mode_new = st.session_state.get('stress_map_mode', 'Cumulative')
+
+        # 2. Filters
+        selected_layer_nums = self.store.multi_layer_selection or self.store.layer_data.get_all_layer_nums()
+        side_selection = st.session_state.get("analysis_side_pills", ["Front", "Back"])
+        selected_verifs = st.session_state.get("multi_verification_selection", [])
+
+        # 3. View Mode
+        view_mode = "Continuous"
+
+        # Construct Keys (Layer, Side) based on filters
+        keys = []
+        for layer_num in selected_layer_nums:
+            sides_to_process = []
+            if "Front" in side_selection: sides_to_process.append('F')
+            if "Back" in side_selection: sides_to_process.append('B')
+
+            for side in sides_to_process:
+                 # Check if exists in data
+                 if self.store.layer_data.get_layer(layer_num, side):
+                     keys.append((layer_num, side))
+
+        if mode_new == "Cumulative":
+            stress_data = aggregate_stress_data(
+                self.store.layer_data, keys, panel_rows, panel_cols, panel_uid,
+                verification_filter=selected_verifs
+            )
+            fig = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode=view_mode)
+
         else: # Delta
-            keys_a = st.session_state.get('delta_group_a', [])
-            keys_b = st.session_state.get('delta_group_b', [])
-            stress_data_a = aggregate_stress_data(self.store.layer_data, keys_a, panel_rows, panel_cols)
-            stress_data_b = aggregate_stress_data(self.store.layer_data, keys_b, panel_rows, panel_cols)
-            fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols)
+            # Delta Difference logic: "When user have selected Stressmap he will see ... 4th would be Delta DIfference"
+            # How do we define Group A vs Group B with the unified filters?
+            # The unified filter row (Layer/Verif/Side) applies globally.
+            # It doesn't allow selecting TWO groups.
+            # User Prompt: "When user will have selected Stressmap he will see First two and third one would be Cummulative and 4th would be Delta DIfference"
+            # It implies radio button [Cumulative, Delta].
+            # But if "Delta" is selected, WHERE does he select Group A and Group B?
+            # The prompt says "Below this We will have Filter tabs First two will be used in all Layer Selection List -> Verification List".
+            # It doesn't mention separate Group selectors for Delta.
+            # Assumption: Delta might be "Front vs Back" (Side Bias)?
+            # OR logic is needed to split the selection.
+            # If the user interface doesn't provide A/B selectors, I can defaults to:
+            # Group A = Selected Layers/Side
+            # Group B = ...?
+            # Or maybe Delta means Front - Back of selection?
+            # Given the constraint, I will implement "Front vs Back" Difference for the selected layers if Delta is chosen.
+            # This is a reasonable interpretation if no explicit Group A/B selectors are requested in the new UI.
+
+            keys_f = [k for k in keys if k[1] == 'F']
+            keys_b = [k for k in keys if k[1] == 'B']
+
+            stress_data_a = aggregate_stress_data(
+                self.store.layer_data, keys_f, panel_rows, panel_cols, panel_uid,
+                verification_filter=selected_verifs
+            )
+            stress_data_b = aggregate_stress_data(
+                self.store.layer_data, keys_b, panel_rows, panel_cols, panel_uid,
+                verification_filter=selected_verifs
+            )
+
+            st.info("Delta Difference Mode: Calculating (Front Side - Back Side) for selected layers.")
+            fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols, view_mode=view_mode)
 
         st.plotly_chart(fig, use_container_width=True)
-
-    def _get_available_layer_options(self):
-        """Helper to generate label -> key mapping from store data."""
-        options = []
-        for layer_num in self.store.layer_data.get_all_layer_nums():
-            for side in self.store.layer_data.get_sides_for_layer(layer_num):
-                side_label = "Front" if side == 'F' else "Back"
-                label = f"Layer {layer_num} ({side_label})"
-                options.append((label, (layer_num, side)))
-        return options
