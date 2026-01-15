@@ -538,7 +538,7 @@ class ViewManager:
             from src.utils import generate_standard_filename
 
             zip_filename = generate_standard_filename(
-                prefix="DEFECT_MAP",
+                prefix="Defect_Analysis_Package",
                 selected_layer=self.store.selected_layer,
                 layer_data=self.store.layer_data,
                 analysis_params=self.store.analysis_params,

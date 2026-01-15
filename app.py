@@ -30,7 +30,7 @@ def load_css(file_path: str) -> None:
 
 def main() -> None:
     """Main function to configure and run the Streamlit application."""
-    st.set_page_config(layout="wide", page_title="Panel Defect Analysis")
+    st.set_page_config(layout="wide", page_title="Panel Defect Analysis", initial_sidebar_state="expanded")
     load_css("assets/styles.css")
 
     # --- Initialize Session State & View Manager ---
@@ -46,8 +46,7 @@ def main() -> None:
 
         # --- 1. Analysis Configuration Form ---
         with st.form(key="analysis_form"):
-            # Update: Collapsed by default as per request
-            with st.expander("📁 Data Source & Configuration", expanded=False):
+            with st.expander("📁 Data Source & Configuration", expanded=True):
                 # Use dynamic key to allow resetting the widget
                 uploader_key = f"uploaded_files_{st.session_state['uploader_key']}"
                 st.file_uploader(

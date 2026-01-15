@@ -156,7 +156,7 @@ def render_still_alive_main(store: SessionStore):
                 target_layer = store.multi_layer_selection[0]
 
             filename = generate_standard_filename(
-                prefix="PICK_LIST",
+                prefix="Pick_List",
                 selected_layer=target_layer,
                 layer_data=store.layer_data,
                 analysis_params=store.analysis_params,
