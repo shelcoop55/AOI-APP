@@ -105,9 +105,9 @@ class BuildUpLayer:
                     if min_val == max_val:
                         return np.full(len(g), 0.5) # Center if all same
 
-                    # Normalize to 0-1 then scale to 0.1-0.9
+                    # Normalize to 0-1 (Pixel Perfect, no padding)
                     normalized = (g - min_val) / (max_val - min_val)
-                    return normalized * 0.8 + 0.1
+                    return normalized
 
                 norm_x = df.groupby(['UNIT_INDEX_X', 'UNIT_INDEX_Y'])['X_COORDINATES'].transform(normalize_group)
                 norm_y = df.groupby(['UNIT_INDEX_X', 'UNIT_INDEX_Y'])['Y_COORDINATES'].transform(normalize_group)
