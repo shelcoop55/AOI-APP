@@ -13,8 +13,9 @@ class HeatmapTool(AnalysisTool):
         pass
 
     def render_main(self):
-        st.header("Heatmap Analysis")
-        st.info("Visualizing smoothed defect density across selected layers.")
+        # Header removed to save space
+        # st.header("Heatmap Analysis")
+        # st.info("Visualizing smoothed defect density across selected layers.")
 
         params = self.store.analysis_params
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)

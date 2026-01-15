@@ -31,9 +31,44 @@ class ViewManager:
         if not self.store.layer_data:
             return
 
+        # --- Top Navigation Bar (Global) ---
+        # "Layer Inspection", "Analysis Page", "Documentation"
+        nav_cols = st.columns(3, gap="small")
+
+        def set_mode(m):
+            if m == 'layer': self.store.active_view = 'layer'
+            elif m == 'documentation': self.store.active_view = 'documentation'
+            else:
+                # Analysis default
+                if self.store.active_view not in ['still_alive', 'multi_layer_defects', 'analysis_dashboard']:
+                     self.store.active_view = 'analysis_dashboard'
+                     self.store.analysis_subview = ViewMode.HEATMAP.value
+                elif self.store.active_view == 'documentation':
+                     # Return to default analysis view if coming back
+                     self.store.active_view = 'analysis_dashboard'
+                     self.store.analysis_subview = ViewMode.HEATMAP.value
+
+        # Layer Inspection Button
+        is_layer = self.store.active_view == 'layer'
+        nav_cols[0].button("Layer Inspection", type="primary" if is_layer else "secondary", use_container_width=True, on_click=lambda: set_mode('layer'))
+
+        # Analysis Page Button
+        # Analysis includes subviews: dashboard, still_alive, multi_layer
+        is_analysis = self.store.active_view in ['analysis_dashboard', 'still_alive', 'multi_layer_defects']
+        nav_cols[1].button("Analysis Page", type="primary" if is_analysis else "secondary", use_container_width=True, on_click=lambda: set_mode('analysis'))
+
+        # Documentation Button
+        is_doc = self.store.active_view == 'documentation'
+        nav_cols[2].button("Documentation", type="primary" if is_doc else "secondary", use_container_width=True, on_click=lambda: set_mode('documentation'))
+
+        st.divider()
+
         if self.store.active_view == 'layer':
             self._render_layer_inspection_controls()
             st.divider()
+        elif self.store.active_view == 'documentation':
+            # No specific controls for documentation
+            pass
         else:
             self._render_analysis_page_controls()
             st.divider()
@@ -281,27 +316,17 @@ class ViewManager:
             layer_buttons_data.append({'num': num, 'label': label})
 
         # Calculate Total Buttons for Row 1
-        # [ALL] + [Layers...] + [Front, Back, Both] + [All, Q1, Q2, Q3, Q4]
-        # This is a lot for one row, but user requested wrapping.
-        # Streamlit st.columns doesn't wrap.
-        # We'll split into 3 chunks to organize: Layers | Sides | Quadrants
-
-        c_layers, c_sides, c_quads = st.columns([3, 1, 1], gap="small")
+        # [Layers...] + [Front, Back] + [All, Q1, Q2, Q3, Q4]
+        # Ratio: 50% Layers, 20% Side, 30% Quadrant
+        c_layers, c_sides, c_quads = st.columns([5, 2, 3], gap="small")
 
         # --- Layers Group ---
         with c_layers:
-            # We need to emulate a wrapping row for Layers if there are many.
-            # Since st.columns doesn't wrap, we might need multiple rows if count is high.
-            # Or just use one very dense st.columns list.
-            # Let's try putting all layer buttons in one st.columns call.
-
-            # "ALL" button removed as per request to save space
             btns = [d['label'] for d in layer_buttons_data]
             l_cols = st.columns(len(btns), gap="small")
-
             current_selection = self.store.multi_layer_selection if self.store.multi_layer_selection else all_layers
 
-            # Layer Buttons
+            # Layer Buttons (Toggle)
             for i, d in enumerate(layer_buttons_data):
                 num = d['num']
                 is_sel = num in current_selection
@@ -313,26 +338,29 @@ class ViewManager:
                         else: new_sel.append(n)
                         self.store.multi_layer_selection = sorted(new_sel)
                     return cb
-
                 l_cols[i].button(d['label'], key=f"an_btn_l_{num}", type="primary" if is_sel else "secondary", use_container_width=True, on_click=on_click_layer(num))
 
         # --- Sides Group ---
         with c_sides:
-            side_opts = ["Front", "Back", "Both"]
+            # "Front" and "Back" as independent toggles. No "Both" button.
             current_sides = st.session_state.get("analysis_side_pills", ["Front", "Back"])
-            s_cols = st.columns(len(side_opts), gap="small")
+            s_cols = st.columns(2, gap="small")
 
-            def set_sides(l): st.session_state["analysis_side_pills"] = l
+            def toggle_side(side):
+                def cb():
+                    new_sides = list(st.session_state.get("analysis_side_pills", ["Front", "Back"]))
+                    if side in new_sides:
+                        if len(new_sides) > 1: new_sides.remove(side) # Prevent empty
+                    else:
+                        new_sides.append(side)
+                    st.session_state["analysis_side_pills"] = new_sides
+                return cb
 
-            # Front
-            is_f = ("Front" in current_sides) and ("Back" not in current_sides)
-            s_cols[0].button("Front", key="an_side_f", type="primary" if is_f else "secondary", use_container_width=True, on_click=lambda: set_sides(["Front"]))
-            # Back
-            is_b = ("Back" in current_sides) and ("Front" not in current_sides)
-            s_cols[1].button("Back", key="an_side_b", type="primary" if is_b else "secondary", use_container_width=True, on_click=lambda: set_sides(["Back"]))
-            # Both
-            is_both = ("Front" in current_sides) and ("Back" in current_sides)
-            s_cols[2].button("Both", key="an_side_both", type="primary" if is_both else "secondary", use_container_width=True, on_click=lambda: set_sides(["Front", "Back"]))
+            is_f = "Front" in current_sides
+            s_cols[0].button("Front", key="an_side_f", type="primary" if is_f else "secondary", use_container_width=True, on_click=toggle_side("Front"))
+
+            is_b = "Back" in current_sides
+            s_cols[1].button("Back", key="an_side_b", type="primary" if is_b else "secondary", use_container_width=True, on_click=toggle_side("Back"))
 
         # --- Quadrants Group ---
         with c_quads:
@@ -349,13 +377,13 @@ class ViewManager:
         st.divider()
 
         # --- ROW 2: ANALYSIS MODULES (Tabs) ---
-        tabs = ["Still Alive", "Heatmap", "Stress Map", "Root Cause", "Insights", "Multi-Layer", "Documentation"]
+        # "Documentation" moved to global nav
+        tabs = ["Still Alive", "Heatmap", "Stress Map", "Root Cause", "Insights", "Multi-Layer"]
 
         # Logic to determine active tab text
         current_tab_text = "Heatmap"
         if self.store.active_view == 'still_alive': current_tab_text = "Still Alive"
         elif self.store.active_view == 'multi_layer_defects': current_tab_text = "Multi-Layer"
-        elif self.store.active_view == 'documentation': current_tab_text = "Documentation"
         elif self.store.active_view == 'analysis_dashboard':
              sub_map_rev = {
                  ViewMode.HEATMAP.value: "Heatmap",
@@ -372,7 +400,6 @@ class ViewManager:
                 def cb():
                     if sel == "Still Alive": self.store.active_view = 'still_alive'
                     elif sel == "Multi-Layer": self.store.active_view = 'multi_layer_defects'
-                    elif sel == "Documentation": self.store.active_view = 'documentation'
                     else:
                          self.store.active_view = 'analysis_dashboard'
                          sub_map = {"Heatmap": ViewMode.HEATMAP.value, "Stress Map": ViewMode.STRESS.value, "Root Cause": ViewMode.ROOT_CAUSE.value, "Insights": ViewMode.INSIGHTS.value}

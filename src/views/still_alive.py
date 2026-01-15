@@ -18,7 +18,8 @@ def render_still_alive_main(store: SessionStore):
     panel_rows = params.get("panel_rows", 7)
     panel_cols = params.get("panel_cols", 7)
 
-    st.header("Still Alive Panel Yield Map")
+    # Header removed to save space
+    # st.header("Still Alive Panel Yield Map")
 
     # --- Filter Logic Adaptation ---
     # Unified filters provide:
