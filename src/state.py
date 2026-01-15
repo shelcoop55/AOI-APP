@@ -23,7 +23,13 @@ class SessionStore:
             'selected_side': 'F',
             'analysis_params': {},
             'active_view': 'layer', # Default start view
-            'analysis_subview': ViewMode.HEATMAP.value
+            'analysis_subview': ViewMode.HEATMAP.value,
+            # UI Filter States
+            'view_mode': ViewMode.DEFECT.value,
+            'quadrant_selection': Quadrant.ALL.value,
+            'verification_selection': 'All',
+            'multi_layer_selection': [],
+            'multi_side_selection': []
         }
 
         for key, value in defaults.items():
@@ -87,6 +93,47 @@ class SessionStore:
     @report_bytes.setter
     def report_bytes(self, data: Optional[bytes]):
         st.session_state.report_bytes = data
+
+    # --- UI Filter Properties ---
+    @property
+    def view_mode(self) -> str:
+        return st.session_state.view_mode
+
+    @view_mode.setter
+    def view_mode(self, val: str):
+        st.session_state.view_mode = val
+
+    @property
+    def quadrant_selection(self) -> str:
+        return st.session_state.quadrant_selection
+
+    @quadrant_selection.setter
+    def quadrant_selection(self, val: str):
+        st.session_state.quadrant_selection = val
+
+    @property
+    def verification_selection(self) -> str:
+        return st.session_state.verification_selection
+
+    @verification_selection.setter
+    def verification_selection(self, val: str):
+        st.session_state.verification_selection = val
+
+    @property
+    def multi_layer_selection(self) -> List[int]:
+        return st.session_state.multi_layer_selection
+
+    @multi_layer_selection.setter
+    def multi_layer_selection(self, val: List[int]):
+        st.session_state.multi_layer_selection = val
+
+    @property
+    def multi_side_selection(self) -> List[str]:
+        return st.session_state.multi_side_selection
+
+    @multi_side_selection.setter
+    def multi_side_selection(self, val: List[str]):
+        st.session_state.multi_side_selection = val
 
     # --- Actions ---
 

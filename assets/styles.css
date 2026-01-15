@@ -30,6 +30,7 @@ body, h2, h3, .stRadio, .stSelectbox, .stNumberInput {
     color: #FFFFFF;
     border: 1px solid #000000;
     font-weight: bold;
+    transition: transform 0.1s ease-in-out;
 }
 
 .stDownloadButton > button:hover, div[data-testid="stFormSubmitButton"] button:hover {
@@ -37,6 +38,23 @@ body, h2, h3, .stRadio, .stSelectbox, .stNumberInput {
     color: #FFFFFF;
     border: 1px solid #FFFFFF;
 }
+
+.stDownloadButton > button:active, div[data-testid="stFormSubmitButton"] button:active {
+    transform: scale(0.95);
+}
+
+/* Button Pop Animation for general buttons */
+.stButton button {
+    transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.stButton button:active {
+    transform: scale(0.92);
+}
+
+/* Style for Pills/Tabs if possible (Standard Streamlit pills classes change often,
+   but we can try to target generic data-testids if needed.
+   For now, general button styles cover most interactions.) */
 
 .st-emotion-cache-1g8w9s4 p {
     color: #A0A0A0;
@@ -47,4 +65,9 @@ body, h2, h3, .stRadio, .stSelectbox, .stNumberInput {
     font-size: 32px;
     color: var(--panel-color);
     font-weight: bold;
+}
+
+/* Reduce top padding for main container */
+.block-container {
+    padding-top: 3rem !important; /* Increased from 1rem to 3rem per user request */
 }

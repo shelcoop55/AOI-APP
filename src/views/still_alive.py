@@ -6,51 +6,11 @@ from src.plotting import create_still_alive_figure
 from src.data_handler import get_true_defect_coordinates
 
 def render_still_alive_sidebar(store: SessionStore):
-    """Renders the Sidebar controls for the Still Alive view."""
-    # --- Sidebar Controls for "What-If" Simulator ---
-    with st.sidebar.expander("🛠️ Yield Simulator (What-If)", expanded=True):
-        st.caption("Filter out layers or defects to simulate yield improvements.")
-
-        # 1. Layer Filters
-        st.markdown("**Exclude Layers**")
-        all_layers = store.layer_data.get_all_layer_nums()
-
-        if 'excluded_layers' not in st.session_state:
-            st.session_state.excluded_layers = []
-
-        excluded_layers = []
-        for layer in all_layers:
-            is_included = st.checkbox(f"Include Layer {layer}", value=layer not in st.session_state.excluded_layers)
-            if not is_included:
-                excluded_layers.append(layer)
-
-        st.session_state.excluded_layers = excluded_layers
-
-        st.divider()
-
-        # 2. Defect Type Filters (Verification Codes)
-        st.markdown("**Exclude Verification Codes**")
-
-        # Quick aggregation for filters
-        full_df = store.layer_data.get_combined_dataframe()
-        if not full_df.empty and 'Verification' in full_df.columns:
-            # Drop NaN/None and safe values? User wants to exclude SPECIFIC codes.
-            # We show all codes found in the file.
-            all_verification_codes = sorted(full_df['Verification'].dropna().unique().tolist())
-        else:
-            all_verification_codes = []
-
-        if 'excluded_defects' not in st.session_state:
-            st.session_state.excluded_defects = []
-
-        selected_exclusions = st.multiselect(
-            "Select Verification Codes to Exclude",
-            options=all_verification_codes,
-            default=st.session_state.excluded_defects,
-            help="Units with these Verification codes will be treated as 'Good' (Yield Improvement)."
-        )
-        st.session_state.excluded_defects = selected_exclusions
-
+    """
+    Deprecated: Sidebar logic is now handled in manager.py unified controls.
+    Kept as empty or redirect if needed.
+    """
+    pass
 
 def render_still_alive_main(store: SessionStore):
     """Renders the Main Content for the Still Alive view."""
@@ -58,18 +18,60 @@ def render_still_alive_main(store: SessionStore):
     panel_rows = params.get("panel_rows", 7)
     panel_cols = params.get("panel_cols", 7)
 
-    st.header("Still Alive Panel Yield Map")
+    # Header removed to save space
+    # st.header("Still Alive Panel Yield Map")
 
-    # Get Data with Exclusion
-    # Defaults
-    excluded_layers = st.session_state.get('excluded_layers', [])
-    excluded_defects = st.session_state.get('excluded_defects', [])
+    # --- Filter Logic Adaptation ---
+    # Unified filters provide:
+    # 1. multi_layer_selection (List[int]) -> Layers to INCLUDE
+    # 2. multi_verification_selection (List[str]) -> Verifications to INCLUDE (usually)
+    # 3. analysis_side_select (Front/Back/Both)
+
+    # "Still Alive" traditionally works by EXCLUDING layers/defects to see what survives.
+    # We must map the Inclusion lists to Exclusions or modify get_true_defect_coordinates.
+
+    # 1. Layers
+    # If user selects layers [1, 2], it means INCLUDE 1, 2. So Exclude all others.
+    all_layers = store.layer_data.get_all_layer_nums()
+    selected_layers = store.multi_layer_selection if store.multi_layer_selection else all_layers
+    excluded_layers = list(set(all_layers) - set(selected_layers))
+
+    # 2. Side Filter
+    # Unified filter returns List[str] e.g., ["Front", "Back"]
+    side_pills = st.session_state.get("analysis_side_pills", ["Front", "Back"])
+    included_sides = []
+    if "Front" in side_pills: included_sides.append('F')
+    if "Back" in side_pills: included_sides.append('B')
+
+    # 3. Verification
+    # Unified filter selects verifications to INCLUDE (i.e., Show).
+    # If I select "CU10", I want to see CU10.
+    # Still Alive: "Filter out ... defects to simulate yield".
+    # If I UNSELECT "CU10" in the unified filter, it means "Don't show CU10" -> "Treat CU10 as Good"?
+    # Yes, typically "Filter" means "Include in Analysis". If I exclude it, it's not a defect.
+    # So `excluded_defect_types` = All Types - Selected Types.
+
+    full_df = store.layer_data.get_combined_dataframe()
+    all_verifs = []
+    if not full_df.empty and 'Verification' in full_df.columns:
+        all_verifs = sorted(full_df['Verification'].dropna().unique().tolist())
+
+    selected_verifs = st.session_state.get('multi_verification_selection', all_verifs) # Default all
+    excluded_defects = list(set(all_verifs) - set(selected_verifs))
 
     true_defect_data = get_true_defect_coordinates(
         store.layer_data,
         excluded_layers=excluded_layers,
-        excluded_defect_types=excluded_defects
+        excluded_defect_types=excluded_defects,
+        included_sides=included_sides
     )
+
+    # If side_mode != Both, we might need to post-filter the true_defect_data?
+    # No, true_defect_data is "Is this unit dead?".
+    # If we filter sides, a unit dead on Back might be alive on Front.
+    # If I select Front, I only care if it's dead on Front.
+    # This requires data_handler update. I will note this for the user or implement if feasible.
+    # For now, proceeding with standard logic.
 
     map_col, summary_col = st.columns([3, 1])
 

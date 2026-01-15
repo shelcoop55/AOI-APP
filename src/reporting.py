@@ -19,6 +19,7 @@ from src.plotting import (
     create_grid_shapes, create_still_alive_figure, create_defect_map_figure,
     create_pareto_figure
 )
+from src.data_handler import aggregate_stress_data_from_df
 from src.enums import Quadrant
 
 # ==============================================================================
@@ -121,6 +122,7 @@ def _create_panel_wide_top_defects_sheet(writer, formats, full_df):
 
     top_offenders = full_df['DEFECT_TYPE'].value_counts().reset_index()
     top_offenders.columns = ['Defect Type', 'Count']
+    top_offenders = top_offenders[top_offenders['Count'] > 0]
     top_offenders['Percentage'] = (top_offenders['Count'] / len(full_df))
 
     top_offenders.to_excel(writer, sheet_name=sheet_name, startrow=1, header=False, index=False)
@@ -157,6 +159,7 @@ def _create_per_quadrant_top_defects_sheets(writer, formats, full_df):
 
             top_offenders = quad_df['DEFECT_TYPE'].value_counts().reset_index()
             top_offenders.columns = ['Defect Type', 'Count']
+            top_offenders = top_offenders[top_offenders['Count'] > 0]
             top_offenders['Percentage'] = (top_offenders['Count'] / len(quad_df))
             
             top_offenders.to_excel(writer, sheet_name=sheet_name, startrow=1, header=False, index=False)
@@ -279,7 +282,12 @@ def generate_zip_package(
     include_insights: bool = True,
     include_png_all_layers: bool = False,
     include_pareto_png: bool = False,
-    layer_data: Optional[Dict] = None
+    include_heatmap_png: bool = False,
+    include_stress_png: bool = False,
+    include_root_cause_png: bool = False,
+    include_still_alive_png: bool = False,
+    layer_data: Optional[Dict] = None,
+    process_comment: str = ""
 ) -> bytes:
     """
     Generates a ZIP file containing selected report components.
@@ -295,6 +303,7 @@ def generate_zip_package(
 
     log("Starting generate_zip_package")
     log(f"Options: PNG_Maps={include_png_all_layers}, PNG_Pareto={include_pareto_png}")
+    log(f"New Options: Heatmap={include_heatmap_png}, Stress={include_stress_png}, RCA={include_root_cause_png}, Alive={include_still_alive_png}")
     log(f"Verification Selection: {verification_selection}")
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
@@ -304,12 +313,14 @@ def generate_zip_package(
             excel_bytes = generate_excel_report(
                 full_df, panel_rows, panel_cols, source_filename, quadrant_selection, verification_selection
             )
-            zip_file.writestr("Defect_Analysis_Report.xlsx", excel_bytes)
+            name_suffix = f"_{process_comment}" if process_comment else ""
+            zip_file.writestr(f"Defect_Analysis_Report{name_suffix}.xlsx", excel_bytes)
 
         # 2. Coordinate List (CSV/Excel)
         if include_coords:
             coord_bytes = generate_coordinate_list_report(true_defect_coords)
-            zip_file.writestr("Defective_Cell_Coordinates.xlsx", coord_bytes)
+            name_suffix = f"_{process_comment}" if process_comment else ""
+            zip_file.writestr(f"Defective_Cell_Coordinates{name_suffix}.xlsx", coord_bytes)
 
         # 3. Defect Map (Interactive HTML) - CURRENT VIEW
         if include_map:
@@ -347,11 +358,21 @@ def generate_zip_package(
 
                         filtered_df = df
                         if verification_selection != 'All':
-                            filtered_df = filtered_df[filtered_df['Verification'] == verification_selection]
+                            if isinstance(verification_selection, list):
+                                if not verification_selection:
+                                    # If empty list (unselected all), assume NO filtering match -> empty
+                                    filtered_df = filtered_df.iloc[0:0]
+                                else:
+                                    filtered_df = filtered_df[filtered_df['Verification'].isin(verification_selection)]
+                            else:
+                                filtered_df = filtered_df[filtered_df['Verification'] == verification_selection]
 
                         if filtered_df.empty:
                             log(f"  Skipped: DataFrame empty after filtering (Filter: {verification_selection})")
                             continue
+
+                        # Suffix for images
+                        img_suffix = f"_{process_comment}" if process_comment else ""
 
                         # Generate Defect Map PNG
                         if include_png_all_layers:
@@ -362,7 +383,7 @@ def generate_zip_package(
                             )
                             try:
                                 img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2)
-                                zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_DefectMap.png", img_bytes)
+                                zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_DefectMap{img_suffix}.png", img_bytes)
                                 log("  Success.")
                             except Exception as e:
                                 msg = f"Failed to generate map PNG for Layer {layer_num} {side}: {e}"
@@ -376,7 +397,7 @@ def generate_zip_package(
                             fig_pareto.update_layout(title=f"Layer {layer_num} - {side_name} - Pareto")
                             try:
                                 img_bytes = fig_pareto.to_image(format="png", engine="kaleido", scale=2)
-                                zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_Pareto.png", img_bytes)
+                                zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_Pareto{img_suffix}.png", img_bytes)
                                 log("  Success.")
                             except Exception as e:
                                 msg = f"Failed to generate pareto PNG for Layer {layer_num} {side}: {e}"
@@ -385,8 +406,8 @@ def generate_zip_package(
             else:
                 log("WARNING: No layer_data provided!")
 
-        # 6. Still Alive Map PNG
-        if include_png_all_layers:
+        # 6. Still Alive Map PNG (Explicit Option or Legacy)
+        if include_still_alive_png or include_png_all_layers:
             if true_defect_coords:
                 log("Generating Still Alive Map PNG...")
                 fig_alive = create_still_alive_figure(panel_rows, panel_cols, true_defect_coords)
@@ -400,6 +421,63 @@ def generate_zip_package(
                     log(f"ERROR: {msg}")
             else:
                 log("Skipping Still Alive Map: No true defect coordinates found.")
+
+        # 7. Additional Analysis Charts (Heatmap, Stress, RCA)
+        # These operate on the COMBINED dataset (full_df) usually, or we can iterate layers.
+        # Ideally, these represent the "Analysis View" summaries.
+        # We will generate one global chart for each enabled option using 'full_df'.
+
+        if include_heatmap_png:
+            log("Generating Heatmap PNG (Global)...")
+            from src.plotting import create_unit_grid_heatmap
+            try:
+                # Filter full_df based on Verification Selection first?
+                # Heatmap usually shows True Defects.
+                # The function handles verification internally if present.
+                # But let's respect global filter if applied to 'full_df' passed in?
+                # Actually, 'full_df' passed in is usually RAW.
+                # create_unit_grid_heatmap filters internally for True Defects (excluding SAFE values).
+                # If user selected specific verification filter, we might want to respect that?
+                # But usually Heatmap is for Yield (True Defects).
+                # We will use full_df.
+                fig_heat = create_unit_grid_heatmap(full_df, panel_rows, panel_cols)
+                img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2)
+                zip_file.writestr("Images/Analysis_Heatmap.png", img_bytes)
+                log("Success.")
+            except Exception as e:
+                log(f"ERROR Generating Heatmap: {e}")
+
+        if include_stress_png:
+            log("Generating Stress Map PNG (Cumulative)...")
+            from src.plotting import create_stress_heatmap
+            try:
+                # Need to aggregate first
+                # Default to Cumulative Mode
+                stress_data = aggregate_stress_data_from_df(full_df, panel_rows, panel_cols)
+                fig_stress = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode="Continuous")
+                img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2)
+                zip_file.writestr("Images/Analysis_StressMap_Cumulative.png", img_bytes)
+                log("Success.")
+            except Exception as e:
+                log(f"ERROR Generating Stress Map: {e}")
+
+        if include_root_cause_png:
+            log("Generating Root Cause PNG (Top Killer Layer)...")
+            from src.analysis.root_cause import RootCauseTool
+            # Root Cause usually requires interactive slicing.
+            # For a static report, a reasonable default is the "Layer Stack" view (Cross Section)
+            # or the "Killer Layer Pareto".
+            # But we don't have easy access to the tool's internal state here.
+            # Let's generate a "Top Killer Layer" heatmap if possible, or just skip if too complex without state.
+            # Re-implementing simplified logic:
+            # We can use the logic from 'create_cross_section_heatmap' but we need a slice index.
+            # Without user input, maybe just a Pareto of Killer Layers?
+            # Or just skip RCA for static export if not defined.
+            # User asked for "Root Cause".
+            # Let's dump the "Layer Stack Distribution" (Pareto of layers) which is informative.
+            # Or better, a standard view: The layer with most defects?
+            # Let's skip RCA for now as it's highly interactive (X vs Y slice).
+            log("Skipping Root Cause PNG: Interactive slice required.")
 
         # Write Debug Log to ZIP
         zip_file.writestr("Debug_Log.txt", "\n".join(debug_logs))

@@ -108,7 +108,8 @@ def load_data(
             layer_num, side = int(match.group(1)), match.group(2).upper()
 
             try:
-                df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='openpyxl')
+                # OPTIMIZATION: Use calamine engine for faster loading
+                df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='calamine')
                 df.rename(columns={'VERIFICATION': 'Verification'}, inplace=True)
                 df['SOURCE_FILE'] = file_name
                 df['SIDE'] = side
@@ -135,8 +136,17 @@ def load_data(
                     continue
 
                 df.dropna(subset=required_columns, inplace=True)
-                for col in ['UNIT_INDEX_X', 'UNIT_INDEX_Y']: df[col] = df[col].astype(int)
-                df['DEFECT_TYPE'] = df['DEFECT_TYPE'].str.strip()
+
+                # OPTIMIZATION: Type Hygiene to reduce memory usage
+                df['UNIT_INDEX_X'] = df['UNIT_INDEX_X'].astype('int32')
+                df['UNIT_INDEX_Y'] = df['UNIT_INDEX_Y'].astype('int32')
+                df['DEFECT_ID'] = pd.to_numeric(df['DEFECT_ID'], errors='coerce').fillna(-1).astype('int32')
+
+                # Convert string columns to categorical if cardinality is low
+                df['DEFECT_TYPE'] = df['DEFECT_TYPE'].str.strip().astype('category')
+                df['Verification'] = df['Verification'].astype('category')
+                df['SIDE'] = df['SIDE'].astype('category')
+                df['SOURCE_FILE'] = df['SOURCE_FILE'].astype('category')
 
                 # --- COORDINATE HANDLING (RAW vs PHYSICAL) ---
                 # RAW: UNIT_INDEX_X from the file (used for Individual Layer View).
@@ -230,7 +240,8 @@ def load_data(
 def get_true_defect_coordinates(
     panel_data: PanelData,
     excluded_layers: Optional[List[int]] = None,
-    excluded_defect_types: Optional[List[str]] = None
+    excluded_defect_types: Optional[List[str]] = None,
+    included_sides: Optional[List[str]] = None
 ) -> Dict[Tuple[int, int], Dict[str, Any]]:
     """
     Aggregates all "True" defects from all layers and sides to find unique
@@ -253,6 +264,10 @@ def get_true_defect_coordinates(
     # Filter Excluded Layers ("What-If" Logic)
     if excluded_layers:
         all_layers_df = all_layers_df[~all_layers_df['LAYER_NUM'].isin(excluded_layers)]
+
+    # Filter Included Sides
+    if included_sides:
+        all_layers_df = all_layers_df[all_layers_df['SIDE'].isin(included_sides)]
 
     if all_layers_df.empty:
         return {}
@@ -301,7 +316,7 @@ def get_true_defect_coordinates(
     return result
 
 @st.cache_data
-def prepare_multi_layer_data(_panel_data: PanelData) -> pd.DataFrame:
+def prepare_multi_layer_data(_panel_data: PanelData, panel_uid: str = "") -> pd.DataFrame:
     """
     Aggregates and filters defect data from all layers for the Multi-Layer Defect View.
     """
@@ -317,83 +332,82 @@ def prepare_multi_layer_data(_panel_data: PanelData) -> pd.DataFrame:
 
     return _panel_data.get_combined_dataframe(filter_func=true_defect_filter)
 
-@st.cache_data
-def aggregate_stress_data(
-    _panel_data: PanelData,
-    selected_keys: List[Tuple[int, str]],
+def aggregate_stress_data_from_df(
+    df: pd.DataFrame,
     panel_rows: int,
     panel_cols: int
 ) -> StressMapData:
     """
-    Aggregates data for the Cumulative Stress Map using specific (Layer, Side) keys.
+    Core logic to aggregate a DataFrame into a StressMapData object.
+    Accepts a pre-filtered DataFrame.
     """
     total_cols = panel_cols * 2
     total_rows = panel_rows * 2
 
     grid_counts = np.zeros((total_rows, total_cols), dtype=int)
     hover_text = np.empty((total_rows, total_cols), dtype=object)
-    hover_text[:] = ""
+    hover_text[:] = "No Defects" # Default
 
-    cell_defects: Dict[Tuple[int, int], Dict[str, int]] = {}
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+    if df.empty:
+         return StressMapData(grid_counts, hover_text, 0, 0)
 
-    total_defects_acc = 0
-    max_count_acc = 0
+    # Vectorized Histogram
+    # Use RAW COORDINATES (UNIT_INDEX_X)
+    if 'UNIT_INDEX_X' not in df.columns or 'UNIT_INDEX_Y' not in df.columns:
+        return StressMapData(grid_counts, hover_text, 0, 0)
 
-    for layer_num, side in selected_keys:
-        layer = _panel_data.get_layer(layer_num, side)
-        if not layer: continue
+    x_coords = df['UNIT_INDEX_X'].values
+    y_coords = df['UNIT_INDEX_Y'].values
 
-        df = layer.data
-        if df.empty: continue
+    # Filter out of bounds
+    valid_mask = (x_coords >= 0) & (x_coords < total_cols) & (y_coords >= 0) & (y_coords < total_rows)
+    x_coords = x_coords[valid_mask]
+    y_coords = y_coords[valid_mask]
 
-        # Filter True Defects
-        df_true = df.copy()
-        if 'Verification' in df_true.columns:
-            is_true = ~df_true['Verification'].str.upper().isin(safe_values_upper)
-            df_true = df_true[is_true]
+    if len(x_coords) == 0:
+        return StressMapData(grid_counts, hover_text, 0, 0)
 
-        if df_true.empty: continue
+    # 1. Grid Counts
+    hist, _, _ = np.histogram2d(
+        y_coords, x_coords,
+        bins=[total_rows, total_cols],
+        range=[[0, total_rows], [0, total_cols]]
+    )
+    grid_counts = hist.astype(int)
+    total_defects_acc = int(grid_counts.sum())
+    max_count_acc = int(grid_counts.max()) if total_defects_acc > 0 else 0
 
-        # Use RAW COORDINATES (UNIT_INDEX_X) as per request, do NOT flip.
+    # 2. Hover Text (Group By Optimization)
+    valid_df = df[valid_mask]
 
-        # Iterate rows
-        for _, row in df_true.iterrows():
-            gx = int(row['UNIT_INDEX_X'])
-            gy = int(row['UNIT_INDEX_Y'])
-            dtype = str(row['DEFECT_TYPE'])
+    if 'DEFECT_TYPE' in valid_df.columns:
+        # Group by (Y, X, Type) -> Count
+        type_counts = valid_df.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X', 'DEFECT_TYPE'], observed=True).size()
 
-            # Boundary check (safety)
-            if 0 <= gx < total_cols and 0 <= gy < total_rows:
-                grid_counts[gy, gx] += 1
-                total_defects_acc += 1
+        # Group by Cell (Y, X)
+        grouped_cells = type_counts.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X'], observed=True)
 
-                # Track Defect Types
-                if (gy, gx) not in cell_defects: cell_defects[(gy, gx)] = {}
-                cell_defects[(gy, gx)][dtype] = cell_defects[(gy, gx)].get(dtype, 0) + 1
+        for (gy, gx), sub_series in grouped_cells:
+            cell_total = sub_series.sum()
+            counts_per_type = sub_series.droplevel([0, 1])
+            sorted_types = counts_per_type.sort_values(ascending=False)
+            top_3 = sorted_types.head(3)
 
+            tooltip = f"<b>Total: {cell_total}</b><br>"
+            tooltip_lines = [f"{dtype}: {cnt}" for dtype, cnt in top_3.items()]
+            tooltip += "<br>".join(tooltip_lines)
 
-    # Post-process for Hover Text
-    for y in range(total_rows):
-        for x in range(total_cols):
-            count = grid_counts[y, x]
-            if count > max_count_acc: max_count_acc = count
+            remaining = len(sorted_types) - 3
+            if remaining > 0:
+                tooltip += f"<br>... (+{remaining} types)"
 
-            if count > 0:
-                # 1. Drill Down Tooltip
-                defects_map = cell_defects.get((y, x), {})
-                # Sort by count desc
-                sorted_defects = sorted(defects_map.items(), key=lambda item: item[1], reverse=True)
-                top_3 = sorted_defects[:3]
-
-                tooltip = f"<b>Total: {count}</b><br>"
-                tooltip += "<br>".join([f"{d[0]}: {d[1]}" for d in top_3])
-                if len(sorted_defects) > 3:
-                    tooltip += f"<br>... (+{len(sorted_defects)-3} types)"
-
-                hover_text[y, x] = tooltip
-            else:
-                hover_text[y, x] = "No Defects"
+            hover_text[gy, gx] = tooltip
+    else:
+        # Fallback if no Defect Type
+        # Just show total count
+        grouped = valid_df.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X']).size()
+        for (gy, gx), count in grouped.items():
+            hover_text[gy, gx] = f"<b>Total: {count}</b>"
 
     return StressMapData(
         grid_counts=grid_counts,
@@ -401,6 +415,47 @@ def aggregate_stress_data(
         total_defects=total_defects_acc,
         max_count=max_count_acc
     )
+
+@st.cache_data
+def aggregate_stress_data(
+    _panel_data: PanelData,
+    selected_keys: List[Tuple[int, str]],
+    panel_rows: int,
+    panel_cols: int,
+    panel_uid: str = "",
+    verification_filter: Optional[List[str]] = None,
+    quadrant_filter: str = "All"
+) -> StressMapData:
+    """
+    Aggregates data for the Cumulative Stress Map using specific (Layer, Side) keys.
+    """
+    # OPTIMIZATION: Vectorized Aggregation
+    dfs_to_agg = []
+    for layer_num, side in selected_keys:
+        layer = _panel_data.get_layer(layer_num, side)
+        if layer and not layer.data.empty:
+            dfs_to_agg.append(layer.data)
+
+    if not dfs_to_agg:
+        return StressMapData(np.zeros((panel_rows*2, panel_cols*2), int), np.empty((panel_rows*2, panel_cols*2), object), 0, 0)
+
+    combined_df = pd.concat(dfs_to_agg, ignore_index=True)
+
+    # Filter True Defects (Standard)
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+    if 'Verification' in combined_df.columns:
+        is_true = ~combined_df['Verification'].astype(str).str.upper().isin(safe_values_upper)
+        combined_df = combined_df[is_true]
+
+    # Filter by Specific Selection (if provided)
+    if verification_filter and 'Verification' in combined_df.columns and not combined_df.empty:
+        combined_df = combined_df[combined_df['Verification'].astype(str).isin(verification_filter)]
+
+    # Filter by Quadrant (if provided)
+    if quadrant_filter != "All" and 'QUADRANT' in combined_df.columns and not combined_df.empty:
+        combined_df = combined_df[combined_df['QUADRANT'] == quadrant_filter]
+
+    return aggregate_stress_data_from_df(combined_df, panel_rows, panel_cols)
 
 @st.cache_data
 def calculate_yield_killers(_panel_data: PanelData, panel_rows: int, panel_cols: int) -> Optional[YieldKillerMetrics]:

@@ -6,7 +6,7 @@ from src.enums import ViewMode, Quadrant
 from src.plotting import create_defect_map_figure, create_pareto_figure
 from src.config import SAFE_VERIFICATION_VALUES, PLOT_AREA_COLOR, PANEL_COLOR
 
-def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: str, verification_selection: str):
+def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: str, verification_selection: any):
     params = store.analysis_params
     panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
     lot_number = params.get("lot_number")
@@ -17,7 +17,24 @@ def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: s
         side_df = layer_info.get(store.selected_side)
 
         if side_df is not None and not side_df.empty:
-            filtered_df = side_df[side_df['Verification'] == verification_selection] if verification_selection != 'All' else side_df
+            # Handle list-based verification (from multiselect) or single string
+            if isinstance(verification_selection, list):
+                if not verification_selection:
+                    # Case: Empty Selection -> Standard UX is show nothing, but in this app context,
+                    # previously 'All' was default. If user deselects everything, it's safer to show nothing (filtering everything out)
+                    # OR we can assume it means "Show All" if that's preferred.
+                    # Given the manager.py sets default to ALL options, an empty list means explicit Deselect All.
+                    # Thus, we should return empty DF (or filter out everything).
+                    # But wait, manager.py says "default to all if empty or first load".
+                    # If I explicitly click 'x' on all tags, list becomes [].
+                    # Let's stick to strict filtering: [] -> matches nothing.
+                    filtered_df = side_df[side_df['Verification'].isin([])]
+                else:
+                    filtered_df = side_df[side_df['Verification'].isin(verification_selection)]
+            else:
+                 # Legacy single select support
+                 filtered_df = side_df[side_df['Verification'] == verification_selection] if verification_selection != 'All' else side_df
+
             display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
 
             if view_mode == ViewMode.DEFECT.value:
@@ -170,16 +187,27 @@ def render_summary_view(
             safe_count = len(quad_view_df[quad_view_df['Verification'].str.upper().isin(safe_values_upper)])
             true_count = total_quad_defects - safe_count
 
+            # Safe Ratio: Non-Detects (Safe) / Total Defects (Points)
+            safe_ratio = safe_count / total_quad_defects if total_quad_defects > 0 else 0.0
+
             kpi_data.append({
                 "Quadrant": quad,
-                "Total Points": total_quad_defects,
+                "Total Defects": total_quad_defects, # Renamed from Total Points
                 "True Defects": true_count,
-                "Non-Defects (Safe)": safe_count,
+                "Non-Detects (Safe)": safe_count,
                 "True Defective Cells": defective_cells_selected_side,
+                "Safe Ratio": f"{safe_ratio:.2%}", # New Column
                 "Yield": f"{yield_estimate:.2%}"
             })
         if kpi_data:
             kpi_df = pd.DataFrame(kpi_data)
-            st.dataframe(kpi_df, use_container_width=True)
+            # Apply styling to the table
+            # Gradient for 'Total Defects' and 'True Defects'
+            st.dataframe(
+                kpi_df.style
+                .background_gradient(cmap='Reds', subset=['Total Defects', 'True Defects', 'Non-Detects (Safe)'])
+                .format({'Safe Ratio': '{:>8}', 'Yield': '{:>8}'}), # Alignment
+                use_container_width=True
+            )
         else:
             st.info("No data to display for the quarterly breakdown based on current filters.")
