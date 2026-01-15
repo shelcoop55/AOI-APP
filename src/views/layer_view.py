@@ -187,16 +187,27 @@ def render_summary_view(
             safe_count = len(quad_view_df[quad_view_df['Verification'].str.upper().isin(safe_values_upper)])
             true_count = total_quad_defects - safe_count
 
+            # Safe Ratio: Non-Detects (Safe) / Total Defects (Points)
+            safe_ratio = safe_count / total_quad_defects if total_quad_defects > 0 else 0.0
+
             kpi_data.append({
                 "Quadrant": quad,
-                "Total Points": total_quad_defects,
+                "Total Defects": total_quad_defects, # Renamed from Total Points
                 "True Defects": true_count,
-                "Non-Defects (Safe)": safe_count,
+                "Non-Detects (Safe)": safe_count,
                 "True Defective Cells": defective_cells_selected_side,
+                "Safe Ratio": f"{safe_ratio:.2%}", # New Column
                 "Yield": f"{yield_estimate:.2%}"
             })
         if kpi_data:
             kpi_df = pd.DataFrame(kpi_data)
-            st.dataframe(kpi_df, use_container_width=True)
+            # Apply styling to the table
+            # Gradient for 'Total Defects' and 'True Defects'
+            st.dataframe(
+                kpi_df.style
+                .background_gradient(cmap='Reds', subset=['Total Defects', 'True Defects', 'Non-Detects (Safe)'])
+                .format({'Safe Ratio': '{:>8}', 'Yield': '{:>8}'}), # Alignment
+                use_container_width=True
+            )
         else:
             st.info("No data to display for the quarterly breakdown based on current filters.")

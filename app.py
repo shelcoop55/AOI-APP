@@ -115,7 +115,7 @@ def main() -> None:
 
             c1, c2 = st.columns(2)
             with c1:
-                st.form_submit_button("🚀 Run Analysis", on_click=on_run_analysis)
+                st.form_submit_button("🚀 Run", on_click=on_run_analysis)
 
             with c2:
                 # Reset Button logic integrated into the form area (but form_submit_button is primary action)
