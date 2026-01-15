@@ -873,17 +873,43 @@ def create_density_contour_map(
     fig = go.Figure()
 
     # --- SERVER-SIDE AGGREGATION CONFIG ---
-    # Define Resolution (Bins) based on smoothing factor
-    # Smoothing 30 -> ~30 bins? Or implies smoothness?
-    # Standard Plotly 'nbins' usually implies total bins.
-    # Let's map smoothing_factor (1-20) to bin count (20-100)
-    # Higher smoothing = FEWER bins (smoother) or MORE bins (more detail)?
-    # Usually smoothing means KDE bandwidth.
-    # For histogram: Fewer bins = coarser/smoother appearance.
-    # Let's say: bins = 50 + (20 - smoothing_factor) * 5
-    # Default 5: bins = 50 + 15*5 = 125 (Fine)
-    # Max 20: bins = 50 + 0 = 50 (Coarse)
-    num_bins = 50 + (20 - max(1, min(20, smoothing_factor))) * 5
+    # User Request: Grid Size = Max(Unit_Rows, Unit_Cols) * 2
+    # Logic: Ensure at least 2 pixels per unit to prevent aliasing.
+    # Total Units (Width) = panel_cols * 2 (because 2 quadrants wide)
+    # Total Units (Height) = panel_rows * 2
+
+    # We apply the multiplier factor.
+    # Base resolution: 1 bin per unit.
+    # Multiplier: 2 (Nyquist) * Scaling Factor (based on 'Smoothing' slider? Or fixed?)
+    # User said "use this logic instead of 50x50".
+
+    # We will use the user's logic as the BASELINE, but allow the smoothing slider
+    # to increase the oversampling for smoother contours if desired.
+    # Smoothing 1 (Low) = 2x oversampling (Pixel perfect)
+    # Smoothing 20 (High) = Lower resolution? Or Higher?
+    # Usually "Smoothing" in this context (contour) implies visual smoothness.
+    # Higher resolution input to contour = MORE detail (less smooth).
+    # So High Smoothing Slider -> Low Bin Count.
+
+    # Let's interpret user's "Grid Size" as the target resolution.
+    # "Grid Size = Max(Unit_Rows, Unit_Cols) * 2"
+    # Unit_Rows/Cols usually refers to the single quadrant config (e.g. 7).
+    # So Max(7, 7) * 2 = 14.
+    # But we have 2 quadrants. So 28 across.
+    # So we need roughly 4 bins per quadrant-dimension?
+
+    # Let's implement: bins_x = (panel_cols * 2) * 2
+    # This gives 2 bins per physical unit.
+
+    # Dynamic Binning
+    bins_x = (panel_cols * 2) * 2
+    bins_y = (panel_rows * 2) * 2
+
+    # If dimensions are huge, cap it?
+    # No, server-side numpy is fast. 100x100 is instant.
+
+    # We pass [bins_y, bins_x] to histogram2d (y is rows, x is cols)
+    num_bins = [bins_y, bins_x]
 
     # Boundary Definitions
     x_min, x_max = 0, PANEL_WIDTH + GAP_SIZE
