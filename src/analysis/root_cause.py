@@ -13,7 +13,8 @@ class RootCauseTool(AnalysisTool):
         pass
 
     def render_main(self):
-        st.header("Root Cause & Diagnostics Dashboard")
+        # Header removed to save space
+        # st.header("Root Cause & Diagnostics Dashboard")
 
         params = self.store.analysis_params
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)

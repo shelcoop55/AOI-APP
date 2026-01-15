@@ -14,8 +14,9 @@ class StressMapTool(AnalysisTool):
         pass
 
     def render_main(self):
-        st.header("Cumulative Stress Map Analysis")
-        st.info("Aggregates defects into a master grid. Includes Back-Side alignment.")
+        # Header removed to save space
+        # st.header("Cumulative Stress Map Analysis")
+        # st.info("Aggregates defects into a master grid. Includes Back-Side alignment.")
 
         params = self.store.analysis_params
         panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)

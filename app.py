@@ -110,48 +110,12 @@ def main() -> None:
 
         st.divider()
 
-        # --- Sidebar Navigation & Reporting ---
+        # --- Sidebar Reporting ---
 
         if store.layer_data:
             if st.button("🔄 Reset Analysis", type="secondary", help="Clears all loaded data and resets the tool."):
                 store.clear_all()
                 st.rerun()
-
-            st.markdown("### Navigation")
-
-            # Main View Toggle in Sidebar (Layer Inspection vs Analysis)
-            # We use this to switch the top-level mode
-
-            def set_main_mode(mode: str):
-                if mode == 'layer':
-                    store.active_view = 'layer'
-                else:
-                    # Default to Heatmap when switching to Analysis if not already set
-                    if store.active_view == 'layer':
-                         store.active_view = 'analysis_dashboard'
-                         store.analysis_subview = ViewMode.HEATMAP.value
-                    else:
-                         # Keep current analysis view but ensure active_view is correct
-                         if store.active_view not in ['still_alive', 'multi_layer_defects']:
-                              store.active_view = 'analysis_dashboard'
-
-            col_nav1, col_nav2 = st.columns(2)
-            with col_nav1:
-                is_layer = store.active_view == 'layer'
-                st.button(
-                    "Layer Inspection",
-                    type="primary" if is_layer else "secondary",
-                    use_container_width=True,
-                    on_click=lambda: set_main_mode('layer')
-                )
-            with col_nav2:
-                is_analysis = store.active_view != 'layer'
-                st.button(
-                    "Analysis Page",
-                    type="primary" if is_analysis else "secondary",
-                    use_container_width=True,
-                    on_click=lambda: set_main_mode('analysis')
-                )
 
             st.divider()
 

@@ -12,7 +12,8 @@ class InsightsTool(AnalysisTool):
         pass
 
     def render_main(self):
-        st.header("Insights & Sankey View")
+        # Header removed to save space
+        # st.header("Insights & Sankey View")
 
         # User requirement: "When user have selected Insight View He will See First two only [Layer/Verif]"
         # This implies aggregation across selected layers? Or still single layer?
