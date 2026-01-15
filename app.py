@@ -19,23 +19,24 @@ from src.plotting import (
 from src.reporting import generate_excel_report
 from src.enums import ViewMode, Quadrant
 
-def load_css(file_path: str) -> None:
-    """Loads a CSS file and injects it into the Streamlit app."""
+@st.cache_data
+def load_css(file_path: str) -> str:
+    """Loads a CSS file and returns its content with injected variables."""
     with open(file_path) as f:
         css = f.read()
-        # Define CSS variables from Python config
-        css_variables = f"""
-        <style>
-            :root {{
-                --background-color: {BACKGROUND_COLOR};
-                --text-color: {TEXT_COLOR};
-                --panel-color: {PANEL_COLOR};
-                --panel-hover-color: #d48c46;
-            }}
-            {css}
-        </style>
-        """
-        st.markdown(css_variables, unsafe_allow_html=True)
+    # Define CSS variables from Python config
+    css_variables = f"""
+    <style>
+        :root {{
+            --background-color: {BACKGROUND_COLOR};
+            --text-color: {TEXT_COLOR};
+            --panel-color: {PANEL_COLOR};
+            --panel-hover-color: #d48c46;
+        }}
+        {css}
+    </style>
+    """
+    return css_variables
 
 # ==============================================================================
 # --- STREAMLIT APP MAIN LOGIC ---
@@ -49,7 +50,8 @@ def main() -> None:
     st.set_page_config(layout="wide", page_title="Panel Defect Analysis")
 
     # --- Apply Custom CSS for a Professional UI ---
-    load_css("assets/styles.css")
+    custom_css = load_css("assets/styles.css")
+    st.markdown(custom_css, unsafe_allow_html=True)
 
     # --- Initialize Session State ---
     if 'report_bytes' not in st.session_state: st.session_state.report_bytes = None
