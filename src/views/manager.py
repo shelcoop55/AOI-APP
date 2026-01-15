@@ -361,8 +361,8 @@ class ViewManager:
 
             # --- ROW 2: SIDE + QUADRANT (50% / 50%) ---
 
-            # Show Quadrant only if NOT Root Cause or Multi-Layer
-            show_quadrant = current_tab_text not in ["Root Cause", "Multi-Layer"]
+            # Show Quadrant only if NOT Root Cause, Multi-Layer, or Heatmap
+            show_quadrant = current_tab_text not in ["Root Cause", "Multi-Layer", "Heatmap"]
 
             if show_quadrant:
                 c_sides, c_quads = st.columns(2, gap="medium")
