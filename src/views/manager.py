@@ -7,6 +7,7 @@ from src.enums import ViewMode, Quadrant
 from src.views.still_alive import render_still_alive_main
 from src.views.multi_layer import render_multi_layer_view
 from src.views.layer_view import render_layer_view
+from src.documentation import render_documentation
 from src.analysis import get_analysis_tool
 
 class ViewManager:
@@ -226,7 +227,7 @@ class ViewManager:
 
         # 1. Top Level Tabs
         tabs = [
-            "Heatmap", "Stress Map", "Root Cause", "Insights", "Still Alive", "Multi-Layer"
+            "Heatmap", "Stress Map", "Root Cause", "Insights", "Still Alive", "Multi-Layer", "Documentation"
         ]
 
         current_tab = "Heatmap"
@@ -234,6 +235,8 @@ class ViewManager:
             current_tab = "Still Alive"
         elif self.store.active_view == 'multi_layer_defects':
             current_tab = "Multi-Layer"
+        elif self.store.active_view == 'documentation':
+            current_tab = "Documentation"
         elif self.store.active_view == 'analysis_dashboard':
              sub_map_rev = {
                  ViewMode.HEATMAP.value: "Heatmap",
@@ -251,6 +254,8 @@ class ViewManager:
             current_tab_text = "Still Alive"
         elif self.store.active_view == 'multi_layer_defects':
             current_tab_text = "Multi-Layer"
+        elif self.store.active_view == 'documentation':
+            current_tab_text = "Documentation"
         elif self.store.active_view == 'analysis_dashboard':
              sub_map_rev = {
                  ViewMode.HEATMAP.value: "Heatmap",
@@ -274,6 +279,8 @@ class ViewManager:
                          self.store.active_view = 'still_alive'
                     elif sel == "Multi-Layer":
                          self.store.active_view = 'multi_layer_defects'
+                    elif sel == "Documentation":
+                         self.store.active_view = 'documentation'
                     else:
                          self.store.active_view = 'analysis_dashboard'
                          sub_map = {
@@ -432,5 +439,9 @@ class ViewManager:
                 self.store.quadrant_selection,
                 self.store.verification_selection
             )
+
+        elif self.store.active_view == 'documentation':
+             render_documentation()
+
         else:
             st.warning(f"Unknown view: {self.store.active_view}")
