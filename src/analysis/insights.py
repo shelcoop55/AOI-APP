@@ -53,9 +53,60 @@ class InsightsTool(AnalysisTool):
 
             if not combined_df.empty:
                 st.caption(f"Analyzing {len(combined_df)} defects from selected context.")
-                st.plotly_chart(create_defect_sunburst(combined_df), use_container_width=True)
+
+                c1, c2 = st.columns([2, 1], gap="medium")
+
+                with c1:
+                    st.plotly_chart(create_defect_sunburst(combined_df), use_container_width=True)
+
+                with c2:
+                    st.markdown("##### Defect Statistics")
+                    # Calculate Stats
+                    total_defects = len(combined_df)
+                    stats_data = []
+
+                    if 'DEFECT_TYPE' in combined_df.columns:
+                        defect_counts = combined_df['DEFECT_TYPE'].value_counts()
+
+                        for defect_type, count in defect_counts.items():
+                            percent_total = (count / total_defects) * 100
+
+                            # False Rate Calculation
+                            # False defined as Verification in ['N', 'False', 'GE57']
+                            false_criteria = ['N', 'False', 'GE57']
+
+                            sub_df = combined_df[combined_df['DEFECT_TYPE'] == defect_type]
+                            if 'Verification' in sub_df.columns:
+                                # Normalize to string to be safe
+                                false_count = sub_df[sub_df['Verification'].astype(str).isin(false_criteria)].shape[0]
+                                false_rate = (false_count / count) * 100
+                            else:
+                                false_rate = 0.0
+
+                            stats_data.append({
+                                "Defect Type": defect_type,
+                                "Count": f"{count} ({percent_total:.1f}%)",
+                                "False Rate": f"{false_rate:.1f}%"
+                            })
+
+                    if stats_data:
+                        stats_df = pd.DataFrame(stats_data)
+                        st.dataframe(
+                            stats_df,
+                            hide_index=True,
+                            use_container_width=True,
+                            column_config={
+                                "Defect Type": st.column_config.TextColumn("Type"),
+                                "Count": st.column_config.TextColumn("Count (% Total)"),
+                                "False Rate": st.column_config.TextColumn("False Rate (N/False/GE57)")
+                            }
+                        )
+                    else:
+                        st.info("No defect type data available.")
+
                 sankey = create_defect_sankey(combined_df)
-                if sankey: st.plotly_chart(sankey, use_container_width=True)
+                if sankey:
+                    st.plotly_chart(sankey, use_container_width=True)
             else:
                 st.warning("No data after filtering.")
         else:
