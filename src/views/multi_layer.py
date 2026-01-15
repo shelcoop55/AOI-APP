@@ -5,8 +5,9 @@ from src.data_handler import prepare_multi_layer_data
 from src.plotting import create_multi_layer_defect_map
 
 def render_multi_layer_view(store: SessionStore, selected_layers: list, selected_sides: list):
-    st.header("Multi-Layer Combined Defect Map")
-    st.info("Visualizing 'True Defects' from selected layers. Colors indicate the source layer.")
+    # Header removed to save space
+    # st.header("Multi-Layer Combined Defect Map")
+    # st.info("Visualizing 'True Defects' from selected layers. Colors indicate the source layer.")
 
     params = store.analysis_params
     panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
