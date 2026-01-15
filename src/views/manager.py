@@ -304,7 +304,8 @@ class ViewManager:
 
              # Toggle for Back Side Alignment
              st.markdown("### Alignment")
-             st.checkbox("Align Back Side (Flip Units)", value=True, key="flip_back_side", help="If enabled, Back Side units are mirrored horizontally to match Front Side position (Through-Board View).")
+             # Default value set to False as per user request
+             st.checkbox("Align Back Side (Flip Units)", value=False, key="flip_back_side", help="If enabled, Back Side units are mirrored horizontally to match Front Side position (Through-Board View).")
 
         # Logic to determine active tab text (Needed early for conditional rendering)
         current_tab_text = "Heatmap"
