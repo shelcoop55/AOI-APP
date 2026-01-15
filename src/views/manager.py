@@ -167,7 +167,7 @@ class ViewManager:
 
         # --- Layout: Rows of Buttons ---
 
-        with st.expander("Filter Options", expanded=True):
+        with st.expander("Analysis Scope", expanded=True):
             # Header removed to save space
             if layer_options:
                 l_cols = st.columns(len(layer_options), gap="small")
@@ -415,7 +415,7 @@ class ViewManager:
 
         # --- ROW 2: ANALYSIS MODULES (Tabs) ---
         # "Documentation" moved to global nav
-        tabs = ["Still Alive", "Heatmap", "Stress Map", "Root Cause", "Insights", "Multi-Layer"]
+        tabs = ["Still Alive", "Insights", "Heatmap", "Stress Map", "Root Cause", "Multi-Layer"]
 
         t_cols = st.columns(len(tabs), gap="small")
         for i, label in enumerate(tabs):
