@@ -181,10 +181,12 @@ def load_data(
                 panel_data.add_layer(layer_obj)
 
         if panel_data:
-            st.sidebar.success(f"{len(temp_data)} layer(s) loaded successfully!")
+            # Avoid sidebar updates in cached function to prevent st.fragment errors
+            pass
 
     else:
-        st.sidebar.info("No file uploaded. Displaying sample data for 5 layers (all with Front/Back).")
+        # Avoid sidebar updates in cached function to prevent st.fragment errors
+        # st.sidebar.info("No file uploaded. Displaying sample data for 5 layers (all with Front/Back).")
         total_units_x = 2 * panel_cols
         total_units_y = 2 * panel_rows
 

@@ -565,7 +565,7 @@ def create_still_alive_map(
 
     # 3. Create Scatter Trace for Hover
     if hover_x:
-        traces.append(go.Scattergl(
+        traces.append(go.Scatter(
             x=hover_x,
             y=hover_y,
             mode='markers',
@@ -899,18 +899,53 @@ def create_density_contour_map(
         H, x_edges, y_edges = np.histogram2d(x_c, y_c, bins=num_bins, range=[x_range, y_range])
 
         # 2. Dominant Defect Driver (Mode)
-        # To do this efficiently, we might need a separate aggregation.
-        # Simple heuristic: Just calculate density for now.
-        # For Top Defect, we'd need to bin per defect type and find max.
-        # Let's stick to Density first, then add Tooltip logic if feasible.
-        # Calculating Mode per bin is computationally expensive (loop).
-        # Optimization: Just show total count in tooltip for now.
+        # Optimized Calculation:
+        # We iterate over unique defect types, compute a histogram for each, and stack them.
+        # This is much faster than looping per-bin (pixel).
+        # O(K * Grid) where K is number of unique types (usually <20).
+
+        if 'DEFECT_TYPE' in q_df.columns:
+            unique_types = q_df['DEFECT_TYPE'].unique()
+            # Limit to top K types to avoid explosion if many types exist (e.g. Top 10)
+            if len(unique_types) > 10:
+                # Pick top 10 most frequent
+                top_types = q_df['DEFECT_TYPE'].value_counts().nlargest(10).index.tolist()
+                unique_types = top_types
+
+            type_grids = []
+            type_labels = []
+
+            for dtype in unique_types:
+                sub_df = q_df[q_df['DEFECT_TYPE'] == dtype]
+                if not sub_df.empty:
+                    h_sub, _, _ = np.histogram2d(sub_df[x_col], sub_df['plot_y'], bins=num_bins, range=[x_range, y_range])
+                    type_grids.append(h_sub)
+                    type_labels.append(dtype)
+
+            if type_grids:
+                stack = np.stack(type_grids, axis=0) # Shape: (K, bins_x, bins_y)
+                # Find index of max along axis 0
+                max_indices = np.argmax(stack, axis=0) # Shape: (bins_x, bins_y)
+
+                # Map indices to labels
+                # We need a 2D array of strings
+                driver_map = np.empty(max_indices.shape, dtype=object)
+                for idx, label in enumerate(type_labels):
+                    driver_map[max_indices == idx] = label
+
+                # Where total count is 0, driver is N/A
+                driver_map[H == 0] = ""
+                driver_text = driver_map.T # Transpose for Plotly
+            else:
+                driver_text = None
+        else:
+            driver_text = None
 
         # Create meshgrid for plotting
         x_centers = (x_edges[:-1] + x_edges[1:]) / 2
         y_centers = (y_edges[:-1] + y_edges[1:]) / 2
 
-        return H.T, x_centers, y_centers # H needs transpose for Plotly
+        return H.T, x_centers, y_centers, driver_text
 
     # Define Quadrant Ranges (Physical)
     # Q1: (0, 0) to (W, H)
@@ -930,52 +965,61 @@ def create_density_contour_map(
     # Too complex.
 
     # Proposed Algorithm:
-    # 1. Bin Global Range.
+    # 1. Bin Global Range using `aggregate_quadrant` logic (reused for global context)
     # 2. Nullify Z-values in the Gap region.
     # 3. Plot.
 
-    H, x_edges, y_edges = np.histogram2d(
-        df_true[x_col].values,
-        df_true['plot_y'].values,
-        bins=num_bins,
-        range=[[0, PANEL_WIDTH + GAP_SIZE], [0, PANEL_HEIGHT + GAP_SIZE]]
+    # We use the logic block from aggregate_quadrant (defined above but not used yet?
+    # Actually I just defined it inline but didn't call it. Let's merge logic).
+
+    # Calculate Z and Driver Text
+    # Weights: If "Weighted Heatmap" is desired (e.g., critical defects count more).
+    # Placeholder: weights=None. To implement weighted, we would pass weights array to np.histogram2d.
+    weights = None # Default unweighted
+
+    H, x_centers, y_centers, driver_text_t = aggregate_quadrant(
+        df_true,
+        [0, PANEL_WIDTH + GAP_SIZE],
+        [0, PANEL_HEIGHT + GAP_SIZE]
     )
 
-    # Transpose for Plotly (rows=y, cols=x)
-    Z = H.T
+    if H is None: # Should not happen given check above
+        return go.Figure(layout=dict(title="Error in Aggregation"))
 
-    # Masking Gap?
-    # Gap is at X = [QUADRANT_WIDTH, QUADRANT_WIDTH+GAP_SIZE]
-    # Gap is at Y = [QUADRANT_HEIGHT, QUADRANT_HEIGHT+GAP_SIZE]
+    Z = H # Already transposed in helper
 
-    # Find bin indices corresponding to gap
-    x_centers = (x_edges[:-1] + x_edges[1:]) / 2
-    y_centers = (y_edges[:-1] + y_edges[1:]) / 2
-
-    # Simple Gap Masking: Set Z to None/NaN where x/y is in gap
-    # Note: GAP_SIZE is usually small (10mm).
+    # Masking Gap
     mask_x = (x_centers > QUADRANT_WIDTH) & (x_centers < QUADRANT_WIDTH + GAP_SIZE)
     mask_y = (y_centers > QUADRANT_HEIGHT) & (y_centers < QUADRANT_HEIGHT + GAP_SIZE)
 
-    # Apply mask
-    Z[np.ix_(mask_y, mask_x)] = np.nan # Intersection (Crossbar center)
+    Z[np.ix_(mask_y, mask_x)] = np.nan
+    Z[:, mask_x] = 0
+    Z[mask_y, :] = 0
 
-    # Also mask the strips?
-    # Vertical Gap Strip
-    Z[:, mask_x] = 0 # Visual break
-    # Horizontal Gap Strip
-    Z[mask_y, :] = 0 # Visual break
+    # Custom Hover Template
+    if driver_text_t is not None:
+        # We need to pass driver_text as customdata to use in hovertemplate
+        # Z and customdata must match shape?
+        # Plotly Contour supports 'text' argument? No, Heatmap does. Contour might not support per-cell text easily in tooltip?
+        # Check Plotly docs: Contour has `text` attribute.
+        # "Sets the text elements associated with each z value."
 
-    # Drill-Down Tooltip Construction
-    # We want "Peak Density: X. Top Cause: Y."
-    # Since we only have Z (Count) here, we can't easily get "Top Cause" per bin without re-binning.
-    # Given performance constraint, let's skip complex per-bin mode calculation for now
-    # and provide "Density" tooltip.
+        # We must zero out driver text in gaps too
+        driver_text_t[np.ix_(mask_y, mask_x)] = ""
+        driver_text_t[:, mask_x] = ""
+        driver_text_t[mask_y, :] = ""
+
+        hovertemplate = 'X: %{x:.1f}mm<br>Y: %{y:.1f}mm<br>Density: %{z:.0f}<br>Top Cause: %{text}<extra></extra>'
+        text_arg = driver_text_t
+    else:
+        hovertemplate = 'X: %{x:.1f}mm<br>Y: %{y:.1f}mm<br>Density: %{z:.0f}<extra></extra>'
+        text_arg = None
 
     fig.add_trace(go.Contour(
         z=Z,
         x=x_centers,
         y=y_centers,
+        text=text_arg,
         colorscale='Turbo',
         contours=dict(
             coloring='heatmap',
@@ -984,8 +1028,8 @@ def create_density_contour_map(
         ),
         zmin=0,
         zmax=saturation_cap if saturation_cap > 0 else None,
-        hoverinfo='x+y+z', # Optimized tooltip
-        hovertemplate='X: %{x:.1f}mm<br>Y: %{y:.1f}mm<br>Density: %{z:.0f}<extra></extra>'
+        hoverinfo='x+y+z+text' if text_arg is not None else 'x+y+z',
+        hovertemplate=hovertemplate
     ))
 
     # 2. Points Overlay (Scattergl)
