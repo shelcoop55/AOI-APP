@@ -43,13 +43,12 @@ class ViewManager:
             elif m == 'reporting': self.store.active_view = 'reporting'
             else:
                 # Analysis default
+                # Changed default from HEATMAP to STILL_ALIVE as per user request
                 if self.store.active_view not in ['still_alive', 'multi_layer_defects', 'analysis_dashboard']:
-                     self.store.active_view = 'analysis_dashboard'
-                     self.store.analysis_subview = ViewMode.HEATMAP.value
+                     self.store.active_view = 'still_alive'
                 elif self.store.active_view == 'documentation':
                      # Return to default analysis view if coming back
-                     self.store.active_view = 'analysis_dashboard'
-                     self.store.analysis_subview = ViewMode.HEATMAP.value
+                     self.store.active_view = 'still_alive'
 
         # Layer Inspection Button
         is_layer = self.store.active_view == 'layer'
@@ -302,10 +301,24 @@ class ViewManager:
                  key="multi_verification_selection"
              )
 
-             # Toggle for Back Side Alignment
-             st.markdown("### Alignment")
-             # Default value set to False as per user request
-             st.checkbox("Align Back Side (Flip Units)", value=False, key="flip_back_side", help="If enabled, Back Side units are mirrored horizontally to match Front Side position (Through-Board View).")
+             # Toggle for Back Side Alignment - Show only for Heatmap or Multi-Layer
+             # Check current active tab text logic from _render_analysis_page_controls
+             # We need to replicate that logic or access it.
+             # Logic is:
+             # current_tab_text = "Heatmap" if analysis_subview is HEATMAP
+             # or active_view == 'multi_layer_defects'
+
+             show_alignment = False
+             if self.store.active_view == 'multi_layer_defects':
+                 show_alignment = True
+             elif self.store.active_view == 'analysis_dashboard':
+                 if self.store.analysis_subview == ViewMode.HEATMAP.value:
+                     show_alignment = True
+
+             if show_alignment:
+                 st.markdown("### Alignment")
+                 # Default value set to False as per user request
+                 st.checkbox("Align Back Side (Flip Units)", value=False, key="flip_back_side", help="If enabled, Back Side units are mirrored horizontally to match Front Side position (Through-Board View).")
 
         # Logic to determine active tab text (Needed early for conditional rendering)
         current_tab_text = "Heatmap"
@@ -512,8 +525,39 @@ class ViewManager:
 
         if self.store.report_bytes:
             params_local = self.store.analysis_params
-            lot_num_str = f"_{params_local.get('lot_number', '')}" if params_local.get('lot_number') else ""
-            zip_filename = f"defect_package_layer_{self.store.selected_layer}{lot_num_str}.zip"
+
+            # Construct Dynamic Filename: DEFECT_MAP_LAYER(BU_XX)_PROCESSSTEP_LOTNUMBER
+
+            # 1. Get Layer/BU Name
+            layer_label = f"LAYER_{self.store.selected_layer}"
+            # Try to find BU Name from loaded data if possible (though we don't have easy access to label here without re-looping)
+            # We can use selected_layer which is int.
+            # User example: LAYER(BU_02)
+            # Let's try to grab BU name from the first file of the selected layer if available
+            try:
+                layer_id = self.store.selected_layer
+                first_side = next(iter(self.store.layer_data[layer_id]))
+                src_file = str(self.store.layer_data[layer_id][first_side]['SOURCE_FILE'].iloc[0])
+                bu_part = get_bu_name_from_filename(src_file) # e.g. BU-02
+                if bu_part:
+                    layer_label = f"LAYER_({bu_part})"
+            except:
+                pass # Fallback to LAYER_X
+
+            # 2. Process Step
+            proc_step = params_local.get('process_comment', '').strip()
+            proc_str = f"_{proc_step}" if proc_step else ""
+
+            # 3. Lot Number
+            lot_num = params_local.get('lot_number', '').strip()
+            lot_str = f"_{lot_num}" if lot_num else ""
+
+            # Sanitize filename (replace spaces)
+            base_name = f"DEFECT_MAP_{layer_label}{proc_str}{lot_str}"
+            safe_name = "".join([c if c.isalnum() or c in "._-()" else "_" for c in base_name])
+
+            zip_filename = f"{safe_name}.zip"
+
             st.download_button(
                 "Download Package (ZIP)",
                 data=self.store.report_bytes,
