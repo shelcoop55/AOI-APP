@@ -783,62 +783,20 @@ def create_density_contour_map(
     # 1. Contour Layer
     zmax = saturation_cap if saturation_cap > 0 else None
 
-    # Logic for View Mode
-    if view_mode == "Quarterly":
-        if 'QUADRANT' in df_true.columns:
-            quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
-            for q in quadrants:
-                q_mask = df_true['QUADRANT'] == q
-                if q_mask.any():
-                     q_x = x_data[q_mask]
-                     q_y = df_true.loc[q_mask, 'plot_y']
-
-                     fig.add_trace(go.Histogram2dContour(
-                        x=q_x,
-                        y=q_y,
-                        colorscale='Turbo',
-                        reversescale=False,
-                        ncontours=30,
-                        nbinsx=max(5, smoothing_factor // 2),
-                        nbinsy=max(5, smoothing_factor // 2),
-                        zmax=zmax,
-                        contours=dict(coloring='heatmap', showlabels=False),
-                        hoverinfo='x+y+z',
-                        showscale=False
-                     ))
-
-            fig.update_traces(showscale=False)
-            if fig.data:
-                fig.data[-1].showscale = True
-
-        else:
-             fig.add_trace(go.Histogram2dContour(
-                x=x_data,
-                y=df_true['plot_y'],
-                colorscale='Turbo',
-                reversescale=False,
-                ncontours=30,
-                nbinsx=smoothing_factor,
-                nbinsy=smoothing_factor,
-                zmax=zmax,
-                contours=dict(coloring='heatmap', showlabels=True, labelfont=dict(color='white')),
-                hoverinfo='x+y+z'
-            ))
-
-    else:
-        # Continuous Mode
-        fig.add_trace(go.Histogram2dContour(
-            x=x_data,
-            y=df_true['plot_y'],
-            colorscale='Turbo',
-            reversescale=False,
-            ncontours=30,
-            nbinsx=smoothing_factor,
-            nbinsy=smoothing_factor,
-            zmax=zmax,
-            contours=dict(coloring='heatmap', showlabels=True, labelfont=dict(color='white')),
-            hoverinfo='x+y+z'
-        ))
+    # Continuous Mode (Single Trace for Performance)
+    # Optimized settings for smoother rendering
+    fig.add_trace(go.Histogram2dContour(
+        x=x_data,
+        y=df_true['plot_y'],
+        colorscale='Turbo',
+        reversescale=False,
+        ncontours=20, # Reduced from 30 for performance
+        nbinsx=smoothing_factor,
+        nbinsy=smoothing_factor,
+        zmax=zmax,
+        contours=dict(coloring='heatmap', showlabels=True, labelfont=dict(color='white')),
+        hoverinfo='x+y+z'
+    ))
 
     # 2. Points Overlay
     if show_points:
@@ -1203,10 +1161,6 @@ def create_cross_section_heatmap(
     """
     Creates the Z-Axis Cross Section Heatmap (Virtual Slice).
     """
-    # Inverse Y-axis so Layer 1 is at top (if not already handled by input order)
-    # Actually, Heatmap Y-axis 0 is usually bottom. We need to flip visual range or data order.
-    # We'll just set 'autorange="reversed"' in layout for Y axis so top of list is top of chart.
-
     if matrix.size == 0:
          return go.Figure(layout=dict(title=dict(text="No Data for Cross-Section", font=dict(color=TEXT_COLOR))))
 
@@ -1232,8 +1186,63 @@ def create_cross_section_heatmap(
     apply_panel_theme(fig, f"Virtual Cross-Section: {slice_desc}", height=600)
 
     fig.update_layout(
-        xaxis=dict(title="Unit Index (Slice Position)", dtick=1), # Force integer ticks (0, 1, 2...)
-        yaxis=dict(title="Layer Stack", autorange="reversed") # Ensure Layer 1 is at top
+        xaxis=dict(title="Unit Index (Slice Position)", dtick=1),
+        yaxis=dict(title="Layer Stack", autorange="reversed")
+    )
+
+    return fig
+
+def create_cross_section_scatter(
+    df: pd.DataFrame,
+    slice_desc: str
+) -> go.Figure:
+    """
+    Creates a High-Res Scatter Plot for Cross Section.
+    """
+    fig = go.Figure()
+
+    if df.empty:
+        return go.Figure(layout=dict(title="No Data for Cross-Section"))
+
+    # Group by Side/Type for coloring
+    # Or just Color by Side: Front=Circle, Back=Diamond
+
+    symbol_map = {'F': 'circle', 'B': 'diamond'}
+
+    # Iterate Sides
+    for side in ['F', 'B']:
+        dff = df[df['SIDE'] == side]
+        if dff.empty: continue
+
+        fig.add_trace(go.Scatter(
+            x=dff['AXIS_POSITION'],
+            y=dff['LAYER_NUM'],
+            mode='markers',
+            marker=dict(
+                size=10,
+                symbol=symbol_map[side],
+                line=dict(width=1, color='black')
+            ),
+            name=f"Side {side}",
+            text=dff['DEFECT_TYPE'],
+            hovertemplate="Layer: %{y}<br>Pos: %{x:.2f}<br>Type: %{text}<extra></extra>"
+        ))
+
+    apply_panel_theme(fig, f"High-Res Cross-Section: {slice_desc}", height=600)
+
+    # Ensure Layers are integer steps and reversed (1 at top)
+    # Get range of layers
+    min_l = df['LAYER_NUM'].min()
+    max_l = df['LAYER_NUM'].max()
+
+    fig.update_layout(
+        xaxis=dict(title="Position (High Res)"),
+        yaxis=dict(
+            title="Layer Number",
+            tickmode='linear',
+            dtick=1,
+            range=[max_l + 0.5, min_l - 0.5] # Reversed range
+        )
     )
 
     return fig

@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 from src.analysis.base import AnalysisTool
-from src.plotting import create_cross_section_heatmap
-from src.data_handler import calculate_yield_killers, get_cross_section_matrix
+from src.plotting import create_cross_section_heatmap, create_cross_section_scatter
+from src.data_handler import calculate_yield_killers, get_cross_section_matrix, get_cross_section_scatter_data
 
 class RootCauseTool(AnalysisTool):
     @property
@@ -56,19 +56,30 @@ class RootCauseTool(AnalysisTool):
         # However, for this iteration, I'll invoke it as is.
         # (Self-Correction: If I don't update it, the filters won't work on the cross-section).
 
-        matrix, layer_labels, axis_labels = get_cross_section_matrix(
-            self.store.layer_data, slice_axis, slice_index, panel_rows, panel_cols
-        )
+        # View Mode Toggle (Matrix vs High-Res Scatter)
+        # We can add a toggle or default to High-Res if asked "Implement 3".
+        # Let's add a toggle for user flexibility.
+        view_type = st.radio("View Type", ["High-Res Scatter", "Unit Grid Heatmap"], horizontal=True, key="rca_view_type")
 
-        # Post-Processing to filter layers?
-        # get_cross_section_matrix returns a matrix for ALL layers.
-        # We can filter the rows of the matrix corresponding to excluded layers.
-        # But layer_labels are returned.
-        # This is a bit complex without refactoring data_handler.
-        # Given time constraints, I'll rely on global data for cross section, or implement basic filtering if easy.
+        flip_back = st.session_state.get("flip_back_side", True)
 
-        fig = create_cross_section_heatmap(
-            matrix, layer_labels, axis_labels,
-            f"Virtual Slice: {axis_name} {slice_index}"
-        )
+        if view_type == "Unit Grid Heatmap":
+            matrix, layer_labels, axis_labels = get_cross_section_matrix(
+                self.store.layer_data, slice_axis, slice_index, panel_rows, panel_cols
+            )
+            fig = create_cross_section_heatmap(
+                matrix, layer_labels, axis_labels,
+                f"Virtual Slice: {axis_name} {slice_index} (Bin Aggregation)"
+            )
+        else:
+            # High-Res Scatter
+            df_scatter = get_cross_section_scatter_data(
+                self.store.layer_data, slice_axis, slice_index, panel_rows, panel_cols,
+                flip_back=flip_back
+            )
+            fig = create_cross_section_scatter(
+                df_scatter,
+                f"Virtual Slice: {axis_name} {slice_index} (Precision View)"
+            )
+
         st.plotly_chart(fig, use_container_width=True)

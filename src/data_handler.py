@@ -584,3 +584,77 @@ def get_cross_section_matrix(
                         matrix[i, int(y_idx)] += count
 
     return matrix, layer_labels, axis_labels
+
+@st.cache_data
+def get_cross_section_scatter_data(
+    _panel_data: PanelData,
+    slice_axis: str,
+    slice_index: int,
+    panel_rows: int,
+    panel_cols: int,
+    flip_back: bool = True
+) -> pd.DataFrame:
+    """
+    Returns a DataFrame for High-Res Scatter Cross Section.
+    Columns: [LAYER_NUM, AXIS_POSITION, DEFECT_TYPE, SIDE, Verification]
+    """
+    sorted_layers = _panel_data.get_all_layer_nums()
+    if not sorted_layers:
+        return pd.DataFrame()
+
+    rows = []
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+
+    for layer_num in sorted_layers:
+        sides = _panel_data._layers[layer_num]
+        for side, layer_obj in sides.items():
+            df = layer_obj.data
+            if df.empty: continue
+
+            # Filter True Defects
+            if 'Verification' in df.columns:
+                is_true = ~df['Verification'].str.upper().isin(safe_values_upper)
+                df = df[is_true]
+
+            if df.empty: continue
+
+            # Filter by Slice
+            if slice_axis == 'Y':
+                # Slicing by Row index. We show Column variation (X).
+                relevant_defects = df[df['UNIT_INDEX_Y'] == slice_index]
+            else:
+                # Slicing by Column index. We show Row variation (Y).
+                relevant_defects = df[df['UNIT_INDEX_X'] == slice_index]
+
+            if relevant_defects.empty: continue
+
+            # Determine Axis Position (Continuous)
+            # If slice axis is Y (Row), we plot X position.
+            # If slice axis is X (Col), we plot Y position.
+
+            # Use 'physical_plot_x_flipped' vs 'raw' for X
+            # Use 'plot_y' for Y.
+
+            for _, defect in relevant_defects.iterrows():
+                if slice_axis == 'Y':
+                    # Plotting X dimension
+                    if flip_back and 'physical_plot_x_flipped' in defect:
+                        pos = defect['physical_plot_x_flipped']
+                    elif not flip_back and 'physical_plot_x_raw' in defect:
+                        pos = defect['physical_plot_x_raw']
+                    else:
+                        # Fallback
+                        pos = defect['plot_x']
+                else:
+                    # Plotting Y dimension
+                    pos = defect['plot_y']
+
+                rows.append({
+                    'LAYER_NUM': layer_num,
+                    'AXIS_POSITION': pos,
+                    'DEFECT_TYPE': defect['DEFECT_TYPE'],
+                    'SIDE': side,
+                    'Verification': defect['Verification'] if 'Verification' in defect else 'Unknown'
+                })
+
+    return pd.DataFrame(rows)
