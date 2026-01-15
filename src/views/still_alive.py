@@ -36,23 +36,11 @@ def render_still_alive_main(store: SessionStore):
     excluded_layers = list(set(all_layers) - set(selected_layers))
 
     # 2. Side Filter
-    # "Still Alive" calculates panel yield. Usually this means if a unit is dead on ANY layer (Front OR Back), it's dead.
-    # If user selects "Front" only, we should ignore defects on Back side?
-    # Yes, effectively "Excluding" Back side defects.
-    side_mode = st.session_state.get("analysis_side_select", "Both")
-    # This filter needs to be applied inside get_true_defect_coordinates or by filtering data first.
-    # get_true_defect_coordinates takes `excluded_layers` and `excluded_defect_types`.
-    # It doesn't natively handle Side exclusion unless we modify it or exclude based on logic.
-    # We can pass a filtered PanelData object? No, too heavy.
-    # We can assume if "Front" is selected, we only check Front defects.
-    # But get_true_defect_coordinates iterates all layers.
-    # WORKAROUND: We can't easily filter Side via the existing arguments of get_true_defect_coordinates.
-    # However, the requirement is to respect the filter.
-    # I will rely on `get_true_defect_coordinates` accepting an optional `side_filter` argument if I add it,
-    # OR I can simulate it by excluding layers? No, layers have both sides.
-    # I will modify `get_true_defect_coordinates` in data_handler.py to support side filtering?
-    # Or just add a warning "Side filter applies to visualization but Still Alive calc considers both sides unless code updated".
-    # Better: Update data_handler.py to support `included_sides`.
+    # Unified filter returns List[str] e.g., ["Front", "Back"]
+    side_pills = st.session_state.get("analysis_side_pills", ["Front", "Back"])
+    included_sides = []
+    if "Front" in side_pills: included_sides.append('F')
+    if "Back" in side_pills: included_sides.append('B')
 
     # 3. Verification
     # Unified filter selects verifications to INCLUDE (i.e., Show).
@@ -70,15 +58,11 @@ def render_still_alive_main(store: SessionStore):
     selected_verifs = st.session_state.get('multi_verification_selection', all_verifs) # Default all
     excluded_defects = list(set(all_verifs) - set(selected_verifs))
 
-    # Call data handler (Note: We need to handle side filtering if possible, but for now ignoring or assuming Both)
-    # If I want to support Side filter, I should really update `data_handler.py`.
-    # Let's check `get_true_defect_coordinates` signature again.
-
     true_defect_data = get_true_defect_coordinates(
         store.layer_data,
         excluded_layers=excluded_layers,
         excluded_defect_types=excluded_defects,
-        # side_filter=side_mode (Not yet implemented)
+        included_sides=included_sides
     )
 
     # If side_mode != Both, we might need to post-filter the true_defect_data?

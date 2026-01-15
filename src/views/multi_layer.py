@@ -29,11 +29,11 @@ def render_multi_layer_view(store: SessionStore, selected_layers: list, selected
     # I should update manager.py to sync them OR handle it here.
     # Updating here is safer if I can read session state.
 
-    side_mode = st.session_state.get("analysis_side_select", "Both")
+    # Updated: Now using `analysis_side_pills` which is a LIST of strings ["Front", "Back"]
+    side_pills = st.session_state.get("analysis_side_pills", ["Front", "Back"])
     effective_sides = []
-    if side_mode == "Front": effective_sides = ['F']
-    elif side_mode == "Back": effective_sides = ['B']
-    else: effective_sides = ['F', 'B']
+    if "Front" in side_pills: effective_sides.append('F')
+    if "Back" in side_pills: effective_sides.append('B')
 
     # Verification Filter
     selected_verifs = st.session_state.get("multi_verification_selection", [])
