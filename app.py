@@ -124,60 +124,6 @@ def main() -> None:
                 store.clear_all()
                 st.rerun()
 
-            st.divider()
-
-            # --- Reporting ---
-            with st.expander("📥 Reporting", expanded=False):
-                st.subheader("Generate Report")
-                col_rep1, col_rep2 = st.columns(2)
-                with col_rep1:
-                    include_excel = st.checkbox("Excel Report", value=True)
-                    include_coords = st.checkbox("Coordinate List", value=True)
-                with col_rep2:
-                    include_map = st.checkbox("Defect Map (HTML)", value=True)
-                    include_insights = st.checkbox("Insights Charts", value=True)
-
-                st.markdown("**Export Images (All Layers):**")
-                col_img1, col_img2 = st.columns(2)
-                with col_img1:
-                    include_png_all = st.checkbox("Defect Maps (PNG)", value=False)
-                with col_img2:
-                    include_pareto_png = st.checkbox("Pareto Charts (PNG)", value=False)
-
-                if st.button("Generate Download Package"):
-                    with st.spinner("Generating Package..."):
-                        full_df = store.layer_data.get_combined_dataframe()
-                        true_defect_coords = get_true_defect_coordinates(store.layer_data)
-
-                        store.report_bytes = generate_zip_package(
-                            full_df=full_df,
-                            panel_rows=store.analysis_params.get('panel_rows', 7),
-                            panel_cols=store.analysis_params.get('panel_cols', 7),
-                            quadrant_selection=store.quadrant_selection,
-                            verification_selection=store.verification_selection,
-                            source_filename="Multiple Files",
-                            true_defect_coords=true_defect_coords,
-                            include_excel=include_excel,
-                            include_coords=include_coords,
-                            include_map=include_map,
-                            include_insights=include_insights,
-                            include_png_all_layers=include_png_all,
-                            include_pareto_png=include_pareto_png,
-                            layer_data=store.layer_data
-                        )
-                        st.success("Package generated successfully!")
-
-                params_local = store.analysis_params
-                lot_num_str = f"_{params_local.get('lot_number', '')}" if params_local.get('lot_number') else ""
-                zip_filename = f"defect_package_layer_{store.selected_layer}{lot_num_str}.zip"
-                st.download_button(
-                    "Download Package (ZIP)",
-                    data=store.report_bytes or b"",
-                    file_name=zip_filename,
-                    mime="application/zip",
-                    disabled=store.report_bytes is None
-                )
-
     # --- Main Content Area ---
     # Header removed to save space
     # st.title("📊 Panel Defect Analysis Tool")
