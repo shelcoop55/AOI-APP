@@ -333,64 +333,100 @@ class ViewManager:
                  key="multi_verification_selection"
              )
 
-        # Inject CSS for Square Pills
-        st.markdown(
-            """
-            <style>
-            /* Target various possible internal structures for st.pills to ensure Square shape */
-            div[data-testid="stPills"] div[role="option"],
-            div[data-testid="stPills"] button,
-            div[data-testid="stPills"] span,
-            div[data-testid="stPills"] [data-baseweb="tag"] {
-                border-radius: 4px !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
         col_f1, col_f2 = st.columns([3, 1])
 
-        # Filter 1: Multi-Select Layer (Pills)
+        # Filter 1: Multi-Select Layer (Buttons)
         with col_f1:
             st.markdown("**Select Layers**")
-            # Determine default selection (All)
-            default_layers = self.store.multi_layer_selection if self.store.multi_layer_selection else all_layers
+            # Current Selection
+            current_selection = self.store.multi_layer_selection if self.store.multi_layer_selection else all_layers
 
-            selection = st.pills(
-                "Layers",
-                options=all_layers,
-                default=default_layers,
-                selection_mode="multi",
-                key="analysis_layer_select",
-                label_visibility="collapsed"
+            # Prepare button Layout
+            # Buttons: [ALL, L1, L2, L3...]
+            layer_buttons = ["ALL"] + [f"Layer {l}" for l in all_layers]
+
+            # Use small gap columns
+            # If too many layers, this might wrap poorly if not handled.
+            # st.columns(len) works best for ~5-10 items.
+            l_cols = st.columns(len(layer_buttons), gap="small")
+
+            # 1. ALL Button
+            is_all_selected = (set(current_selection) == set(all_layers))
+
+            def on_click_all():
+                def cb():
+                    self.store.multi_layer_selection = all_layers
+                return cb
+
+            l_cols[0].button(
+                "ALL",
+                key="btn_layer_all",
+                type="primary" if is_all_selected else "secondary",
+                use_container_width=True,
+                on_click=on_click_all()
             )
-            # Update store immediately (though st.pills updates session state key)
-            self.store.multi_layer_selection = selection
 
-        # Filter 2: Side Selection (Multi-Select Pills)
+            # 2. Individual Layer Buttons
+            for i, layer_num in enumerate(all_layers):
+                is_selected = (layer_num in current_selection)
+                label = f"Layer {layer_num}"
+
+                def on_click_layer(num):
+                    def cb():
+                        # Toggle logic
+                        new_sel = list(self.store.multi_layer_selection) if self.store.multi_layer_selection else list(all_layers)
+                        if num in new_sel:
+                            if len(new_sel) > 1: # Prevent empty selection
+                                new_sel.remove(num)
+                        else:
+                            new_sel.append(num)
+                        self.store.multi_layer_selection = sorted(new_sel)
+                    return cb
+
+                l_cols[i+1].button(
+                    label,
+                    key=f"btn_layer_{layer_num}",
+                    type="primary" if is_selected else "secondary",
+                    use_container_width=True,
+                    on_click=on_click_layer(layer_num)
+                )
+
+
+        # Filter 2: Side Selection (Buttons: Front / Back / Both)
         with col_f2:
              st.markdown("**Side**")
-             side_opts = ["Front", "Back"]
-             # Logic to maintain side selection state or default to Both
-             # Currently we used "Both" string. Now we use list ['Front', 'Back']
-             # Check if session state exists and is list, else default
+             side_opts = ["Front", "Back", "Both"]
 
-             # We need to map old "Both" string to list if necessary, or just init fresh
-             default_sides = side_opts # Default Both
-             if 'analysis_side_pills' in st.session_state:
-                 # It persists
-                 pass
+             # Current State
+             # We rely on 'analysis_side_pills' in session state for compatibility with tools
+             current_sides = st.session_state.get("analysis_side_pills", ["Front", "Back"])
 
-             side_selection = st.pills(
-                 "Side",
-                 side_opts,
-                 default=default_sides,
-                 selection_mode="multi",
-                 key="analysis_side_pills",
-                 label_visibility="collapsed"
-             )
-             # Note: 'analysis_side_select' was the old key used by tools. We should update tools to use 'analysis_side_pills'
+             s_cols = st.columns(len(side_opts), gap="small")
+
+             # Helper to sync state
+             def set_sides(sides_list):
+                 st.session_state["analysis_side_pills"] = sides_list
+
+             # Front Button
+             is_front_active = ("Front" in current_sides) and ("Back" not in current_sides)
+             def on_front():
+                 def cb(): set_sides(["Front"])
+                 return cb
+             s_cols[0].button("Front", key="btn_side_front", type="primary" if is_front_active else "secondary", use_container_width=True, on_click=on_front())
+
+             # Back Button
+             is_back_active = ("Back" in current_sides) and ("Front" not in current_sides)
+             def on_back():
+                 def cb(): set_sides(["Back"])
+                 return cb
+             s_cols[1].button("Back", key="btn_side_back", type="primary" if is_back_active else "secondary", use_container_width=True, on_click=on_back())
+
+             # Both Button
+             is_both_active = ("Front" in current_sides) and ("Back" in current_sides)
+             def on_both():
+                 def cb(): set_sides(["Front", "Back"])
+                 return cb
+             s_cols[2].button("Both", key="btn_side_both", type="primary" if is_both_active else "secondary", use_container_width=True, on_click=on_both())
 
         # 3. Context Specific Row
         # current_tab_val is usually derived from state but here it was local variable 'current_tab' in _render_analysis_page_controls
