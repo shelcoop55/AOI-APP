@@ -161,10 +161,10 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
             else:
                  dff['Description'] = "N/A"
 
-            # Add Raw Coords if available
+            # Add Raw Coords if available (Convert um to mm)
             coord_str = ""
             if 'X_COORDINATES' in dff.columns and 'Y_COORDINATES' in dff.columns:
-                dff['RAW_COORD_STR'] = dff.apply(lambda row: f"({row['X_COORDINATES']:.2f}, {row['Y_COORDINATES']:.2f})", axis=1)
+                dff['RAW_COORD_STR'] = dff.apply(lambda row: f"({row['X_COORDINATES']/1000:.2f}, {row['Y_COORDINATES']/1000:.2f}) mm", axis=1)
                 custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description', 'RAW_COORD_STR']
                 coord_str = "<br>Raw Coords: %{customdata[6]}"
             else:
@@ -232,10 +232,10 @@ def create_multi_layer_defect_map(
                 else:
                      dff['Description'] = "N/A"
 
-                # Prepare Custom Data (Include Raw Coords)
+                # Prepare Custom Data (Include Raw Coords - Convert um to mm)
                 coord_str = ""
                 if 'X_COORDINATES' in dff.columns and 'Y_COORDINATES' in dff.columns:
-                    dff['RAW_COORD_STR'] = dff.apply(lambda row: f"({row['X_COORDINATES']:.2f}, {row['Y_COORDINATES']:.2f})", axis=1)
+                    dff['RAW_COORD_STR'] = dff.apply(lambda row: f"({row['X_COORDINATES']/1000:.2f}, {row['Y_COORDINATES']/1000:.2f}) mm", axis=1)
                     custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description', 'SOURCE_FILE', 'RAW_COORD_STR']
                     coord_str = "<br>Raw Coords: %{customdata[7]}"
                 else:
