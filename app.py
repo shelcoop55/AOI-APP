@@ -87,10 +87,24 @@ def main() -> None:
                 lot = st.session_state.lot_number
                 comment = st.session_state.process_comment
 
-                # Load Data
+                # Load Data (This will now hit the cache if arguments are same)
                 data = load_data(files, rows, cols)
                 if data:
-                    store.layer_data = data
+                    # UPDATE: Store ID and Metadata, NOT the object
+                    if not files:
+                        store.dataset_id = "sample_data"
+                    else:
+                        # Simple ID generation based on filenames for tracking
+                        store.dataset_id = str(hash(tuple(f.name for f in files)))
+
+                    # Store lightweight metadata for UI logic (keys only)
+                    # We need a serializable dict structure: {layer_num: {side: True}}
+                    meta = {}
+                    for l_num, sides in data.items():
+                        meta[l_num] = list(sides.keys())
+                    store.layer_data_keys = meta
+
+                    # Logic using the data object (which is local var here, safe)
                     store.selected_layer = max(data.keys())
                     store.active_view = 'layer'
 

@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from src.analysis.base import AnalysisTool
-from src.plotting import create_defect_sunburst, create_defect_sankey
+from src.plotting import create_defect_sunburst, create_defect_sankey, create_trend_chart
 
 class InsightsTool(AnalysisTool):
     @property
@@ -14,14 +14,6 @@ class InsightsTool(AnalysisTool):
     def render_main(self):
         # Header removed to save space
         # st.header("Insights & Sankey View")
-
-        # User requirement: "When user have selected Insight View He will See First two only [Layer/Verif]"
-        # This implies aggregation across selected layers? Or still single layer?
-        # The prompt says "First two only because those are the one which is reuired".
-        # This strongly implies multi-layer context.
-        # But Sunburst/Sankey are typically dense.
-        # If I aggregate all selected layers, it might be messy.
-        # However, I should respect the selection.
 
         selected_layer_nums = self.store.multi_layer_selection or self.store.layer_data.get_all_layer_nums()
         side_pills = st.session_state.get("analysis_side_pills", ["Front", "Back"])
@@ -53,6 +45,12 @@ class InsightsTool(AnalysisTool):
 
             if not combined_df.empty:
                 st.caption(f"Analyzing {len(combined_df)} defects from selected context.")
+
+                # --- NEW TREND CHART ---
+                st.subheader("Layer-wise Defect Trend")
+                trend_chart = create_trend_chart(combined_df)
+                st.plotly_chart(trend_chart, use_container_width=True)
+                st.divider()
 
                 c1, c2 = st.columns([2, 1], gap="medium")
 

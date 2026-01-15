@@ -48,3 +48,23 @@ The following checklist outlines high-impact technical changes designed to resol
 ## 5. Miscellaneous
 - [ ] **Disable Hover on Large Contours:**
     - **Action:** For the Heatmap/Contour view, set `hoverinfo='skip'` or simplify the tooltip to only show the Z-value (Density) rather than individual point details, unless at high zoom levels.
+
+## 6. Algorithmic Correctness (Logic Fixes)
+**Goal:** Ensure the heatmap represents physical reality without distortion.
+
+- [ ] **Fix Edge Distortion:**
+    - **Action:** Implement boundary-corrected density calculation. The density algorithm must strictly respect the panel boundaries (0 to 510mm) and not smooth values into the negative/outside space.
+- [ ] **Fix Quadrant Gap Blind Spot:**
+    - **Action:** Calculate density per-quadrant independently to prevent the smoothing algorithm from bleeding data across the physical gap between quadrants.
+- [ ] **Weighted Heatmap (Risk Density):**
+    - **Action:** Allow defects to carry weights (e.g., Shorts > Scratches) to visualize "Risk Density" instead of just "Count Density".
+
+## 7. Advanced Analytics Features
+**Goal:** Provide deeper insights beyond basic defect location.
+
+- [ ] **Top Defect Driver Overlay:**
+    - **Action:** Color heatmap cells by the "Most Frequent Defect Type" in that area (e.g., red for Shorts, blue for Scratches) instead of just total count.
+- [ ] **Drill-Down Tooltips:**
+    - **Action:** Enhance hover tooltips to show a mini-summary: "Peak Density: X defects/cm². Top Cause: Y (Z%)."
+- [ ] **Layer-wise Defect Trend Analysis (New Chart):**
+    - **Action:** Implement a Line or Waterfall chart showing Total Defect Density (Y) vs. Build-Up Layer (X). This visualizes the "When" dimension of defect generation.

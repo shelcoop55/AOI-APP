@@ -80,9 +80,10 @@ class YieldKillerMetrics:
     side_bias: str   # "Front Side", "Back Side", or "Balanced"
     side_bias_diff: int
 
-@st.cache_data
+# Use st.cache_data with a hash function for the files to avoid re-reading
+@st.cache_data(show_spinner="Loading Data...")
 def load_data(
-    uploaded_files: List[BytesIO],
+    uploaded_files: List[Any], # Changed to Any to handle potential Streamlit UploadedFile wrapper changes
     panel_rows: int,
     panel_cols: int,
 ) -> PanelData:

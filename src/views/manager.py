@@ -83,6 +83,11 @@ class ViewManager:
         """Renders the top control row for Layer Inspection."""
 
         # Prepare Data for Dropdowns
+        # Use metadata from store instead of pulling full object if possible,
+        # but to get BU name we need the dataframe.
+        # Since we have caching, accessing self.store.layer_data is cheap enough now?
+        # Yes, it calls load_data which returns cached object.
+
         layer_keys = sorted(self.store.layer_data.keys())
         if not layer_keys:
             return
@@ -96,6 +101,7 @@ class ViewManager:
             # Try to get BU name
             bu_name = ""
             try:
+                # Accessing layer data
                 first_side_key = next(iter(self.store.layer_data[num]))
                 source_file = self.store.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0]
                 bu_name = get_bu_name_from_filename(str(source_file))
