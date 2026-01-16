@@ -155,7 +155,7 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', 
     quad_height = panel_height / 2
 
     all_origins = {
-        'Q1': (0+offset_x , 0+offset_y ),
+        'Q1': (0 , 0 ),
         'Q2': (quad_width + gap_x + offset_x, 0),
         'Q3': (0, quad_height + gap_y + offset_y),
         'Q4': (quad_width + gap_x + offset_x, quad_height + gap_y + offset_y)
@@ -240,14 +240,11 @@ def create_defect_traces(df: pd.DataFrame, offset_x: float = 0.0, offset_y: floa
                             + coord_str +
                             "<extra></extra>")
 
-        # FIX: If data has absolute spatial coords, do not add external margin offsets.
-        # We check if the raw columns exist to determine mode.
-        if 'X_COORDINATES' in df.columns:
-            x_vals = dff['plot_x']
-            y_vals = dff['plot_y']
-        else:
-            x_vals = dff['plot_x'] + offset_x
-            y_vals = dff['plot_y'] + offset_y
+        # Always add external margin offsets (offset_x/y) to Panel Coordinates.
+        # Whether derived from Grid (Jitter) or Spatial (Absolute mm), the coordinates
+        # are relative to the Panel Origin (0,0), while the plot is in Frame Coordinates.
+        x_vals = dff['plot_x'] + offset_x
+        y_vals = dff['plot_y'] + offset_y
 
         traces.append(go.Scattergl(
             x=x_vals,
@@ -337,9 +334,9 @@ def create_multi_layer_defect_map(
 
                 x_coords = dff[x_col_name]
 
-                # FIX: Conditional offset application
-                final_x = x_coords if 'X_COORDINATES' in df.columns else x_coords + offset_x
-                final_y = dff['plot_y'] if 'X_COORDINATES' in df.columns else dff['plot_y'] + offset_y
+                # Always add external margin offsets to align Panel Coordinates to Frame.
+                final_x = x_coords + offset_x
+                final_y = dff['plot_y'] + offset_y
 
                 # OPTIMIZATION: Use WebGL
                 fig.add_trace(go.Scattergl(
