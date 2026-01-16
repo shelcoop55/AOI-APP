@@ -4,6 +4,7 @@ from src.analysis.base import AnalysisTool
 from src.enums import ViewMode
 from src.plotting import create_stress_heatmap, create_delta_heatmap
 from src.data_handler import aggregate_stress_data
+from src.config import GAP_SIZE
 
 class StressMapTool(AnalysisTool):
     @property
@@ -51,13 +52,18 @@ class StressMapTool(AnalysisTool):
                  if self.store.layer_data.get_layer(layer_num, side):
                      keys.append((layer_num, side))
 
+        # Layout Params
+        offset_x = params.get("offset_x", 0.0)
+        offset_y = params.get("offset_y", 0.0)
+        gap_size = params.get("gap_size", GAP_SIZE)
+
         if mode_new == "Cumulative":
             stress_data = aggregate_stress_data(
                 self.store.layer_data, keys, panel_rows, panel_cols, panel_uid,
                 verification_filter=selected_verifs,
                 quadrant_filter=selected_quadrant
             )
-            fig = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode=view_mode)
+            fig = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode=view_mode, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size)
 
         else: # Delta
             # Delta Difference logic: "Front vs Back" for selected layers
@@ -76,6 +82,6 @@ class StressMapTool(AnalysisTool):
             )
 
             st.info("Delta Difference Mode: Calculating (Front Side - Back Side) for selected layers.")
-            fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols, view_mode=view_mode)
+            fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols, view_mode=view_mode, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size)
 
         st.plotly_chart(fig, use_container_width=True)

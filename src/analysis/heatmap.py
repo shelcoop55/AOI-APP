@@ -95,6 +95,11 @@ class HeatmapTool(AnalysisTool):
         # 6. Quadrant Filter
         selected_quadrant = st.session_state.get("analysis_quadrant_selection", "All")
 
+        # 7. Layout Params
+        offset_x = params.get("offset_x", 0.0)
+        offset_y = params.get("offset_y", 0.0)
+        gap_size = params.get("gap_size", GAP_SIZE)
+
         # --- DATA PREPARATION (CACHED) ---
         # We pass self.store.layer_data.id if available, else a dummy or we assume static.
         # PanelData in models.py has .id attribute.
@@ -119,7 +124,10 @@ class HeatmapTool(AnalysisTool):
                 show_grid=False,
                 view_mode=view_mode,
                 flip_back=flip_back,
-                quadrant_selection=selected_quadrant
+                quadrant_selection=selected_quadrant,
+                offset_x=offset_x,
+                offset_y=offset_y,
+                gap_size=gap_size
             )
 
             # --- INTERACTIVITY: CLICK TO ZOOM ---
@@ -139,22 +147,13 @@ class HeatmapTool(AnalysisTool):
                         clicked_quad = None
 
                         # Logic matches create_grid_shapes / config.py
-                        # Q1: Left-Bottom (in Plotly Y is usually Up, need to check if 0 is bottom or top)
-                        # src/plotting.py origins:
-                        # Q1: (0, 0)
-                        # Q2: (QUAD_W + GAP, 0)
-                        # Q3: (0, QUAD_H + GAP)
-                        # Q4: (QUAD_W + GAP, QUAD_H + GAP)
+                        # Adjusted for Dynamic Offsets and Gap
 
-                        # Note: Y-Axis in Plotly usually points UP by default for Scatter/Contour unless reversed.
-                        # Our data_handler uses logic where Y=0 is one edge.
-                        # Let's assume standard Euclidean: 0,0 is bottom-left.
+                        is_left = (click_x >= offset_x) and (click_x < offset_x + QUADRANT_WIDTH)
+                        is_right = (click_x > offset_x + QUADRANT_WIDTH + gap_size)
 
-                        is_left = click_x < QUADRANT_WIDTH
-                        is_right = click_x > (QUADRANT_WIDTH + GAP_SIZE)
-
-                        is_bottom = click_y < QUADRANT_HEIGHT
-                        is_top = click_y > (QUADRANT_HEIGHT + GAP_SIZE)
+                        is_bottom = (click_y >= offset_y) and (click_y < offset_y + QUADRANT_HEIGHT)
+                        is_top = (click_y > offset_y + QUADRANT_HEIGHT + gap_size)
 
                         if is_left and is_bottom: clicked_quad = "Q1"
                         elif is_right and is_bottom: clicked_quad = "Q2"

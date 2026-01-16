@@ -84,10 +84,11 @@ class SessionStore:
         rows = self.analysis_params.get("panel_rows", 7)
         cols = self.analysis_params.get("panel_cols", 7)
 
-        if not files and not self.dataset_id.startswith("sample"):
-             # Handle Sample Data case where files is empty list
-             if self.dataset_id == "sample_data":
-                  return load_data([], rows, cols)
+        # Safety Check: If we expect Real Data (ID set) but files are lost/empty, return None.
+        # This prevents falling back to random Sample Data generation in load_data.
+        is_sample = self.dataset_id and str(self.dataset_id).startswith("sample")
+
+        if not files and not is_sample:
              return None
 
         # Call load_data. If inputs haven't changed, it hits cache.

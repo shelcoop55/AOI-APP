@@ -76,11 +76,14 @@ def main() -> None:
                     key="process_comment"
                 )
 
+            with st.expander("⚙️ Advanced Configuration", expanded=False):
                 c_off1, c_off2 = st.columns(2)
                 with c_off1:
-                    st.number_input("X Offset (mm)", value=0.0, step=1.0, key="offset_x", help="Shift origin X by this amount.")
+                    st.number_input("X Offset (mm)", value=35.0, step=1.0, key="offset_x", help="Shift origin X by this amount.")
                 with c_off2:
-                    st.number_input("Y Offset (mm)", value=0.0, step=1.0, key="offset_y", help="Shift origin Y by this amount.")
+                    st.number_input("Y Offset (mm)", value=35.0, step=1.0, key="offset_y", help="Shift origin Y by this amount.")
+
+                st.number_input("Gap Size (mm)", value=35.0, step=1.0, min_value=0.0, key="custom_gap_size", help="Distance between quadrants.")
 
             # Callback for Analysis
             def on_run_analysis():
@@ -92,8 +95,9 @@ def main() -> None:
                 cols = st.session_state.panel_cols
                 lot = st.session_state.lot_number
                 comment = st.session_state.process_comment
-                off_x = st.session_state.get("offset_x", 0.0)
-                off_y = st.session_state.get("offset_y", 0.0)
+                off_x = st.session_state.get("offset_x", 35.0)
+                off_y = st.session_state.get("offset_y", 35.0)
+                gap_size = st.session_state.get("custom_gap_size", GAP_SIZE)
 
                 # Load Data (This will now hit the cache if arguments are same)
                 data = load_data(files, rows, cols)
@@ -137,7 +141,7 @@ def main() -> None:
                 store.analysis_params = {
                     "panel_rows": rows,
                     "panel_cols": cols,
-                    "gap_size": GAP_SIZE,
+                    "gap_size": gap_size,
                     "lot_number": lot,
                     "process_comment": comment,
                     "offset_x": off_x,
