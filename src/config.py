@@ -6,21 +6,23 @@ including color themes and the method for loading defect-specific styles.
 """
 
 # --- Physical Constants (in mm) ---
-# Hardcoded Total Frame Dimensions as per user request
+# Hardcoded Total Frame Dimensions as per user request (Copper Grid Panel)
 FRAME_WIDTH = 510
 FRAME_HEIGHT = 515
 
-# Default Configuration Values
-DEFAULT_OFFSET_X = 40.0
-DEFAULT_OFFSET_Y = 22.5
-DEFAULT_GAP_X = 20
-DEFAULT_GAP_Y = 20
+# Default Configuration Values (Copper Spec)
+DEFAULT_OFFSET_X = 13.5
+DEFAULT_OFFSET_Y = 15.0
+DEFAULT_GAP_X = 3.0
+DEFAULT_GAP_Y = 3.0
+
+# Inter-Unit Gap (Gap between small units inside a quadrant)
+INTER_UNIT_GAP = 0.25
 
 # Active Panel Dimensions (Calculated Defaults)
-# These act as fallback constants if dynamic calculation isn't used.
 # Logic: Active = Total - (2 * Offset) - Gap
-PANEL_WIDTH = FRAME_WIDTH - (2 * DEFAULT_OFFSET_X) - DEFAULT_GAP_X  # 410
-PANEL_HEIGHT = FRAME_HEIGHT - (2 * DEFAULT_OFFSET_Y) - DEFAULT_GAP_Y # 450
+PANEL_WIDTH = FRAME_WIDTH - (2 * DEFAULT_OFFSET_X) - DEFAULT_GAP_X  # 480
+PANEL_HEIGHT = FRAME_HEIGHT - (2 * DEFAULT_OFFSET_Y) - DEFAULT_GAP_Y # 482
 
 # Legacy Gap Constant (for backward compatibility)
 GAP_SIZE = DEFAULT_GAP_X
@@ -29,14 +31,17 @@ GAP_SIZE = DEFAULT_GAP_X
 QUADRANT_WIDTH = PANEL_WIDTH / 2
 QUADRANT_HEIGHT = PANEL_HEIGHT / 2
 
-# --- Style Theme: Post-Etch AOI Panel ---
+# --- Style Theme: 12x12 Copper Grid Panel ---
 # This palette is designed to look like a copper-clad panel from the PCB/IC Substrate industry.
 
-PANEL_COLOR = '#B87333'      # A metallic, classic copper color for the panels.
-GRID_COLOR = '#000000'       # Black for the main grid lines for high contrast.
-BACKGROUND_COLOR = '#212121' # A dark charcoal grey for the app background, mimicking an inspection machine.
-PLOT_AREA_COLOR = '#333333'  # A slightly lighter grey for the plot area to create subtle depth.
-TEXT_COLOR = '#FFFFFF'       # White text for readability on the dark background.
+PANEL_COLOR = '#C87533'      # Rich Copper (Background/Outer/Gaps)
+UNIT_FACE_COLOR = '#F4B486'  # Light Copper/Peach (Unit Faces)
+UNIT_EDGE_COLOR = '#8B4513'  # Saddle Brown (Unit Edge/Stroke)
+TEXT_COLOR = '#5A2D0C'       # Dark Bronze (Text)
+
+GRID_COLOR = UNIT_EDGE_COLOR # Map legacy grid color to unit edge
+BACKGROUND_COLOR = '#212121' # Dark charcoal grey for the app background
+PLOT_AREA_COLOR = '#333333'  # Slightly lighter grey for the plot area
 
 # Colors for the "Still Alive" yield map
 ALIVE_CELL_COLOR = '#2ECC71' # A vibrant green for cells without "True" defects.
