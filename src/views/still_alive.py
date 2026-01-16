@@ -4,6 +4,7 @@ import numpy as np
 from src.state import SessionStore
 from src.plotting import create_still_alive_figure
 from src.data_handler import get_true_defect_coordinates
+from src.config import GAP_SIZE
 
 def render_still_alive_sidebar(store: SessionStore):
     """
@@ -76,7 +77,19 @@ def render_still_alive_main(store: SessionStore):
     map_col, summary_col = st.columns([3, 1])
 
     with map_col:
-        fig = create_still_alive_figure(panel_rows, panel_cols, true_defect_data)
+        offset_x = params.get("offset_x", 0.0)
+        offset_y = params.get("offset_y", 0.0)
+        gap_x = params.get("gap_x", GAP_SIZE)
+        gap_y = params.get("gap_y", GAP_SIZE)
+        panel_width = params.get("panel_width", 410)
+        panel_height = params.get("panel_height", 452)
+
+        fig = create_still_alive_figure(
+            panel_rows, panel_cols, true_defect_data,
+            offset_x=offset_x, offset_y=offset_y,
+            gap_x=gap_x, gap_y=gap_y,
+            panel_width=panel_width, panel_height=panel_height
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     with summary_col:
