@@ -3,6 +3,11 @@ import pandas as pd
 import numpy as np
 from src.data_handler import aggregate_stress_data, StressMapData, calculate_yield_killers, get_cross_section_matrix, YieldKillerMetrics
 from src.models import PanelData, BuildUpLayer
+from src.layout import LayoutParams
+
+def create_layout():
+    # Use 2x2 grid for testing
+    return LayoutParams(2, 2, 100, 100, 10, 10, 20, 0)
 
 @pytest.fixture
 def sample_layer_data():
@@ -11,6 +16,7 @@ def sample_layer_data():
     Panel size: 2x2 (Width=4, Height=4 units total).
     """
     panel = PanelData()
+    layout = create_layout()
 
     # Layer 1: Front side. Defect at (0,0) [Q1]
     df1 = pd.DataFrame({
@@ -27,7 +33,7 @@ def sample_layer_data():
     df1['UNIT_INDEX_Y'] = df1['UNIT_INDEX_Y'].astype('int32')
     df1['DEFECT_TYPE'] = df1['DEFECT_TYPE'].astype('category')
 
-    l1f = BuildUpLayer(1, 'F', df1, 2, 2)
+    l1f = BuildUpLayer(1, 'F', df1, layout)
     panel.add_layer(l1f)
 
     # Layer 1: Back side. Defect at (0,0) raw [Q1].
@@ -47,7 +53,7 @@ def sample_layer_data():
     df2['UNIT_INDEX_Y'] = df2['UNIT_INDEX_Y'].astype('int32')
     df2['DEFECT_TYPE'] = df2['DEFECT_TYPE'].astype('category')
 
-    l1b = BuildUpLayer(1, 'B', df2, 2, 2)
+    l1b = BuildUpLayer(1, 'B', df2, layout)
     panel.add_layer(l1b)
 
     return panel

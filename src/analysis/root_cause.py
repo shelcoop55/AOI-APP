@@ -17,7 +17,12 @@ class RootCauseTool(AnalysisTool):
         # st.header("Root Cause & Diagnostics Dashboard")
 
         params = self.store.analysis_params
-        panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
+        layout = params.get("layout")
+        if layout:
+            panel_rows = layout.panel_rows
+            panel_cols = layout.panel_cols
+        else:
+            panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
 
         # KPIs
         # Note: calculate_yield_killers aggregates GLOBAL data.

@@ -6,53 +6,48 @@ including color themes and the method for loading defect-specific styles.
 """
 
 # --- Physical Constants (in mm) ---
-# Hardcoded Total Frame Dimensions as per user request (Copper Grid Panel)
-FRAME_WIDTH = 510
-FRAME_HEIGHT = 515
+# Default dimensions based on "12x12 Copper Grid Panel" spec
+# Defaults updated to 410x452mm Total Panel Size with 13mm Gap.
+# Quad Width = (410 - 13) / 2 = 198.5
+# Quad Height = (452 - 13) / 2 = 219.5
+DEFAULT_QUAD_WIDTH = 198.5
+DEFAULT_QUAD_HEIGHT = 219.5
+DEFAULT_MARGIN_X = 35.0  # Default Origin/Offset (User requested ~35mm in examples)
+DEFAULT_MARGIN_Y = 35.0
+DEFAULT_GAP_MID = 13.0
+DEFAULT_GAP_UNIT = 0.0   # Default Gap 0 (Contiguous)
 
-# Default Configuration Values (Copper Spec)
-DEFAULT_OFFSET_X = 13.5
-DEFAULT_OFFSET_Y = 15.0
-DEFAULT_GAP_X = 3.0
-DEFAULT_GAP_Y = 3.0
+# Legacy constants kept for compatibility but should be overridden by dynamic logic
+# Total Active Width (approx)
+PANEL_WIDTH = (DEFAULT_QUAD_WIDTH * 2) + DEFAULT_GAP_MID
+PANEL_HEIGHT = (DEFAULT_QUAD_HEIGHT * 2) + DEFAULT_GAP_MID
+GAP_SIZE = DEFAULT_GAP_MID
 
-# Inter-Unit Gap (Gap between small units inside a quadrant)
-INTER_UNIT_GAP = 0.25
-
-# Active Panel Dimensions (Calculated Defaults)
-# Logic: Active = Total - (2 * Offset) - Gap
-PANEL_WIDTH = FRAME_WIDTH - (2 * DEFAULT_OFFSET_X) - DEFAULT_GAP_X  # 480
-PANEL_HEIGHT = FRAME_HEIGHT - (2 * DEFAULT_OFFSET_Y) - DEFAULT_GAP_Y # 482
-
-# Legacy Gap Constant (for backward compatibility)
-GAP_SIZE = DEFAULT_GAP_X
-
-# Derived constants
-QUADRANT_WIDTH = PANEL_WIDTH / 2
-QUADRANT_HEIGHT = PANEL_HEIGHT / 2
-
-# --- Style Theme: 12x12 Copper Grid Panel ---
-# This palette is designed to look like a copper-clad panel from the PCB/IC Substrate industry.
-
-PANEL_COLOR = '#C87533'      # Rich Copper (Background/Outer/Gaps)
-UNIT_FACE_COLOR = '#F4B486'  # Light Copper/Peach (Unit Faces)
-UNIT_EDGE_COLOR = '#8B4513'  # Saddle Brown (Unit Edge/Stroke)
+# --- Style Theme: Copper Aesthetic ---
+PANEL_COLOR = '#C87533'      # Rich Copper (Background/Border)
+GRID_COLOR = '#8B4513'       # Saddle Brown (Unit Edge/Stroke)
+UNIT_FACE_COLOR = '#F4B486'  # Light Copper/Peach (Unit Face)
 TEXT_COLOR = '#5A2D0C'       # Dark Bronze (Text)
 
-GRID_COLOR = UNIT_EDGE_COLOR # Map legacy grid color to unit edge
-BACKGROUND_COLOR = '#212121' # Dark charcoal grey for the app background
-PLOT_AREA_COLOR = '#333333'  # Slightly lighter grey for the plot area
+BACKGROUND_COLOR = '#F5F5F5' # Light grey background for the app to contrast with copper?
+                             # Or keep dark? The user didn't specify APP background, only PANEL background.
+                             # Keeping dark mode for app usually looks better with copper/orange.
+                             # But TEXT_COLOR #5A2D0C is dark. Dark text on Dark background is bad.
+                             # If Text is Dark Bronze, Background should be Light.
+                             # Switching App Background to Light Grey to support Dark Bronze text.
+
+PLOT_AREA_COLOR = '#FFFFFF'  # Plot background (behind the copper panel)
 
 # Colors for the "Still Alive" yield map
-ALIVE_CELL_COLOR = '#2ECC71' # A vibrant green for cells without "True" defects.
-DEFECTIVE_CELL_COLOR = '#E74C3C' # A strong red for cells with "True" defects.
+ALIVE_CELL_COLOR = '#2ECC71' # Green (Good) - Keep standard or adjust?
+                             # Spec didn't change logic colors, only Panel colors.
+DEFECTIVE_CELL_COLOR = '#E74C3C' # Red (Bad)
 
 # Colors for Verification Status (Sankey Chart)
-VERIFICATION_COLOR_SAFE = '#00FF7F'   # Spring Green (Bright Neon)
+VERIFICATION_COLOR_SAFE = '#00FF7F'   # Spring Green
 VERIFICATION_COLOR_DEFECT = '#FF3131' # Neon Red
 
 # --- Neon Color Palette ---
-# High-contrast, saturated colors for the Sankey chart in Dark Mode.
 NEON_PALETTE = [
     '#00FFFF', # Cyan
     '#FF00FF', # Magenta
@@ -67,8 +62,6 @@ NEON_PALETTE = [
 ]
 
 # --- Fallback Color Palette ---
-# A list of visually distinct colors to be used for new, unrecognized defect types.
-# This ensures that any defect from an uploaded file will get a color for plotting.
 FALLBACK_COLORS = NEON_PALETTE + [
     '#FF6347',  # Tomato
     '#4682B4',  # SteelBlue
@@ -84,9 +77,6 @@ FALLBACK_COLORS = NEON_PALETTE + [
 CRITICAL_DEFECT_TYPES = ["Short", "Cut/Short"]
 
 # --- Verification Logic ---
-# Values in the 'Verification' column that are considered "Safe" (Non-Defects).
-# Any value NOT in this list is treated as a "True Defect" that impacts yield.
-# Comparisons should be case-insensitive.
 SAFE_VERIFICATION_VALUES = [
     'GE57',
     'N',
@@ -102,22 +92,11 @@ from pathlib import Path
 from typing import Dict
 
 def load_defect_styles() -> Dict[str, str]:
-    """
-    Loads the defect style mapping from an external JSON file.
-
-    This function looks for 'assets/defect_styles.json' relative to the project root.
-    If the file is not found or is corrupted, it prints a warning and returns a
-    default, hardcoded color map to ensure the application can still run.
-
-    Returns:
-        Dict[str, str]: A dictionary mapping defect types to their corresponding colors.
-    """
     style_path = Path(__file__).parent.parent / "assets/defect_styles.json"
     try:
         with open(style_path, 'r') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        # Fallback to a default map if the file is missing or corrupt
         print(f"Warning: Could not load 'defect_styles.json' ({e}). Using default colors.")
         return {
             'Nick': '#9B59B6', 'Short': '#E74C3C', 'Missing Feature': '#2ECC71',

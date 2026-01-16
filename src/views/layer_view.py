@@ -8,7 +8,25 @@ from src.config import SAFE_VERIFICATION_VALUES, PLOT_AREA_COLOR, PANEL_COLOR, G
 
 def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: str, verification_selection: any):
     params = store.analysis_params
-    panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
+    layout = params.get("layout")
+
+    if layout:
+        panel_rows = layout.panel_rows
+        panel_cols = layout.panel_cols
+        offset_x = layout.margin_x
+        offset_y = layout.margin_y
+        gap_size = layout.gap_mid
+        panel_width = (layout.quad_width * 2) + layout.gap_mid
+        panel_height = (layout.quad_height * 2) + layout.gap_mid
+    else:
+        panel_rows = params.get("panel_rows", 7)
+        panel_cols = params.get("panel_cols", 7)
+        offset_x = params.get("offset_x", 0.0)
+        offset_y = params.get("offset_y", 0.0)
+        gap_size = params.get("gap_size", GAP_SIZE)
+        panel_width = params.get("panel_width", PANEL_WIDTH)
+        panel_height = params.get("panel_height", PANEL_HEIGHT)
+
     lot_number = params.get("lot_number")
 
     selected_layer_num = store.selected_layer
@@ -38,16 +56,11 @@ def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: s
             display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
 
             if view_mode == ViewMode.DEFECT.value:
-                offset_x = params.get("offset_x", 0.0)
-                offset_y = params.get("offset_y", 0.0)
-                gap_x = params.get("gap_x", GAP_SIZE)
-                gap_y = params.get("gap_y", GAP_SIZE)
-                panel_width = params.get("panel_width", PANEL_WIDTH)
-                panel_height = params.get("panel_height", PANEL_HEIGHT)
-
-                fig = create_defect_map_figure(display_df, panel_rows, panel_cols, quadrant_selection, lot_number,
-                                               offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y,
-                                               panel_width=panel_width, panel_height=panel_height)
+                fig = create_defect_map_figure(
+                    display_df, panel_rows, panel_cols, quadrant_selection, lot_number,
+                    offset_x=offset_x, offset_y=offset_y, gap_size=gap_size,
+                    panel_width=panel_width, panel_height=panel_height
+                )
                 st.plotly_chart(fig, use_container_width=True)
             elif view_mode == ViewMode.PARETO.value:
                 fig = create_pareto_figure(display_df, quadrant_selection)

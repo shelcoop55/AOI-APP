@@ -14,6 +14,7 @@ from dataclasses import dataclass
 # Import constants from the configuration file
 from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES
 from .models import PanelData, BuildUpLayer
+from .layout import LayoutParams
 
 # --- DEFECT DEFINITIONS ---
 # List of (Code, Description) tuples for data generation
@@ -79,12 +80,7 @@ class YieldKillerMetrics:
 @st.cache_data(show_spinner="Loading Data...")
 def load_data(
     uploaded_files: List[Any], # Changed to Any to handle potential Streamlit UploadedFile wrapper changes
-    panel_rows: int,
-    panel_cols: int,
-    panel_width: float = PANEL_WIDTH, # Default to config if not provided
-    panel_height: float = PANEL_HEIGHT,
-    gap_x: float = GAP_SIZE,
-    gap_y: float = GAP_SIZE
+    layout: LayoutParams
 ) -> PanelData:
     """
     Loads defect data from multiple build-up layer files, validates filenames
@@ -92,6 +88,11 @@ def load_data(
     Returns a PanelData object containing all layers.
     """
     panel_data = PanelData()
+    panel_rows = layout.panel_rows
+    panel_cols = layout.panel_cols
+    # Approximate dimensions for random generation (not strictly needed for logic if using layout)
+    panel_width_est = (layout.quad_width * 2) + layout.gap_mid
+    panel_height_est = (layout.quad_height * 2) + layout.gap_mid
 
     if uploaded_files:
         # Temporary storage for concatenation
@@ -176,8 +177,7 @@ def load_data(
         for layer_num, sides in temp_data.items():
             for side, dfs in sides.items():
                 merged_df = pd.concat(dfs, ignore_index=True)
-                # Pass gap_x and gap_y to BuildUpLayer
-                layer_obj = BuildUpLayer(layer_num, side, merged_df, panel_rows, panel_cols, panel_width, panel_height, gap_x, gap_y)
+                layer_obj = BuildUpLayer(layer_num, side, merged_df, layout)
                 panel_data.add_layer(layer_obj)
 
         if panel_data:
@@ -220,60 +220,19 @@ def load_data(
                 unit_y = np.random.randint(0, total_units_y, size=num_points)
 
                 # 3. Define Random X and Y coordinates between 30 and 480 mm
-                # The prompt requested "30 and 480 mm".
-                # These coordinates are meant to represent the "Raw" coordinates relative to the panel.
-                # Since the plotting logic uses `plot_x` derived from `UNIT_INDEX`, we must ensure
-                # the `X_COORDINATES` and `Y_COORDINATES` columns reflect valid physical positions.
-                # If these are raw micron coordinates, 30mm = 30000um.
-                # But looking at previous code "30, 48", it seems units were ambiguous.
-                # Let's assume millimeters as per the latest request (30-480mm).
-                # We also need to map these to UNIT INDICES to ensure consistency with the plotting logic.
-
-                # Panel is 510x510 or 600x600 depending on config.
-                # Default Config is 600x600.
-                # So 30-480 is a safe inner range.
-
                 rand_x_coords_mm = np.random.uniform(30, 480, size=num_points)
                 rand_y_coords_mm = np.random.uniform(30, 480, size=num_points)
 
                 # Convert mm to microns if that's what the system expects downstream?
-                # The plotting tooltip divides by 1000 to show mm. So it expects Microns.
                 rand_x_coords = rand_x_coords_mm * 1000
                 rand_y_coords = rand_y_coords_mm * 1000
 
                 # --- SYNC UNIT INDICES ---
-                # The current logic generates random Unit Indices INDEPENDENTLY of X/Y coords.
-                # This causes the mismatch: "Why do I see >600mm?".
-                # Because Unit Index 7 might map to 600mm, even if X_COORD says 30mm.
-                # To fix: Reverse map the random X/Y to Unit Indices.
-
-                # Calculate Quadrant size using Passed Params
-                quad_w = panel_width / 2
-                quad_h = panel_height / 2
-                cell_w = quad_w / panel_cols
-                cell_h = quad_h / panel_rows
-
                 # We need to map global X (0-600) to Unit Index X.
-                # NOTE: The plotting logic `models.py` uses `UNIT_INDEX_X` to derive `plot_x`.
-                # If we want `plot_x` to be 30-480, we must pick `UNIT_INDEX_X` accordingly.
-                # Or better: Just generate Unit Indices that correspond to the valid range.
+                # Approx calculation using estimated width
 
-                # 30mm to 480mm range.
-                # Max index = panel_cols * 2 (e.g. 14).
-                # Max width = 600mm + Gap.
-                # 480mm falls roughly at 80% of width.
-
-                # Let's derive indices from the coords.
-                # Handle Gap logic:
-                # If x > quad_w (300), it's in Q2/Q4.
-                # Actually, simply: unit_x = int(x / cell_w).
-                # But we must account for the gap if we want to be precise?
-                # Models.py adds gap if index >= panel_cols.
-                # So here we just map 0-600 linear range to 0-14 indices roughly.
-
-                # Updated logic to use gap_x and gap_y
-                unit_x = (rand_x_coords_mm / (panel_width + gap_x)) * (2 * panel_cols)
-                unit_y = (rand_y_coords_mm / (panel_height + gap_y)) * (2 * panel_rows)
+                unit_x = (rand_x_coords_mm / (panel_width_est)) * (2 * panel_cols)
+                unit_y = (rand_y_coords_mm / (panel_height_est)) * (2 * panel_rows)
 
                 unit_x = unit_x.astype(int)
                 unit_y = unit_y.astype(int)
@@ -315,7 +274,7 @@ def load_data(
                 }
 
                 df = pd.DataFrame(defect_data)
-                layer_obj = BuildUpLayer(layer_num, side, df, panel_rows, panel_cols, panel_width, panel_height, gap_x, gap_y)
+                layer_obj = BuildUpLayer(layer_num, side, df, layout)
                 panel_data.add_layer(layer_obj)
 
     return panel_data

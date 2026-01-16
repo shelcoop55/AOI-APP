@@ -3,10 +3,12 @@ import pytest
 import pandas as pd
 import numpy as np
 from src.data_handler import get_cross_section_matrix, PanelData, BuildUpLayer
+from src.layout import LayoutParams
 
 def create_mock_panel_data():
     panel_rows = 5
     panel_cols = 5
+    layout = LayoutParams(panel_cols, panel_rows, 100, 100, 10, 10, 20, 0)
     panel_data = PanelData()
 
     # Layer 1
@@ -20,7 +22,7 @@ def create_mock_panel_data():
         'Verification': ['TypeA', 'TypeB'], # True defects
         'SIDE': ['F', 'F']
     })
-    layer1 = BuildUpLayer(1, 'F', df1, panel_rows, panel_cols)
+    layer1 = BuildUpLayer(1, 'F', df1, layout)
     panel_data.add_layer(layer1)
 
     # Layer 2
@@ -33,7 +35,7 @@ def create_mock_panel_data():
         'Verification': ['TypeA'],
         'SIDE': ['F']
     })
-    layer2 = BuildUpLayer(2, 'F', df2, panel_rows, panel_cols)
+    layer2 = BuildUpLayer(2, 'F', df2, layout)
     panel_data.add_layer(layer2)
 
     return panel_data, panel_rows, panel_cols

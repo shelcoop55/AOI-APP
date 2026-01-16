@@ -4,7 +4,7 @@ import numpy as np
 from src.state import SessionStore
 from src.plotting import create_still_alive_figure
 from src.data_handler import get_true_defect_coordinates
-from src.config import GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
+from src.config import GAP_SIZE
 
 def render_still_alive_sidebar(store: SessionStore):
     """
@@ -16,8 +16,14 @@ def render_still_alive_sidebar(store: SessionStore):
 def render_still_alive_main(store: SessionStore):
     """Renders the Main Content for the Still Alive view."""
     params = store.analysis_params
-    panel_rows = params.get("panel_rows", 7)
-    panel_cols = params.get("panel_cols", 7)
+    layout = params.get("layout")
+
+    if layout:
+        panel_rows = layout.panel_rows
+        panel_cols = layout.panel_cols
+    else:
+        panel_rows = params.get("panel_rows", 7)
+        panel_cols = params.get("panel_cols", 7)
 
     # Header removed to save space
     # st.header("Still Alive Panel Yield Map")
@@ -77,21 +83,20 @@ def render_still_alive_main(store: SessionStore):
     map_col, summary_col = st.columns([3, 1])
 
     with map_col:
-        offset_x = params.get("offset_x", 0.0)
-        offset_y = params.get("offset_y", 0.0)
-        gap_x = params.get("gap_x", GAP_SIZE)
-        gap_y = params.get("gap_y", GAP_SIZE)
+        if layout:
+            offset_x = layout.margin_x
+            offset_y = layout.margin_y
+            gap_size = layout.gap_mid
+            panel_width = (layout.quad_width * 2) + layout.gap_mid
+            panel_height = (layout.quad_height * 2) + layout.gap_mid
+        else:
+            offset_x = params.get("offset_x", 0.0)
+            offset_y = params.get("offset_y", 0.0)
+            gap_size = params.get("gap_size", GAP_SIZE)
+            panel_width = params.get("panel_width", 410)
+            panel_height = params.get("panel_height", 452)
 
-        # Use dynamic panel dimensions if available
-        panel_width = params.get("panel_width", PANEL_WIDTH)
-        panel_height = params.get("panel_height", PANEL_HEIGHT)
-
-        fig = create_still_alive_figure(
-            panel_rows, panel_cols, true_defect_data,
-            offset_x=offset_x, offset_y=offset_y,
-            gap_x=gap_x, gap_y=gap_y,
-            panel_width=panel_width, panel_height=panel_height
-        )
+        fig = create_still_alive_figure(panel_rows, panel_cols, true_defect_data, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height)
         st.plotly_chart(fig, use_container_width=True)
 
     with summary_col:

@@ -1,8 +1,13 @@
 import streamlit as st
 import pandas as pd
-from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y
+from src.config import (
+    GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR,
+    DEFAULT_QUAD_WIDTH, DEFAULT_QUAD_HEIGHT, DEFAULT_MARGIN_X, DEFAULT_MARGIN_Y,
+    DEFAULT_GAP_MID, DEFAULT_GAP_UNIT
+)
 from src.data_handler import load_data, get_true_defect_coordinates
 from src.reporting import generate_zip_package
+from src.layout import LayoutParams
 from src.enums import ViewMode, Quadrant
 from src.state import SessionStore
 from src.views.manager import ViewManager
@@ -56,12 +61,12 @@ def main() -> None:
                     key=uploader_key
                 )
                 st.number_input(
-                    "Panel Rows", min_value=1, value=6, # Default 6x6 per user spec
+                    "Panel Rows", min_value=1, value=7,
                     help="Number of vertical units in a single quadrant.",
                     key="panel_rows"
                 )
                 st.number_input(
-                    "Panel Columns", min_value=1, value=6, # Default 6x6 per user spec
+                    "Panel Columns", min_value=1, value=7,
                     help="Number of horizontal units in a single quadrant.",
                     key="panel_cols"
                 )
@@ -76,24 +81,27 @@ def main() -> None:
                     key="process_comment"
                 )
 
-            with st.expander("⚙️ Advanced Configuration", expanded=False):
-                # 1. Panel Dimensions (UI Removed - Hardcoded Defaults)
-                # Used to be: c_dim1, c_dim2 inputs for Panel Width/Height
-                # Now using Frame Width/Height (510/515) internally for calculation.
+            with st.expander("⚙️ Advanced Configuration (Layout)", expanded=False):
+                # 1. Quadrant Dimensions (Spec Driven)
+                c_dim1, c_dim2 = st.columns(2)
+                with c_dim1:
+                    st.number_input("Quadrant Width (mm)", value=float(DEFAULT_QUAD_WIDTH), step=1.0, key="quad_width", help="Width of a single quadrant.")
+                with c_dim2:
+                    st.number_input("Quadrant Height (mm)", value=float(DEFAULT_QUAD_HEIGHT), step=1.0, key="quad_height", help="Height of a single quadrant.")
 
-                # 2. Origins (Renamed from Offsets)
-                c_off1, c_off2 = st.columns(2)
-                with c_off1:
-                    st.number_input("X Origin (mm)", value=DEFAULT_OFFSET_X, step=0.1, key="offset_x", help="Shift origin X by this amount.")
-                with c_off2:
-                    st.number_input("Y Origin (mm)", value=DEFAULT_OFFSET_Y, step=0.1, key="offset_y", help="Shift origin Y by this amount.")
+                # 2. Margins (Origins)
+                c_mar1, c_mar2 = st.columns(2)
+                with c_mar1:
+                    st.number_input("Margin X (Left/Right)", value=float(DEFAULT_MARGIN_X), step=0.5, key="margin_x", help="Outer margin on X axis.")
+                with c_mar2:
+                    st.number_input("Margin Y (Top/Bottom)", value=float(DEFAULT_MARGIN_Y), step=0.5, key="margin_y", help="Outer margin on Y axis.")
 
                 # 3. Gaps
                 c_gap1, c_gap2 = st.columns(2)
                 with c_gap1:
-                    st.number_input("Gap X (mm)", value=float(DEFAULT_GAP_X), step=0.1, min_value=0.0, key="gap_x", help="Horizontal gap between quadrants.")
+                    st.number_input("Central Gap (mm)", value=float(DEFAULT_GAP_MID), step=0.5, min_value=0.0, key="gap_mid", help="Gap between quadrants (X/Y).")
                 with c_gap2:
-                    st.number_input("Gap Y (mm)", value=float(DEFAULT_GAP_Y), step=0.1, min_value=0.0, key="gap_y", help="Vertical gap between quadrants.")
+                    st.number_input("Inter-Unit Gap (mm)", value=float(DEFAULT_GAP_UNIT), step=0.05, min_value=0.0, format="%.2f", key="gap_unit", help="Gap between small units inside a quadrant.")
 
             # Callback for Analysis
             def on_run_analysis():
@@ -107,19 +115,30 @@ def main() -> None:
                 comment = st.session_state.process_comment
 
                 # Retrieve Advanced Params
-                off_x = st.session_state.get("offset_x", DEFAULT_OFFSET_X)
-                off_y = st.session_state.get("offset_y", DEFAULT_OFFSET_Y)
-                gap_x = st.session_state.get("gap_x", DEFAULT_GAP_X)
-                gap_y = st.session_state.get("gap_y", DEFAULT_GAP_Y)
+                quad_w = st.session_state.get("quad_width", DEFAULT_QUAD_WIDTH)
+                quad_h = st.session_state.get("quad_height", DEFAULT_QUAD_HEIGHT)
+                margin_x = st.session_state.get("margin_x", DEFAULT_MARGIN_X)
+                margin_y = st.session_state.get("margin_y", DEFAULT_MARGIN_Y)
+                gap_mid = st.session_state.get("gap_mid", DEFAULT_GAP_MID)
+                gap_unit = st.session_state.get("gap_unit", DEFAULT_GAP_UNIT)
 
-                # DYNAMIC CALCULATION of Active Panel Dimensions
-                # Logic: Active_Dim = Total_Frame - (2 * Offset) - Gap
-                p_width = float(FRAME_WIDTH) - (2 * off_x) - gap_x
-                p_height = float(FRAME_HEIGHT) - (2 * off_y) - gap_y
+                # Create LayoutParams object
+                layout = LayoutParams(
+                    panel_cols=cols, panel_rows=rows,
+                    quad_width=quad_w, quad_height=quad_h,
+                    margin_x=margin_x, margin_y=margin_y,
+                    gap_mid=gap_mid, gap_unit=gap_unit
+                )
 
-                # Load Data (This will now hit the cache if arguments are same)
-                # Pass dynamically calculated width/height
-                data = load_data(files, rows, cols, p_width, p_height, gap_x, gap_y)
+                # Load Data
+                # load_data needs to know how to calculate coordinates.
+                # We pass the LayoutParams object or just the dimensions?
+                # load_data caching logic is strict on args.
+                # Ideally, we pass the `layout` object.
+                # Updating `load_data` signature in data_handler.py is next step.
+                # For now, I will pass `layout`.
+
+                data = load_data(files, layout)
                 if data:
                     # UPDATE: Store ID and Metadata, NOT the object
                     if not files:
@@ -158,17 +177,9 @@ def main() -> None:
                     store.selected_layer = None
 
                 store.analysis_params = {
-                    "panel_rows": rows,
-                    "panel_cols": cols,
-                    "panel_width": p_width,
-                    "panel_height": p_height,
-                    "gap_x": gap_x,
-                    "gap_y": gap_y,
-                    "gap_size": gap_x, # Backwards compatibility
+                    "layout": layout, # Store the full layout object
                     "lot_number": lot,
-                    "process_comment": comment,
-                    "offset_x": off_x,
-                    "offset_y": off_y
+                    "process_comment": comment
                 }
                 store.report_bytes = None
 
@@ -185,11 +196,6 @@ def main() -> None:
 
                 def on_reset():
                     store.clear_all()
-                    # Re-initialize uploader_key immediately after clearing state
-                    # to prevent KeyError on rerun or subsequent access
-                    if "uploader_key" not in st.session_state:
-                        st.session_state["uploader_key"] = 0
-
                     # Increment key to recreate file uploader widget (effectively clearing it)
                     st.session_state["uploader_key"] += 1
                     # Rerun will happen automatically after callback

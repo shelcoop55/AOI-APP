@@ -3,35 +3,39 @@ import streamlit as st
 from src import data_handler
 from src.data_handler import load_data, prepare_multi_layer_data
 from src.models import PanelData, BuildUpLayer
+from src.layout import LayoutParams
 from unittest.mock import MagicMock
 import pandas as pd
 import importlib
 
-# Mock Cache Decorator properly to handle arguments
-def mock_cache_data(*args, **kwargs):
-    def decorator(func):
-        # We need to return the original function, but we need to ensure it's callable.
-        # This mock returns 'decorator', which wraps 'func'.
-        # But 'func' is the function being decorated.
-        # Wait, if st.cache_data is called as @st.cache_data(), then args is empty (or show_spinner).
-        # It returns decorator.
-        # The decorator takes func and returns wrapper.
-        # Our mock returns 'decorator' which takes 'func' and returns 'func'.
-        return func
-    return decorator
+# Robust Mock for st.cache_data
+def robust_mock_cache_data(arg1=None, **kwargs):
+    """Handles both @st.cache_data and @st.cache_data(...) usage."""
+    if callable(arg1):
+        # Case: @st.cache_data (no args)
+        return arg1
+    else:
+        # Case: @st.cache_data(...) (with args)
+        def decorator(func):
+            return func
+        return decorator
 
 @pytest.fixture(autouse=True)
 def mock_streamlit_cache(monkeypatch):
     """Mocks st.cache_data to bypass caching logic during tests."""
-    monkeypatch.setattr(st, "cache_data", mock_cache_data)
+    monkeypatch.setattr(st, "cache_data", robust_mock_cache_data)
     # Reload module to apply mock
     importlib.reload(data_handler)
+
+def create_layout():
+    return LayoutParams(7, 7, 200, 200, 10, 10, 20, 0)
 
 def test_prepare_multi_layer_data(mock_streamlit_cache):
     """Test aggregation of multiple layers."""
     # Setup
     panel = PanelData()
     panel._layers = {}
+    layout = create_layout()
 
     # Layer 1
     df1 = pd.DataFrame({
@@ -40,7 +44,7 @@ def test_prepare_multi_layer_data(mock_streamlit_cache):
         'DEFECT_TYPE': ['Nick', 'Short'], 'DEFECT_ID': [1, 2],
         'physical_plot_x_raw': [1.0, 2.0], 'physical_plot_x_flipped': [1.0, 2.0], 'plot_y': [1.0, 2.0]
     })
-    panel.add_layer(BuildUpLayer(1, 'F', df1, 7, 7))
+    panel.add_layer(BuildUpLayer(1, 'F', df1, layout))
 
     # Layer 2
     df2 = pd.DataFrame({
@@ -49,7 +53,7 @@ def test_prepare_multi_layer_data(mock_streamlit_cache):
         'DEFECT_TYPE': ['Void', 'Open'], 'DEFECT_ID': [3, 4],
         'physical_plot_x_raw': [3.0, 4.0], 'physical_plot_x_flipped': [3.0, 4.0], 'plot_y': [3.0, 4.0]
     })
-    panel.add_layer(BuildUpLayer(2, 'B', df2, 7, 7))
+    panel.add_layer(BuildUpLayer(2, 'B', df2, layout))
 
     # Execute using reloaded module
     result = data_handler.prepare_multi_layer_data(panel)
