@@ -98,7 +98,8 @@ class HeatmapTool(AnalysisTool):
         # 7. Layout Params
         offset_x = params.get("offset_x", 0.0)
         offset_y = params.get("offset_y", 0.0)
-        gap_size = params.get("gap_size", GAP_SIZE)
+        gap_x = params.get("gap_x", GAP_SIZE)
+        gap_y = params.get("gap_y", GAP_SIZE)
 
         # Dynamic Panel Size
         panel_width = params.get("panel_width", PANEL_WIDTH)
@@ -134,7 +135,8 @@ class HeatmapTool(AnalysisTool):
                 quadrant_selection=selected_quadrant,
                 offset_x=offset_x,
                 offset_y=offset_y,
-                gap_size=gap_size,
+                gap_x=gap_x,
+                gap_y=gap_y,
                 panel_width=panel_width,
                 panel_height=panel_height
             )
@@ -159,10 +161,10 @@ class HeatmapTool(AnalysisTool):
                         # Adjusted for Dynamic Offsets and Gap
 
                         is_left = (click_x >= offset_x) and (click_x < offset_x + quad_width)
-                        is_right = (click_x > offset_x + quad_width + gap_size)
+                        is_right = (click_x > offset_x + quad_width + gap_x)
 
                         is_bottom = (click_y >= offset_y) and (click_y < offset_y + quad_height)
-                        is_top = (click_y > offset_y + quad_height + gap_size)
+                        is_top = (click_y > offset_y + quad_height + gap_y)
 
                         if is_left and is_bottom: clicked_quad = "Q1"
                         elif is_right and is_bottom: clicked_quad = "Q2"
