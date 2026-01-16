@@ -168,6 +168,12 @@ class BuildUpLayer:
         plot_x_base_flipped = local_index_x_flipped * cell_width
         x_offset_flipped = np.where(df['PHYSICAL_X_FLIPPED'] >= self.panel_cols, QUADRANT_WIDTH + GAP_SIZE, 0)
 
+        # B) RAW MODE (No Flip) - PRE-CALCULATE VARIABLES
+        df['PHYSICAL_X_RAW'] = df['UNIT_INDEX_X']
+        local_index_x_raw_phys = df['PHYSICAL_X_RAW'] % self.panel_cols
+        plot_x_base_raw_phys = local_index_x_raw_phys * cell_width
+        x_offset_raw_phys = np.where(df['PHYSICAL_X_RAW'] >= self.panel_cols, QUADRANT_WIDTH + GAP_SIZE, 0)
+
         if use_spatial_coords:
             # For flipped view, we need to flip the absolute coordinate relative to the panel width?
             # Flipping absolute coordinates is complex (need max width).
