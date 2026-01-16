@@ -155,9 +155,9 @@ def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', 
     quad_height = panel_height / 2
 
     all_origins = {
-        'Q1': (0 , 0 ),
-        'Q2': (quad_width + gap_x + offset_x, 0),
-        'Q3': (0, quad_height + gap_y + offset_y),
+        'Q1': (0 + offset_x, 0 + offset_y),
+        'Q2': (quad_width + gap_x + offset_x, 0 + offset_y),
+        'Q3': (0 + offset_x, quad_height + gap_y + offset_y),
         'Q4': (quad_width + gap_x + offset_x, quad_height + gap_y + offset_y)
     }
     origins_to_draw = all_origins if quadrant == 'All' else {quadrant: all_origins[quadrant]}
@@ -374,24 +374,23 @@ def create_multi_layer_defect_map(
 
     apply_panel_theme(fig, "Multi-Layer Combined Defect Map (True Defects Only)")
 
-       fig.update_layout(
-            xaxis=dict(
-                title="Unit Column Index",
-                tickvals=x_tick_vals_q1 + x_tick_vals_q2,
-                ticktext=x_tick_text,
-                # FIX: Start at 0 to show the Left Margin. End at Frame Width.
-                range=[0, panel_width + gap_x + (2 * offset_x)], 
-                constrain='domain'
-            ),
-            yaxis=dict(
-                title="Unit Row Index",
-                tickvals=y_tick_vals_q1 + y_tick_vals_q3,
-                ticktext=y_tick_text,
-                # FIX: Start at 0 to show Bottom Margin. End at Frame Height.
-                range=[0, panel_height + gap_y + (2 * offset_y)]
-            ),
-            legend=dict(title=dict(text="Build-Up Layer"))
-        )
+    # FIX: Updated Range to show margins (0 to Frame Width)
+    fig.update_layout(
+        xaxis=dict(
+            title="Unit Column Index",
+            tickvals=x_tick_vals_q1 + x_tick_vals_q2,
+            ticktext=x_tick_text,
+            range=[0, panel_width + gap_x + (2 * offset_x)],
+            constrain='domain'
+        ),
+        yaxis=dict(
+            title="Unit Row Index",
+            tickvals=y_tick_vals_q1 + y_tick_vals_q3,
+            ticktext=y_tick_text,
+            range=[0, panel_height + gap_y + (2 * offset_y)]
+        ),
+        legend=dict(title=dict(text="Build-Up Layer"))
+    )
 
     return fig
     
@@ -414,8 +413,8 @@ def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int,
     y_tick_vals_q3 = [(quad_height + gap_y) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
 
-    x_axis_range = [offset_x, offset_x + panel_width + gap_x]
-    y_axis_range = [offset_y, offset_y + panel_height + gap_y]
+    x_axis_range = [0, panel_width + gap_x + (2 * offset_x)] # FIX: Start at 0
+    y_axis_range = [0, panel_height + gap_y + (2 * offset_y)] # FIX: Start at 0
     show_ticks = True
 
     if quadrant_selection != Quadrant.ALL.value:
@@ -644,11 +643,14 @@ def create_still_alive_figure(
 
     fig.update_layout(
         xaxis=dict(
-            title="Unit Column Index", range=[offset_x, offset_x + panel_width + gap_x], constrain='domain',
+            title="Unit Column Index",
+            range=[0, panel_width + gap_x + (2 * offset_x)], # FIX: Start at 0
+            constrain='domain',
             tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text
         ),
         yaxis=dict(
-            title="Unit Row Index", range=[offset_y, offset_y + panel_height + gap_y],
+            title="Unit Row Index",
+            range=[0, panel_height + gap_y + (2 * offset_y)], # FIX: Start at 0
             tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text
         ),
         shapes=map_shapes, margin=dict(l=20, r=20, t=80, b=20),
