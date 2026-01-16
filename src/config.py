@@ -7,12 +7,13 @@ including color themes and the method for loading defect-specific styles.
 
 # --- Physical Constants (in mm) ---
 # These define the real-world dimensions of the panel being simulated.
-# Updated to 410x452 as per user request.
+# Updated to match user calculation:
+# Width Calculation: Total 510 - (2 * 40 Offset) - 20 Gap = 410 Active Width.
+# Height Calculation: Total 515 - (2 * 22.5 Offset) - 20 Gap = 450 Active Height.
 PANEL_WIDTH = 410
-PANEL_HEIGHT = 452
+PANEL_HEIGHT = 450
 # The physical gap between the quadrants on the panel.
-# Updated to 13mm default.
-GAP_SIZE = 13
+GAP_SIZE = 20
 
 # Derived constants that were causing import errors
 # NOTE: These are now defaults; logic should prefer dynamic values if provided.
