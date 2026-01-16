@@ -568,7 +568,7 @@ def create_still_alive_map(
             shapes.append({'type': 'rect', 'x0': x0, 'y0': y0, 'x1': x0 + cell_width, 'y1': y0 + cell_height, 'fillcolor': fill_color, 'line': {'width': 0}, 'layer': 'below'})
 
     # 2. Draw grid lines over the colored cells
-    shapes.extend(create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size))
+    shapes.extend(create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height))
 
     # 3. Create Scatter Trace for Hover
     if hover_x:
