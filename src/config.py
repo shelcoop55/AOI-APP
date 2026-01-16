@@ -40,8 +40,8 @@ UNIT_EDGE_COLOR = '#8B4513'  # Saddle Brown (Unit Edge/Stroke)
 TEXT_COLOR = '#5A2D0C'       # Dark Bronze (Text)
 
 GRID_COLOR = UNIT_EDGE_COLOR # Map legacy grid color to unit edge
-BACKGROUND_COLOR = '#212121' # Dark charcoal grey for the app background
-PLOT_AREA_COLOR = '#333333'  # Slightly lighter grey for the plot area
+BACKGROUND_COLOR = '#FFFFFF' # White background as requested
+PLOT_AREA_COLOR = '#FFFFFF'  # White plot area to match background
 
 # Colors for the "Still Alive" yield map
 ALIVE_CELL_COLOR = '#2ECC71' # A vibrant green for cells without "True" defects.
