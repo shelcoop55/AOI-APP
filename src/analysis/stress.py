@@ -4,7 +4,7 @@ from src.analysis.base import AnalysisTool
 from src.enums import ViewMode
 from src.plotting import create_stress_heatmap, create_delta_heatmap
 from src.data_handler import aggregate_stress_data
-from src.config import GAP_SIZE
+from src.config import GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
 
 class StressMapTool(AnalysisTool):
     @property
@@ -57,15 +57,19 @@ class StressMapTool(AnalysisTool):
         offset_y = params.get("offset_y", 0.0)
         gap_size = params.get("gap_size", GAP_SIZE)
 
-        if mode_new == "Cumulative":
-            stress_data = aggregate_stress_data(
-                self.store.layer_data, keys, panel_rows, panel_cols, panel_uid,
-                verification_filter=selected_verifs,
-                quadrant_filter=selected_quadrant
-            )
-            fig = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode=view_mode, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size)
-
-        else: # Delta
+        # Dynamic Dimensions
+        # Note: Stress Maps use Grid Counts (Indices), not physical coords for bins.
+        # But 'Quarterly' view mode in plotting.py overlays physical grid.
+        # So we should pass dimensions.
+        # create_stress_heatmap signature needs update?
+        # Let's check src/plotting.py again.
+        # create_stress_heatmap currently: (..., offset_x, offset_y, gap_size)
+        # It calls create_grid_shapes internally.
+        # create_grid_shapes NOW requires panel_width/height (defaults to global if not passed).
+        # We must update create_stress_heatmap to accept and pass dimensions.
+        # I need to update src/plotting.py FIRST for stress functions.
+        # Assuming I missed it in the previous step?
+        # Let's double check src/plotting.py via grep.
             # Delta Difference logic: "Front vs Back" for selected layers
             keys_f = [k for k in keys if k[1] == 'F']
             keys_b = [k for k in keys if k[1] == 'B']

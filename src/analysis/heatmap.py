@@ -100,6 +100,13 @@ class HeatmapTool(AnalysisTool):
         offset_y = params.get("offset_y", 0.0)
         gap_size = params.get("gap_size", GAP_SIZE)
 
+        # Dynamic Panel Size
+        panel_width = params.get("panel_width", PANEL_WIDTH)
+        panel_height = params.get("panel_height", PANEL_HEIGHT)
+
+        quad_width = panel_width / 2
+        quad_height = panel_height / 2
+
         # --- DATA PREPARATION (CACHED) ---
         # We pass self.store.layer_data.id if available, else a dummy or we assume static.
         # PanelData in models.py has .id attribute.
@@ -127,7 +134,9 @@ class HeatmapTool(AnalysisTool):
                 quadrant_selection=selected_quadrant,
                 offset_x=offset_x,
                 offset_y=offset_y,
-                gap_size=gap_size
+                gap_size=gap_size,
+                panel_width=panel_width,
+                panel_height=panel_height
             )
 
             # --- INTERACTIVITY: CLICK TO ZOOM ---
@@ -149,11 +158,11 @@ class HeatmapTool(AnalysisTool):
                         # Logic matches create_grid_shapes / config.py
                         # Adjusted for Dynamic Offsets and Gap
 
-                        is_left = (click_x >= offset_x) and (click_x < offset_x + QUADRANT_WIDTH)
-                        is_right = (click_x > offset_x + QUADRANT_WIDTH + gap_size)
+                        is_left = (click_x >= offset_x) and (click_x < offset_x + quad_width)
+                        is_right = (click_x > offset_x + quad_width + gap_size)
 
-                        is_bottom = (click_y >= offset_y) and (click_y < offset_y + QUADRANT_HEIGHT)
-                        is_top = (click_y > offset_y + QUADRANT_HEIGHT + gap_size)
+                        is_bottom = (click_y >= offset_y) and (click_y < offset_y + quad_height)
+                        is_top = (click_y > offset_y + quad_height + gap_size)
 
                         if is_left and is_bottom: clicked_quad = "Q1"
                         elif is_right and is_bottom: clicked_quad = "Q2"

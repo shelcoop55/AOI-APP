@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR
+from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT
 from src.data_handler import load_data, get_true_defect_coordinates
 from src.reporting import generate_zip_package
 from src.enums import ViewMode, Quadrant
@@ -77,13 +77,22 @@ def main() -> None:
                 )
 
             with st.expander("⚙️ Advanced Configuration", expanded=False):
+                # 1. Panel Dimensions
+                c_dim1, c_dim2 = st.columns(2)
+                with c_dim1:
+                    st.number_input("Panel Width (mm)", value=float(PANEL_WIDTH), step=1.0, key="custom_panel_width", help="Total physical width of the panel.")
+                with c_dim2:
+                    st.number_input("Panel Height (mm)", value=float(PANEL_HEIGHT), step=1.0, key="custom_panel_height", help="Total physical height of the panel.")
+
+                # 2. Origins (Renamed from Offsets)
                 c_off1, c_off2 = st.columns(2)
                 with c_off1:
-                    st.number_input("X Offset (mm)", value=35.0, step=1.0, key="offset_x", help="Shift origin X by this amount.")
+                    st.number_input("X Origin (mm)", value=35.0, step=1.0, key="offset_x", help="Shift origin X by this amount.")
                 with c_off2:
-                    st.number_input("Y Offset (mm)", value=35.0, step=1.0, key="offset_y", help="Shift origin Y by this amount.")
+                    st.number_input("Y Origin (mm)", value=35.0, step=1.0, key="offset_y", help="Shift origin Y by this amount.")
 
-                st.number_input("Gap Size (mm)", value=35.0, step=1.0, min_value=0.0, key="custom_gap_size", help="Distance between quadrants.")
+                # 3. Gap Size
+                st.number_input("Gap Size (mm)", value=float(GAP_SIZE), step=1.0, min_value=0.0, key="custom_gap_size", help="Distance between quadrants.")
 
             # Callback for Analysis
             def on_run_analysis():
@@ -95,12 +104,18 @@ def main() -> None:
                 cols = st.session_state.panel_cols
                 lot = st.session_state.lot_number
                 comment = st.session_state.process_comment
+
+                # Retrieve Advanced Params
                 off_x = st.session_state.get("offset_x", 35.0)
                 off_y = st.session_state.get("offset_y", 35.0)
                 gap_size = st.session_state.get("custom_gap_size", GAP_SIZE)
 
+                p_width = st.session_state.get("custom_panel_width", float(PANEL_WIDTH))
+                p_height = st.session_state.get("custom_panel_height", float(PANEL_HEIGHT))
+
                 # Load Data (This will now hit the cache if arguments are same)
-                data = load_data(files, rows, cols)
+                # Pass width/height to ensure models are built with correct dimensions
+                data = load_data(files, rows, cols, p_width, p_height)
                 if data:
                     # UPDATE: Store ID and Metadata, NOT the object
                     if not files:
@@ -141,6 +156,8 @@ def main() -> None:
                 store.analysis_params = {
                     "panel_rows": rows,
                     "panel_cols": cols,
+                    "panel_width": p_width,
+                    "panel_height": p_height,
                     "gap_size": gap_size,
                     "lot_number": lot,
                     "process_comment": comment,

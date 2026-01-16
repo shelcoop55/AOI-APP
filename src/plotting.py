@@ -14,7 +14,7 @@ from src.config import (
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, FALLBACK_COLORS, SAFE_VERIFICATION_VALUES,
     VERIFICATION_COLOR_SAFE, VERIFICATION_COLOR_DEFECT, NEON_PALETTE
 )
-from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT, StressMapData
+from src.data_handler import StressMapData
 from src.documentation import VERIFICATION_DESCRIPTIONS
 from src.enums import Quadrant
 
@@ -23,12 +23,15 @@ from src.enums import Quadrant
 # --- Private Helper Functions for Grid Creation ---
 # ==============================================================================
 
-def _draw_border_and_gaps(ox: float = 0.0, oy: float = 0.0, gap_size: float = GAP_SIZE) -> List[Dict[str, Any]]:
+def _draw_border_and_gaps(ox: float = 0.0, oy: float = 0.0, gap_size: float = GAP_SIZE, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT) -> List[Dict[str, Any]]:
     """Creates the shapes for the outer border and inner gaps of the panel."""
     shapes = []
     gap_color = '#A8652A'
-    total_width_with_gap = PANEL_WIDTH + gap_size
-    total_height_with_gap = PANEL_HEIGHT + gap_size
+    total_width_with_gap = panel_width + gap_size
+    total_height_with_gap = panel_height + gap_size
+
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
 
     # Outer border frame (Shifted by ox, oy)
     # Using dynamic gap_size for frame thickness? Usually GAP_SIZE is used as border thickness too.
@@ -41,29 +44,32 @@ def _draw_border_and_gaps(ox: float = 0.0, oy: float = 0.0, gap_size: float = GA
 
     # Inner gaps
     shapes.extend([
-        dict(type="rect", x0=QUADRANT_WIDTH+ox, y0=0+oy, x1=QUADRANT_WIDTH + gap_size+ox, y1=total_height_with_gap+oy, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=0+ox, y0=QUADRANT_HEIGHT+oy, x1=total_width_with_gap+ox, y1=QUADRANT_HEIGHT + gap_size+oy, fillcolor=gap_color, line_width=0, layer='below')
+        dict(type="rect", x0=quad_width+ox, y0=0+oy, x1=quad_width + gap_size+ox, y1=total_height_with_gap+oy, fillcolor=gap_color, line_width=0, layer='below'),
+        dict(type="rect", x0=0+ox, y0=quad_height+oy, x1=total_width_with_gap+ox, y1=quad_height + gap_size+oy, fillcolor=gap_color, line_width=0, layer='below')
     ])
     return shapes
 
-def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int, fill: bool = True) -> List[Dict[str, Any]]:
+def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int, fill: bool = True, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT) -> List[Dict[str, Any]]:
     """Creates the shapes for the quadrant outlines and their internal grid lines."""
     shapes = []
-    cell_width = QUADRANT_WIDTH / panel_cols
-    cell_height = QUADRANT_HEIGHT / panel_rows
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    cell_width = quad_width / panel_cols
+    cell_height = quad_height / panel_rows
 
     for x_start, y_start in origins_to_draw.values():
         if fill:
             shapes.append(dict(
-                type="rect", x0=x_start, y0=y_start, x1=x_start + QUADRANT_WIDTH, y1=y_start + QUADRANT_HEIGHT,
+                type="rect", x0=x_start, y0=y_start, x1=x_start + quad_width, y1=y_start + quad_height,
                 line=dict(color=GRID_COLOR, width=2), fillcolor=PANEL_COLOR, layer='below'
             ))
         for i in range(1, panel_cols):
             line_x = x_start + (i * cell_width)
-            shapes.append(dict(type="line", x0=line_x, y0=y_start, x1=line_x, y1=y_start + QUADRANT_HEIGHT, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
+            shapes.append(dict(type="line", x0=line_x, y0=y_start, x1=line_x, y1=y_start + quad_height, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
         for i in range(1, panel_rows):
             line_y = y_start + (i * cell_height)
-            shapes.append(dict(type="line", x0=x_start, y0=line_y, x1=x_start + QUADRANT_WIDTH, y1=line_y, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
+            shapes.append(dict(type="line", x0=x_start, y0=line_y, x1=x_start + quad_width, y1=line_y, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
             
     return shapes
 
@@ -103,23 +109,26 @@ def apply_panel_theme(fig: go.Figure, title: str = "", height: int = 800) -> go.
     )
     return fig
 
-def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', fill: bool = True, offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE) -> List[Dict[str, Any]]:
+def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', fill: bool = True, offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT) -> List[Dict[str, Any]]:
     """
     Creates the visual shapes for the panel grid in a fixed 510x510mm coordinate system.
     Supports shifting origin via offset_x/y and dynamic gap.
     """
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
     all_origins = {
         'Q1': (0 + offset_x, 0 + offset_y),
-        'Q2': (QUADRANT_WIDTH + gap_size + offset_x, 0 + offset_y),
-        'Q3': (0 + offset_x, QUADRANT_HEIGHT + gap_size + offset_y),
-        'Q4': (QUADRANT_WIDTH + gap_size + offset_x, QUADRANT_HEIGHT + gap_size + offset_y)
+        'Q2': (quad_width + gap_size + offset_x, 0 + offset_y),
+        'Q3': (0 + offset_x, quad_height + gap_size + offset_y),
+        'Q4': (quad_width + gap_size + offset_x, quad_height + gap_size + offset_y)
     }
     origins_to_draw = all_origins if quadrant == 'All' else {quadrant: all_origins[quadrant]}
     shapes = []
     if quadrant == 'All':
-        shapes.extend(_draw_border_and_gaps(offset_x, offset_y, gap_size))
+        shapes.extend(_draw_border_and_gaps(offset_x, offset_y, gap_size, panel_width, panel_height))
 
-    shapes.extend(_draw_quadrant_grids(origins_to_draw, panel_rows, panel_cols, fill=fill))
+    shapes.extend(_draw_quadrant_grids(origins_to_draw, panel_rows, panel_cols, fill=fill, panel_width=panel_width, panel_height=panel_height))
     return shapes
 
 def create_defect_traces(df: pd.DataFrame, offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE) -> List[go.Scatter]:
@@ -223,7 +232,9 @@ def create_multi_layer_defect_map(
     flip_back: bool = True,
     offset_x: float = 0.0,
     offset_y: float = 0.0,
-    gap_size: float = GAP_SIZE
+    gap_size: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT
 ) -> go.Figure:
     """
     Creates a defect map visualizing defects from ALL layers simultaneously.
@@ -320,14 +331,17 @@ def create_multi_layer_defect_map(
                 ))
 
     # Add Grid
-    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', offset_x=offset_x, offset_y=offset_y, gap_size=gap_size))
+    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height))
+
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
 
     # Calculate ticks (reused from standard map logic)
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
     x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + gap_size) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    x_tick_vals_q2 = [(quad_width + gap_size) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
     y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + gap_size) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
+    y_tick_vals_q3 = [(quad_height + gap_size) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text = list(range(panel_cols * 2))
     y_tick_text = list(range(panel_rows * 2))
 
@@ -338,44 +352,61 @@ def create_multi_layer_defect_map(
             title="Unit Column Index",
             tickvals=x_tick_vals_q1 + x_tick_vals_q2,
             ticktext=x_tick_text,
-            range=[-gap_size + offset_x, PANEL_WIDTH + (gap_size * 2) + offset_x], constrain='domain'
+            range=[offset_x, offset_x + panel_width + gap_size], constrain='domain'
         ),
         yaxis=dict(
             title="Unit Row Index",
             tickvals=y_tick_vals_q1 + y_tick_vals_q3,
             ticktext=y_tick_text,
-            range=[-gap_size + offset_y, PANEL_HEIGHT + (gap_size * 2) + offset_y]
+            range=[offset_y, offset_y + panel_height + gap_size]
         ),
         legend=dict(title=dict(text="Build-Up Layer"))
     )
 
     return fig
     
-def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int, quadrant_selection: str = Quadrant.ALL.value, lot_number: Optional[str] = None, title: Optional[str] = None, offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE) -> go.Figure:
+def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int, quadrant_selection: str = Quadrant.ALL.value, lot_number: Optional[str] = None, title: Optional[str] = None, offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT) -> go.Figure:
     """
     Creates the full Defect Map Figure (Traces + Grid + Layout).
     """
+    # Use Dynamic Dimensions
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    # Override internal helpers if they rely on globals?
+    # create_grid_shapes uses helper _draw_border_and_gaps which uses globals.
+    # We must pass dimensions to them.
+    # Refactor create_grid_shapes call.
+
     fig = go.Figure(data=create_defect_traces(df, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size))
-    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size))
+    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height))
 
     # Calculate ticks and ranges with offsets
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
     x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + gap_size) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    x_tick_vals_q2 = [(quad_width + gap_size) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
     y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + gap_size) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
+    y_tick_vals_q3 = [(quad_height + gap_size) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
 
-    # Axis Range Calculation using Gap
-    x_axis_range, y_axis_range, show_ticks = [-gap_size + offset_x, PANEL_WIDTH + (gap_size * 2) + offset_x], [-gap_size + offset_y, PANEL_HEIGHT + (gap_size * 2) + offset_y], True
+    # Axis Range Calculation (NO MARGIN as requested)
+    # Range: [Origin, Origin + Width + Gap]
+    # Actually, visual range needs to cover both quadrants + gap.
+    # X Min: offset_x
+    # X Max: offset_x + panel_width + gap_size
+    # Same for Y.
+
+    x_axis_range = [offset_x, offset_x + panel_width + gap_size]
+    y_axis_range = [offset_y, offset_y + panel_height + gap_size]
+    show_ticks = True
 
     if quadrant_selection != Quadrant.ALL.value:
         show_ticks = False
         ranges = {
-            'Q1': ([0+offset_x, QUADRANT_WIDTH+offset_x], [0+offset_y, QUADRANT_HEIGHT+offset_y]),
-            'Q2': ([QUADRANT_WIDTH + gap_size+offset_x, PANEL_WIDTH + gap_size+offset_x], [0+offset_y, QUADRANT_HEIGHT+offset_y]),
-            'Q3': ([0+offset_x, QUADRANT_WIDTH+offset_x], [QUADRANT_HEIGHT + gap_size+offset_y, PANEL_HEIGHT + gap_size+offset_y]),
-            'Q4': ([QUADRANT_WIDTH + gap_size+offset_x, PANEL_WIDTH + gap_size+offset_x], [QUADRANT_HEIGHT + gap_size+offset_y, PANEL_HEIGHT + gap_size+offset_y])
+            'Q1': ([0+offset_x, quad_width+offset_x], [0+offset_y, quad_height+offset_y]),
+            'Q2': ([quad_width + gap_size+offset_x, panel_width + gap_size+offset_x], [0+offset_y, quad_height+offset_y]),
+            'Q3': ([0+offset_x, quad_width+offset_x], [quad_height + gap_size+offset_y, panel_height + gap_size+offset_y]),
+            'Q4': ([quad_width + gap_size+offset_x, panel_width + gap_size+offset_x], [quad_height + gap_size+offset_y, panel_height + gap_size+offset_y])
         }
         x_axis_range, y_axis_range = ranges[quadrant_selection]
 
@@ -389,7 +420,7 @@ def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int,
     )
 
     if lot_number and quadrant_selection == Quadrant.ALL.value:
-        fig.add_annotation(x=PANEL_WIDTH + gap_size + offset_x, y=PANEL_HEIGHT + gap_size + offset_y, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
+        fig.add_annotation(x=panel_width + gap_size + offset_x, y=panel_height + gap_size + offset_y, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
 
     return fig
 
@@ -465,7 +496,9 @@ def create_still_alive_map(
     true_defect_data: Dict[Tuple[int, int], Dict[str, Any]],
     offset_x: float = 0.0,
     offset_y: float = 0.0,
-    gap_size: float = GAP_SIZE
+    gap_size: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT
 ) -> Tuple[List[Dict[str, Any]], List[go.Scatter]]:
     """
     Creates the shapes for the 'Still Alive' map AND invisible scatter points for tooltips.
@@ -477,14 +510,17 @@ def create_still_alive_map(
     shapes = []
     traces = []
 
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
     total_cols, total_rows = panel_cols * 2, panel_rows * 2
     all_origins = {
         'Q1': (0 + offset_x, 0 + offset_y),
-        'Q2': (QUADRANT_WIDTH + gap_size + offset_x, 0 + offset_y),
-        'Q3': (0 + offset_x, QUADRANT_HEIGHT + gap_size + offset_y),
-        'Q4': (QUADRANT_WIDTH + gap_size + offset_x, QUADRANT_HEIGHT + gap_size + offset_y)
+        'Q2': (quad_width + gap_size + offset_x, 0 + offset_y),
+        'Q3': (0 + offset_x, quad_height + gap_size + offset_y),
+        'Q4': (quad_width + gap_size + offset_x, quad_height + gap_size + offset_y)
     }
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
 
     # Prepare lists for scatter trace (Tooltips)
     hover_x = []
@@ -553,20 +589,25 @@ def create_still_alive_figure(
     true_defect_data: Dict[Tuple[int, int], Dict[str, Any]],
     offset_x: float = 0.0,
     offset_y: float = 0.0,
-    gap_size: float = GAP_SIZE
+    gap_size: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT
 ) -> go.Figure:
     """
     Creates the Still Alive Map Figure (Shapes + Layout + Tooltips).
     """
-    map_shapes, hover_traces = create_still_alive_map(panel_rows, panel_cols, true_defect_data, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size)
+    map_shapes, hover_traces = create_still_alive_map(panel_rows, panel_cols, true_defect_data, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height)
 
     fig = go.Figure(data=hover_traces) # Add hover traces
 
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
     x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + gap_size) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    x_tick_vals_q2 = [(quad_width + gap_size) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
     y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + gap_size) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
+    y_tick_vals_q3 = [(quad_height + gap_size) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text = list(range(panel_cols * 2))
     y_tick_text = list(range(panel_rows * 2))
 
@@ -574,11 +615,11 @@ def create_still_alive_figure(
 
     fig.update_layout(
         xaxis=dict(
-            title="Unit Column Index", range=[-gap_size + offset_x, PANEL_WIDTH + (gap_size * 2) + offset_x], constrain='domain',
+            title="Unit Column Index", range=[offset_x, offset_x + panel_width + gap_size], constrain='domain',
             tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text
         ),
         yaxis=dict(
-            title="Unit Row Index", range=[-gap_size + offset_y, PANEL_HEIGHT + (gap_size * 2) + offset_y],
+            title="Unit Row Index", range=[offset_y, offset_y + panel_height + gap_size],
             tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text
         ),
         shapes=map_shapes, margin=dict(l=20, r=20, t=80, b=20),
@@ -813,7 +854,9 @@ def create_density_contour_map(
     quadrant_selection: str = 'All',
     offset_x: float = 0.0,
     offset_y: float = 0.0,
-    gap_size: float = GAP_SIZE
+    gap_size: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT
 ) -> go.Figure:
     """
     2. Smoothed Density Contour Map (OPTIMIZED).
@@ -912,8 +955,8 @@ def create_density_contour_map(
     num_bins = [bins_y, bins_x]
 
     # Boundary Definitions with Offsets
-    x_min, x_max = offset_x, PANEL_WIDTH + gap_size + offset_x
-    y_min, y_max = offset_y, PANEL_HEIGHT + gap_size + offset_y
+    x_min, x_max = offset_x, panel_width + gap_size + offset_x
+    y_min, y_max = offset_y, panel_height + gap_size + offset_y
 
     # --- QUADRANT-AWARE AGGREGATION ---
     # We calculate 4 separate histograms if "Gap" exists
@@ -1023,10 +1066,13 @@ def create_density_contour_map(
     Z = H # Already transposed in helper
 
     # Masking Gap (Shifted by offset)
-    gap_x_start = QUADRANT_WIDTH + offset_x
-    gap_x_end = QUADRANT_WIDTH + gap_size + offset_x
-    gap_y_start = QUADRANT_HEIGHT + offset_y
-    gap_y_end = QUADRANT_HEIGHT + gap_size + offset_y
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    gap_x_start = quad_width + offset_x
+    gap_x_end = quad_width + gap_size + offset_x
+    gap_y_start = quad_height + offset_y
+    gap_y_end = quad_height + gap_size + offset_y
 
     mask_x = (x_centers > gap_x_start) & (x_centers < gap_x_end)
     mask_y = (y_centers > gap_y_start) & (y_centers < gap_y_end)
@@ -1085,12 +1131,13 @@ def create_density_contour_map(
     # 3. Grid Overlay
     shapes = []
     if show_grid:
-        shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size)
+        shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height)
 
     # 4. Axis Labels
     # ... (Keep existing axis logic)
-    cell_width = QUADRANT_WIDTH / panel_cols
-    cell_height = QUADRANT_HEIGHT / panel_rows
+    # Re-calculate as local vars if needed or reuse quad_width from above
+    cell_width = quad_width / panel_cols
+    cell_height = quad_height / panel_rows
     total_cols = panel_cols * 2
     total_rows = panel_rows * 2
 
@@ -1111,16 +1158,17 @@ def create_density_contour_map(
         y_tick_vals.append(center_mm)
         y_tick_text.append(str(i))
 
-    # Axis Ranges shifted by offset
-    x_axis_range = [-GAP_SIZE + offset_x, PANEL_WIDTH + GAP_SIZE*2 + offset_x]
-    y_axis_range = [-GAP_SIZE + offset_y, PANEL_HEIGHT + GAP_SIZE*2 + offset_y]
+    # Axis Ranges shifted by offset (NO MARGIN)
+    x_axis_range = [offset_x, offset_x + panel_width + gap_size]
+    y_axis_range = [offset_y, offset_y + panel_height + gap_size]
 
     if quadrant_selection != 'All':
+        # Apply offsets to quadrant ranges
         ranges = {
-            'Q1': ([0, QUADRANT_WIDTH], [0, QUADRANT_HEIGHT]),
-            'Q2': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [0, QUADRANT_HEIGHT]),
-            'Q3': ([0, QUADRANT_WIDTH], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]),
-            'Q4': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE])
+            'Q1': ([offset_x, offset_x + quad_width], [offset_y, offset_y + quad_height]),
+            'Q2': ([offset_x + quad_width + gap_size, offset_x + panel_width + gap_size], [offset_y, offset_y + quad_height]),
+            'Q3': ([offset_x, offset_x + quad_width], [offset_y + quad_height + gap_size, offset_y + panel_height + gap_size]),
+            'Q4': ([offset_x + quad_width + gap_size, offset_x + panel_width + gap_size], [offset_y + quad_height + gap_size, offset_y + panel_height + gap_size])
         }
         x_axis_range, y_axis_range = ranges[quadrant_selection]
 
@@ -1228,11 +1276,14 @@ def create_defect_sunburst(df: pd.DataFrame) -> go.Figure:
 
     return fig
 
-def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int, view_mode: str = "Continuous", offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE) -> go.Figure:
+def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int, view_mode: str = "Continuous", offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT) -> go.Figure:
     """
     Creates the Cumulative Stress Heatmap with defect counts in cells.
     Supports 'Quarterly' view mode by injecting NaNs or splitting.
     """
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
     if data.total_defects == 0:
         return go.Figure(layout=dict(
             title=dict(text="No True Defects Found in Selection", font=dict(color=TEXT_COLOR)),
@@ -1262,8 +1313,8 @@ def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int,
         # Expect rows = panel_rows*2, cols = panel_cols*2
 
         # Vectorized Coordinate Calculation
-        cell_width = QUADRANT_WIDTH / panel_cols
-        cell_height = QUADRANT_HEIGHT / panel_rows
+        cell_width = quad_width / panel_cols
+        cell_height = quad_height / panel_rows
 
         col_indices = np.arange(cols)
         row_indices = np.arange(rows)
@@ -1299,15 +1350,15 @@ def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int,
         ))
 
         # Add Grid Shapes for Quarterly view
-        fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size))
+        fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height))
 
-        # Ranges
-        max_x = PANEL_WIDTH + gap_size*2
-        max_y = PANEL_HEIGHT + gap_size*2
+        # Ranges (NO MARGIN)
+        max_x = panel_width + gap_size # Only 1 gap
+        max_y = panel_height + gap_size
 
         fig.update_layout(
-            xaxis=dict(title="Physical X", range=[-gap_size + offset_x, max_x + offset_x], constrain='domain', showticklabels=False),
-            yaxis=dict(title="Physical Y", range=[-gap_size + offset_y, max_y + offset_y], showticklabels=False)
+            xaxis=dict(title="Physical X", range=[offset_x, max_x + offset_x], constrain='domain', showticklabels=False),
+            yaxis=dict(title="Physical Y", range=[offset_y, max_y + offset_y], showticklabels=False)
         )
 
     else:
@@ -1347,10 +1398,13 @@ def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int,
     apply_panel_theme(fig, "Cumulative Stress Map (Total Defects per Unit)", height=700)
     return fig
 
-def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_rows: int, panel_cols: int, view_mode: str = "Continuous", offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE) -> go.Figure:
+def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_rows: int, panel_cols: int, view_mode: str = "Continuous", offset_x: float = 0.0, offset_y: float = 0.0, gap_size: float = GAP_SIZE, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT) -> go.Figure:
     """
     Creates a Delta Heatmap (Group A - Group B).
     """
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
     diff_grid = data_a.grid_counts.astype(float) - data_b.grid_counts.astype(float)
     # Text: Show signed difference
     text_data = np.array([f"{int(x):+d}" if x != 0 else "" for x in diff_grid.flatten()]).reshape(diff_grid.shape)
@@ -1358,8 +1412,8 @@ def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_row
 
     if view_mode == "Quarterly":
         rows, cols = diff_grid.shape
-        cell_width = QUADRANT_WIDTH / panel_cols
-        cell_height = QUADRANT_HEIGHT / panel_rows
+        cell_width = quad_width / panel_cols
+        cell_height = quad_height / panel_rows
 
         # Vectorized Gaps
         col_indices = np.arange(cols)
@@ -1383,13 +1437,13 @@ def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_row
             colorbar=dict(title='Delta (A - B)', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
         ))
 
-        fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size))
-        max_x = PANEL_WIDTH + gap_size*2
-        max_y = PANEL_HEIGHT + gap_size*2
+        fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height))
+        max_x = panel_width + gap_size
+        max_y = panel_height + gap_size
 
         fig.update_layout(
-            xaxis=dict(title="Physical X", range=[-gap_size + offset_x, max_x + offset_x], constrain='domain', showticklabels=False),
-            yaxis=dict(title="Physical Y", range=[-gap_size + offset_y, max_y + offset_y], showticklabels=False)
+            xaxis=dict(title="Physical X", range=[offset_x, max_x + offset_x], constrain='domain', showticklabels=False),
+            yaxis=dict(title="Physical Y", range=[offset_y, max_y + offset_y], showticklabels=False)
         )
 
     else:

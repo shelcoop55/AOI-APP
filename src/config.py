@@ -7,14 +7,15 @@ including color themes and the method for loading defect-specific styles.
 
 # --- Physical Constants (in mm) ---
 # These define the real-world dimensions of the panel being simulated.
-# Updated to 400x400 as per user request.
-PANEL_WIDTH = 400
-PANEL_HEIGHT = 400
+# Updated to 410x452 as per user request.
+PANEL_WIDTH = 410
+PANEL_HEIGHT = 452
 # The physical gap between the quadrants on the panel.
-# Updated to 0 to ensure "Raw MM" plotting is contiguous by default.
-GAP_SIZE = 0
+# Updated to 13mm default.
+GAP_SIZE = 13
 
 # Derived constants that were causing import errors
+# NOTE: These are now defaults; logic should prefer dynamic values if provided.
 QUADRANT_WIDTH = PANEL_WIDTH / 2
 QUADRANT_HEIGHT = PANEL_HEIGHT / 2
 

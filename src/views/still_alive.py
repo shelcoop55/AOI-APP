@@ -80,8 +80,10 @@ def render_still_alive_main(store: SessionStore):
         offset_x = params.get("offset_x", 0.0)
         offset_y = params.get("offset_y", 0.0)
         gap_size = params.get("gap_size", GAP_SIZE)
+        panel_width = params.get("panel_width", 410)
+        panel_height = params.get("panel_height", 452)
 
-        fig = create_still_alive_figure(panel_rows, panel_cols, true_defect_data, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size)
+        fig = create_still_alive_figure(panel_rows, panel_cols, true_defect_data, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height)
         st.plotly_chart(fig, use_container_width=True)
 
     with summary_col:

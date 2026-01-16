@@ -15,11 +15,6 @@ from dataclasses import dataclass
 from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES
 from .models import PanelData, BuildUpLayer
 
-# --- DERIVED PHYSICAL CONSTANTS ---
-# These constants are calculated from the primary dimensions in config.py
-QUADRANT_WIDTH = PANEL_WIDTH / 2
-QUADRANT_HEIGHT = PANEL_HEIGHT / 2
-
 # --- DEFECT DEFINITIONS ---
 # List of (Code, Description) tuples for data generation
 DEFECT_DEFINITIONS = [
@@ -86,6 +81,8 @@ def load_data(
     uploaded_files: List[Any], # Changed to Any to handle potential Streamlit UploadedFile wrapper changes
     panel_rows: int,
     panel_cols: int,
+    panel_width: float = PANEL_WIDTH, # Default to config if not provided
+    panel_height: float = PANEL_HEIGHT
 ) -> PanelData:
     """
     Loads defect data from multiple build-up layer files, validates filenames
@@ -177,7 +174,7 @@ def load_data(
         for layer_num, sides in temp_data.items():
             for side, dfs in sides.items():
                 merged_df = pd.concat(dfs, ignore_index=True)
-                layer_obj = BuildUpLayer(layer_num, side, merged_df, panel_rows, panel_cols)
+                layer_obj = BuildUpLayer(layer_num, side, merged_df, panel_rows, panel_cols, panel_width, panel_height)
                 panel_data.add_layer(layer_obj)
 
         if panel_data:
@@ -247,9 +244,9 @@ def load_data(
                 # Because Unit Index 7 might map to 600mm, even if X_COORD says 30mm.
                 # To fix: Reverse map the random X/Y to Unit Indices.
 
-                # Calculate Quadrant size
-                quad_w = PANEL_WIDTH / 2 # 300
-                quad_h = PANEL_HEIGHT / 2 # 300
+                # Calculate Quadrant size using Passed Params
+                quad_w = panel_width / 2
+                quad_h = panel_height / 2
                 cell_w = quad_w / panel_cols
                 cell_h = quad_h / panel_rows
 
@@ -271,8 +268,8 @@ def load_data(
                 # Models.py adds gap if index >= panel_cols.
                 # So here we just map 0-600 linear range to 0-14 indices roughly.
 
-                unit_x = (rand_x_coords_mm / (PANEL_WIDTH + GAP_SIZE)) * (2 * panel_cols)
-                unit_y = (rand_y_coords_mm / (PANEL_HEIGHT + GAP_SIZE)) * (2 * panel_rows)
+                unit_x = (rand_x_coords_mm / (panel_width + GAP_SIZE)) * (2 * panel_cols)
+                unit_y = (rand_y_coords_mm / (panel_height + GAP_SIZE)) * (2 * panel_rows)
 
                 unit_x = unit_x.astype(int)
                 unit_y = unit_y.astype(int)
@@ -314,7 +311,7 @@ def load_data(
                 }
 
                 df = pd.DataFrame(defect_data)
-                layer_obj = BuildUpLayer(layer_num, side, df, panel_rows, panel_cols)
+                layer_obj = BuildUpLayer(layer_num, side, df, panel_rows, panel_cols, panel_width, panel_height)
                 panel_data.add_layer(layer_obj)
 
     return panel_data
