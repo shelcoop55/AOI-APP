@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import uuid
 from typing import Dict, List, Optional
-from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT
+from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT, INTER_UNIT_GAP
 
 @dataclass
 class BuildUpLayer:
@@ -67,8 +67,13 @@ class BuildUpLayer:
         quad_width = self.panel_width / 2
         quad_height = self.panel_height / 2
 
-        cell_width = quad_width / self.panel_cols
-        cell_height = quad_height / self.panel_rows
+        # Updated Logic: Subtract gaps first to get true unit size
+        cell_width = (quad_width - (self.panel_cols - 1) * INTER_UNIT_GAP) / self.panel_cols
+        cell_height = (quad_height - (self.panel_rows - 1) * INTER_UNIT_GAP) / self.panel_rows
+
+        # Stride includes the unit width plus the gap
+        stride_x = cell_width + INTER_UNIT_GAP
+        stride_y = cell_height + INTER_UNIT_GAP
 
         # --- 1. RAW COORDINATES (Individual View - No Flip) ---
         # Calculate Raw Quadrant
@@ -84,8 +89,8 @@ class BuildUpLayer:
         local_index_x_raw = df['UNIT_INDEX_X'] % self.panel_cols
         local_index_y = df['UNIT_INDEX_Y'] % self.panel_rows
 
-        plot_x_base_raw = local_index_x_raw * cell_width
-        plot_y_base = local_index_y * cell_height
+        plot_x_base_raw = local_index_x_raw * stride_x
+        plot_y_base = local_index_y * stride_y
 
         x_offset_raw = np.where(df['UNIT_INDEX_X'] >= self.panel_cols, quad_width + self.gap_x, 0)
         y_offset = np.where(df['UNIT_INDEX_Y'] >= self.panel_rows, quad_height + self.gap_y, 0)
@@ -174,13 +179,13 @@ class BuildUpLayer:
         df['PHYSICAL_X'] = df['PHYSICAL_X_FLIPPED']
 
         local_index_x_flipped = df['PHYSICAL_X_FLIPPED'] % self.panel_cols
-        plot_x_base_flipped = local_index_x_flipped * cell_width
+        plot_x_base_flipped = local_index_x_flipped * stride_x
         x_offset_flipped = np.where(df['PHYSICAL_X_FLIPPED'] >= self.panel_cols, quad_width + self.gap_x, 0)
 
         # B) RAW MODE (No Flip) - PRE-CALCULATE VARIABLES
         df['PHYSICAL_X_RAW'] = df['UNIT_INDEX_X']
         local_index_x_raw_phys = df['PHYSICAL_X_RAW'] % self.panel_cols
-        plot_x_base_raw_phys = local_index_x_raw_phys * cell_width
+        plot_x_base_raw_phys = local_index_x_raw_phys * stride_x
         x_offset_raw_phys = np.where(df['PHYSICAL_X_RAW'] >= self.panel_cols, quad_width + self.gap_x, 0)
 
         if use_spatial_coords:
