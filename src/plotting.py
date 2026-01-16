@@ -379,13 +379,13 @@ def create_multi_layer_defect_map(
             title="Unit Column Index",
             tickvals=x_tick_vals_q1 + x_tick_vals_q2,
             ticktext=x_tick_text,
-            range=[offset_x, offset_x + panel_width + gap_x], constrain='domain'
+            range=[0, 2*offset_x + panel_width + 2*gap_x], constrain='domain'
         ),
         yaxis=dict(
             title="Unit Row Index",
             tickvals=y_tick_vals_q1 + y_tick_vals_q3,
             ticktext=y_tick_text,
-            range=[offset_y, offset_y + panel_height + gap_y]
+            range=[0, 2*offset_y + panel_height + *gap_y]
         ),
         legend=dict(title=dict(text="Build-Up Layer"))
     )
