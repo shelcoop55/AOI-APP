@@ -385,7 +385,7 @@ def create_multi_layer_defect_map(
             title="Unit Row Index",
             tickvals=y_tick_vals_q1 + y_tick_vals_q3,
             ticktext=y_tick_text,
-            range=[0, 2*offset_y + panel_height + *gap_y]
+            range=[0, 2*offset_y + panel_height + 2*gap_y]
         ),
         legend=dict(title=dict(text="Build-Up Layer"))
     )
