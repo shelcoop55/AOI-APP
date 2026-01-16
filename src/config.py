@@ -47,7 +47,7 @@ AXIS_TEXT_COLOR = '#5A2D0C'        # Dark Bronze (Text/Labels)
 
 BACKGROUND_COLOR = '#2C3E50' # White background.
 PLOT_AREA_COLOR = '#333333'  # Dark Grey for plot area (contrast).
-TEXT_COLOR = '#000000'       # Black text for readability on white.
+TEXT_COLOR = '#FFFFFF'       # Black text for readability on white.
 
 # Colors for the "Still Alive" yield map
 ALIVE_CELL_COLOR = '#2ECC71' # A vibrant green for cells without "True" defects.
