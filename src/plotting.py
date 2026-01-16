@@ -374,24 +374,24 @@ def create_multi_layer_defect_map(
 
     apply_panel_theme(fig, "Multi-Layer Combined Defect Map (True Defects Only)")
 
-   fig.update_layout(
-        xaxis=dict(
-            title="Unit Column Index",
-            tickvals=x_tick_vals_q1 + x_tick_vals_q2,
-            ticktext=x_tick_text,
-            # FIX: Start at 0 to show the Left Margin. End at Frame Width.
-            range=[0, panel_width + gap_x + (2 * offset_x)], 
-            constrain='domain'
-        ),
-        yaxis=dict(
-            title="Unit Row Index",
-            tickvals=y_tick_vals_q1 + y_tick_vals_q3,
-            ticktext=y_tick_text,
-            # FIX: Start at 0 to show Bottom Margin. End at Frame Height.
-            range=[0, panel_height + gap_y + (2 * offset_y)]
-        ),
-        legend=dict(title=dict(text="Build-Up Layer"))
-    )
+       fig.update_layout(
+            xaxis=dict(
+                title="Unit Column Index",
+                tickvals=x_tick_vals_q1 + x_tick_vals_q2,
+                ticktext=x_tick_text,
+                # FIX: Start at 0 to show the Left Margin. End at Frame Width.
+                range=[0, panel_width + gap_x + (2 * offset_x)], 
+                constrain='domain'
+            ),
+            yaxis=dict(
+                title="Unit Row Index",
+                tickvals=y_tick_vals_q1 + y_tick_vals_q3,
+                ticktext=y_tick_text,
+                # FIX: Start at 0 to show Bottom Margin. End at Frame Height.
+                range=[0, panel_height + gap_y + (2 * offset_y)]
+            ),
+            legend=dict(title=dict(text="Build-Up Layer"))
+        )
 
     return fig
     
