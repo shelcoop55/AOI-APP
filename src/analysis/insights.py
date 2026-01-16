@@ -15,14 +15,6 @@ class InsightsTool(AnalysisTool):
         # Header removed to save space
         # st.header("Insights & Sankey View")
 
-        # User requirement: "When user have selected Insight View He will See First two only [Layer/Verif]"
-        # This implies aggregation across selected layers? Or still single layer?
-        # The prompt says "First two only because those are the one which is reuired".
-        # This strongly implies multi-layer context.
-        # But Sunburst/Sankey are typically dense.
-        # If I aggregate all selected layers, it might be messy.
-        # However, I should respect the selection.
-
         selected_layer_nums = self.store.multi_layer_selection or self.store.layer_data.get_all_layer_nums()
         side_pills = st.session_state.get("analysis_side_pills", ["Front", "Back"])
         selected_verifs = st.session_state.get("multi_verification_selection", [])
@@ -38,7 +30,11 @@ class InsightsTool(AnalysisTool):
             for s in sides:
                 layer = self.store.layer_data.get_layer(layer_num, s)
                 if layer and not layer.data.empty:
-                    dfs.append(layer.data)
+                    # Create a copy to avoid modifying the cached object
+                    df_layer = layer.data.copy()
+                    df_layer['LAYER_NUM'] = layer_num
+                    df_layer['SIDE'] = s
+                    dfs.append(df_layer)
 
         if dfs:
             combined_df = pd.concat(dfs, ignore_index=True)
