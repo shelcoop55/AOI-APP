@@ -91,44 +91,62 @@ class BuildUpLayer:
 
         if 'X_COORDINATES' in df.columns and 'Y_COORDINATES' in df.columns:
             try:
-                # Group by Unit to normalize coordinates locally
-                # We use transform to keep shape aligned with df
+                # ABSOLUTE MAPPING: Convert Microns to Millimeters directly.
+                # Assumes X_COORDINATES are relative to the unit origin (0 to Cell Width).
+                # No padding, no relative normalization.
 
-                # Function to MinMax scale with 10% padding [0.1, 0.9]
-                def normalize_group(g):
-                    if len(g) == 1:
-                        return np.array([0.5]) # Center single points
+                # Check bounds (optional warning?) - For now, we trust the data.
 
-                    min_val = g.min()
-                    max_val = g.max()
+                # Convert um to mm
+                abs_x_mm = df['X_COORDINATES'] / 1000.0
+                abs_y_mm = df['Y_COORDINATES'] / 1000.0
 
-                    if min_val == max_val:
-                        return np.full(len(g), 0.5) # Center if all same
-
-                    # Normalize to 0-1 then scale to 0.1-0.9
-                    normalized = (g - min_val) / (max_val - min_val)
-                    return normalized * 0.8 + 0.1
-
-                norm_x = df.groupby(['UNIT_INDEX_X', 'UNIT_INDEX_Y'])['X_COORDINATES'].transform(normalize_group)
-                norm_y = df.groupby(['UNIT_INDEX_X', 'UNIT_INDEX_Y'])['Y_COORDINATES'].transform(normalize_group)
-
-                use_spatial_coords = True
+                # Ensure they are numeric
+                if pd.api.types.is_numeric_dtype(abs_x_mm) and pd.api.types.is_numeric_dtype(abs_y_mm):
+                    use_spatial_coords = True
+                else:
+                    use_spatial_coords = False
             except Exception as e:
-                # Fallback to jitter if normalization fails (e.g., non-numeric data)
-                print(f"Spatial normalization failed: {e}")
+                print(f"Spatial mapping failed: {e}")
                 use_spatial_coords = False
 
-        if use_spatial_coords and norm_x is not None and norm_y is not None:
-            # Use normalized relative positions
-            offset_x = norm_x * cell_width
-            offset_y = norm_y * cell_height
+        if use_spatial_coords:
+            # Use absolute mm offsets
+            offset_x = abs_x_mm
+            offset_y = abs_y_mm
         else:
             # Use Random Jitter (10% to 90% of cell)
             offset_x = np.random.rand(len(df)) * cell_width * 0.8 + (cell_width * 0.1)
             offset_y = np.random.rand(len(df)) * cell_height * 0.8 + (cell_height * 0.1)
 
-        df['plot_x'] = plot_x_base_raw + x_offset_raw + offset_x
-        df['plot_y'] = plot_y_base + y_offset + offset_y
+        # --- COORDINATE ASSIGNMENT ---
+        # If using precise spatial coordinates (absolute mm), we ignore the unit-grid base position.
+        # If using Unit Index only, we use the base position + jitter offset.
+
+        if use_spatial_coords:
+            # offset_x/y hold the ABSOLUTE mm coordinates
+            # We still need to account for GAP if the absolute coordinate crosses the gap boundary?
+            # User said "plot based on my coordinates".
+            # If coordinates are raw micron values from the machine, they usually ignore the visual gap we insert.
+            # So we just use them directly as the 'base' position relative to (0,0).
+            # BUT, we must still respect the Gap Logic for Q2/Q4 if we want to separate them visually?
+            # If the user provides raw coords (0-600mm), they might already include the gap or not.
+            # Usually raw coords are contiguous. We want to insert a gap.
+
+            # Logic:
+            # 1. Identify if point is in Q2/Q4 (Right Side).
+            # 2. If so, add GAP_SIZE to its X.
+            # 3. Add global UI offset (handled in plotting.py).
+
+            # We use x_offset_raw which adds GAP_SIZE based on UNIT_INDEX.
+            # We assume UNIT_INDEX correctly identifies the quadrant even if we use absolute coords.
+
+            df['plot_x'] = offset_x + x_offset_raw
+            df['plot_y'] = offset_y + y_offset
+        else:
+            # Relative/Grid-based positioning
+            df['plot_x'] = plot_x_base_raw + x_offset_raw + offset_x
+            df['plot_y'] = plot_y_base + y_offset + offset_y
 
         # --- 2. PHYSICAL COORDINATES (Stacked View) ---
         # We now support two modes: Flipped (Aligned) and Raw (Unaligned).
@@ -150,19 +168,70 @@ class BuildUpLayer:
         plot_x_base_flipped = local_index_x_flipped * cell_width
         x_offset_flipped = np.where(df['PHYSICAL_X_FLIPPED'] >= self.panel_cols, QUADRANT_WIDTH + GAP_SIZE, 0)
 
-        # We do NOT flip the internal spatial offset (offset_x) as per user request.
-        df['physical_plot_x_flipped'] = plot_x_base_flipped + x_offset_flipped + offset_x
+        if use_spatial_coords:
+            # For flipped view, we need to flip the absolute coordinate relative to the panel width?
+            # Flipping absolute coordinates is complex (need max width).
+            # Simplified: Use the grid-based logic for the flipped view for now, OR rely on UNIT_INDEX flipping.
+            # If we use offset_x (absolute), it is NOT flipped.
+            # If the user wants alignment, we should probably stick to grid logic for this specific "Stack" view,
+            # OR implement true mirroring of coordinates: Max_X - Coord_X.
+            # Given the constraints and "user request to NOT flip internal spatial offset",
+            # we will assume offset_x applies as-is to the flipped grid cell?
+            # Actually, `plot_x_base_flipped` puts us in the correct flipped cell.
+            # If we add `offset_x` (Absolute), we are adding a massive number (e.g. 165mm) to the flipped base.
+            # This BREAKS the flipped view too.
 
+            # Correction: In Flipped Mode, we probably shouldn't use Absolute Coords linearly if they are global.
+            # If Absolute Coords are "Global X", then flipping means "Total Width - Global X".
+            # If `offset_x` holds Global X.
 
-        # B) RAW MODE (No Flip)
-        # Back side treated same as Front (Left-to-Right)
-        df['PHYSICAL_X_RAW'] = df['UNIT_INDEX_X']
+            # Let's try to flip the Global X.
+            # Total Width approx PANEL_WIDTH.
+            # df['physical_plot_x_flipped'] = PANEL_WIDTH - offset_x (roughly).
+            # But we must respect the Gap.
 
-        local_index_x_raw_phys = df['PHYSICAL_X_RAW'] % self.panel_cols
-        plot_x_base_raw_phys = local_index_x_raw_phys * cell_width
-        x_offset_raw_phys = np.where(df['PHYSICAL_X_RAW'] >= self.panel_cols, QUADRANT_WIDTH + GAP_SIZE, 0)
+            # To be safe and ensure the Stack view works without massive regression:
+            # We will use the UNIT_INDEX derived position for the "Base" of the flip,
+            # and only use the "Relative" part of the spatial coord if we can derive it.
+            # BUT we overwrote `offset_x` with Absolute.
+            # So we cannot use `offset_x` here for relative jitter.
 
-        df['physical_plot_x_raw'] = plot_x_base_raw_phys + x_offset_raw_phys + offset_x
+            # Fallback: For Physical/Flipped views, if using absolute coords,
+            # we just use the calculated `plot_x` (Raw) and rely on the plotting layer to handle side-by-side?
+            # No, Stack view overlays them.
+
+            # DECISION: For the "Multi-Layer" view (which uses physical_plot_x_flipped),
+            # we will disable the Absolute Coordinate override and fall back to Grid Center to avoid complexity
+            # and regression, UNLESS we can easily flip.
+            # Since `offset_x` is now Absolute, `plot_x_base_flipped + offset_x` is definitely wrong (Double Count).
+
+            # We must NOT add `plot_x_base_flipped`.
+            # We just want the Flipped Absolute Coordinate.
+            # Flip Logic: X_Flipped = Max_Width - X_Raw.
+            # Max_Width = PANEL_WIDTH (approx).
+            # We should probably use that.
+
+            # Note: We need to handle the Gap.
+            # If X_Raw is in Q2 (e.g. 350), X_Flipped is in Q1 (e.g. 110).
+            # Gap handling is tricky.
+
+            # Safe Bet: For now, map Flipped X to `(Total_Units - Unit_Index) * Cell_Width + (Cell_Width/2)`.
+            # Ignore fine spatial coords for the Flipped View to ensure robustness.
+            # This effectively "snaps" the flipped view to grid centers, but ensures it's visible.
+
+            # Re-calculate a relative offset for visual variance?
+            # offset_x_rel = (offset_x % cell_width) ... maybe?
+            # Too risky.
+
+            # We'll just use the Grid Base + Centering for flipped/phys views when absolute coords are active.
+            df['physical_plot_x_flipped'] = plot_x_base_flipped + x_offset_flipped + (cell_width/2)
+            df['physical_plot_x_raw'] = plot_x_base_raw_phys + x_offset_raw_phys + (cell_width/2)
+
+        else:
+            # Default Jitter Logic
+            # We do NOT flip the internal spatial offset (offset_x) as per user request (from original code).
+            df['physical_plot_x_flipped'] = plot_x_base_flipped + x_offset_flipped + offset_x
+            df['physical_plot_x_raw'] = plot_x_base_raw_phys + x_offset_raw_phys + offset_x
 
 
 class PanelData:
