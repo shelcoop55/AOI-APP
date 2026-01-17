@@ -47,31 +47,9 @@ def _get_rounded_rect_path(x0: float, y0: float, x1: float, y1: float, r: float)
 
 def _draw_border_and_gaps(ox: float = 0.0, oy: float = 0.0, gap_x: float = GAP_SIZE, gap_y: float = GAP_SIZE, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT, theme_config: Optional[PlotTheme] = None) -> List[Dict[str, Any]]:
     """Creates the shapes for the outer border and inner gaps of the panel."""
-    shapes = []
-    # Main Panel Background (Copper) is used for outer border and major gaps
-    gap_color = theme_config.panel_background_color if theme_config else PANEL_BACKGROUND_COLOR
-
-    x_start = ox - gap_x
-    x_end = ox + panel_width + 2 * gap_x
-
-    y_start = oy - gap_y
-    y_end = oy + panel_height + 2 * gap_y
-
-    # Corner Radius
-    radius = 10.0 # 10mm radius
-
-    # Draw One Big Rounded Rectangle
-    path = _get_rounded_rect_path(x_start, y_start, x_end, y_end, radius)
-
-    shapes.append(dict(
-        type="path",
-        path=path,
-        fillcolor=gap_color,
-        line_width=0,
-        layer='below'
-    ))
-
-    return shapes
+    # REPLACED: We now draw rounded backgrounds per quadrant in _draw_quadrant_grids.
+    # This function is kept for API compatibility but returns nothing to avoid obscuring the rounded corners.
+    return []
 
 def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int, fill: bool = True, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT, theme_config: Optional[PlotTheme] = None) -> List[Dict[str, Any]]:
     """Creates the shapes for the quadrant outlines and individual unit rectangles."""
@@ -84,10 +62,12 @@ def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int
         bg_color = theme_config.panel_background_color
         edge_color = theme_config.unit_edge_color
         face_color = theme_config.unit_face_color
+        border_color = theme_config.axis_color
     else:
         bg_color = PANEL_BACKGROUND_COLOR
         edge_color = UNIT_EDGE_COLOR
         face_color = UNIT_FACE_COLOR
+        border_color = GRID_COLOR
 
     # Calculate Unit Dimensions accounting for inter-unit gaps
     # Formula: UnitWidth = (QuadWidth - (Cols - 1) * gap) / Cols
@@ -96,11 +76,14 @@ def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int
 
     for x_start, y_start in origins_to_draw.values():
         if fill:
-            # 1. Draw the Background Copper Rect for the whole quadrant
-            # REPLACED by the single large rounded rect in _draw_border_and_gaps for 'All' view.
+            # 1. Draw the Background Copper Rect for the whole quadrant (ROUNDED)
+            path = _get_rounded_rect_path(x_start, y_start, x_start + quad_width, y_start + quad_height, 15.0)
             shapes.append(dict(
-                type="rect", x0=x_start, y0=y_start, x1=x_start + quad_width, y1=y_start + quad_height,
-                line=dict(width=0), fillcolor=bg_color, layer='below'
+                type="path",
+                path=path,
+                fillcolor=bg_color,
+                line=dict(color=border_color, width=3),
+                layer='below'
             ))
 
             # 2. Draw individual Unit Rects (Peach)
