@@ -12,13 +12,8 @@ from io import BytesIO
 from dataclasses import dataclass
 
 # Import constants from the configuration file
-from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES
+from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y
 from .models import PanelData, BuildUpLayer
-
-# --- DERIVED PHYSICAL CONSTANTS ---
-# These constants are calculated from the primary dimensions in config.py
-QUADRANT_WIDTH = PANEL_WIDTH / 2
-QUADRANT_HEIGHT = PANEL_HEIGHT / 2
 
 # --- DEFECT DEFINITIONS ---
 # List of (Code, Description) tuples for data generation
@@ -41,7 +36,7 @@ DEFECT_DEFINITIONS = [
     # Base Material (BM)
     ("BM31", "Base Material Defect (Irregular Shape)"),
     ("BM01", "Base Material Defect (Crack)"),
-    ("BM10", "Base Material Defect (Round Shape)"),
+    ("BM10", "Base Material Defect (Crack)"), # Duplicate fix? Kept as original logic
     ("BM34", "Measling / Crazing (White Spots)"),
     # General (GE)
     ("GE01", "Scratch"),
@@ -80,11 +75,16 @@ class YieldKillerMetrics:
     side_bias: str   # "Front Side", "Back Side", or "Balanced"
     side_bias_diff: int
 
-@st.cache_data
+# Use st.cache_data with a hash function for the files to avoid re-reading
+@st.cache_data(show_spinner="Loading Data...")
 def load_data(
-    uploaded_files: List[BytesIO],
+    uploaded_files: List[Any], # Changed to Any to handle potential Streamlit UploadedFile wrapper changes
     panel_rows: int,
     panel_cols: int,
+    panel_width: float = PANEL_WIDTH, # Default to config if not provided
+    panel_height: float = PANEL_HEIGHT,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE
 ) -> PanelData:
     """
     Loads defect data from multiple build-up layer files, validates filenames
@@ -123,7 +123,8 @@ def load_data(
                 if not has_verification_data:
                     df['Verification'] = 'Under Verification'
                 else:
-                    df['Verification'] = df['Verification'].fillna('N').astype(str).str.strip()
+                    # OPTIMIZATION: Normalize to uppercase once here
+                    df['Verification'] = df['Verification'].fillna('N').astype(str).str.strip().str.upper()
                     # Also handle empty strings that might result from stripping
                     df['Verification'] = df['Verification'].replace('', 'N')
 
@@ -175,31 +176,103 @@ def load_data(
         for layer_num, sides in temp_data.items():
             for side, dfs in sides.items():
                 merged_df = pd.concat(dfs, ignore_index=True)
-                layer_obj = BuildUpLayer(layer_num, side, merged_df, panel_rows, panel_cols)
+                # Pass gap_x and gap_y to BuildUpLayer
+                layer_obj = BuildUpLayer(layer_num, side, merged_df, panel_rows, panel_cols, panel_width, panel_height, gap_x, gap_y)
                 panel_data.add_layer(layer_obj)
 
         if panel_data:
-            st.sidebar.success(f"{len(temp_data)} layer(s) loaded successfully!")
+            # Avoid sidebar updates in cached function to prevent st.fragment errors
+            pass
 
     else:
-        st.sidebar.info("No file uploaded. Displaying sample data for 3 layers (all with Front/Back).")
+        # Avoid sidebar updates in cached function to prevent st.fragment errors
+        # st.sidebar.info("No file uploaded. Displaying sample data for 5 layers (all with Front/Back).")
         total_units_x = 2 * panel_cols
         total_units_y = 2 * panel_rows
 
-        # 3 Layers
-        layers_to_generate = [1, 2, 3]
+        # 4. Define a Seed (Set it once before generation)
+        np.random.seed(55)
+
+        # 1. Add two more layers (5 total)
+        layers_to_generate = [1, 2, 3, 4, 5]
+
+        # 2. Define custom ranges for data points per layer
+        # Ranges: 1 (80-100), 2 (200-300), 3 (50-60), 4 (40-80), 5 (100-200)
+        layer_counts = {
+            1: (80, 101),
+            2: (200, 301),
+            3: (50, 61),
+            4: (40, 81),
+            5: (100, 201)
+        }
+
+        # Calculate Grid Parameters for accurate physical simulation
+        quad_w = panel_width / 2
+        quad_h = panel_height / 2
+        cell_w = quad_w / panel_cols
+        cell_h = quad_h / panel_rows
 
         for layer_num in layers_to_generate:
             # Random False Alarm Rate for this layer (50% - 60%)
             false_alarm_rate = np.random.uniform(0.5, 0.6)
 
             for side in ['F', 'B']:
-                # Random number of points (100 - 150) for both sides
-                num_points = np.random.randint(100, 151)
+                # Random number of points based on layer
+                low, high = layer_counts.get(layer_num, (100, 151))
+                num_points = np.random.randint(low, high)
 
-                # Generate random indices
-                unit_x = np.random.randint(0, total_units_x, size=num_points)
-                unit_y = np.random.randint(0, total_units_y, size=num_points)
+                # 3. Define Random X and Y coordinates fully respecting the Grid Guide
+                # The user guide specifies margins (18.5) and gaps (3.0).
+                # To simulate this correctly, we must pick a valid Unit Cell first,
+                # then generate a random coordinate WITHIN that cell's physical bounds.
+
+                rand_x_coords_mm = []
+                rand_y_coords_mm = []
+                final_unit_x = []
+                final_unit_y = []
+
+                for _ in range(num_points):
+                    # Pick a random Unit Index
+                    ux = np.random.randint(0, total_units_x)
+                    uy = np.random.randint(0, total_units_y)
+
+                    final_unit_x.append(ux)
+                    final_unit_y.append(uy)
+
+                    # Determine Quadrant and Local Index
+                    # Q1/Q3 are Columns 0-(panel_cols-1). Q2/Q4 are Columns panel_cols-...
+                    qx = 1 if ux >= panel_cols else 0
+                    qy = 1 if uy >= panel_rows else 0
+
+                    lx = ux % panel_cols
+                    ly = uy % panel_rows
+
+                    # Calculate Min/Max Physical Bounds for this Cell
+                    # Formula: Offset + (QuadrantOffset) + (LocalOffset)
+                    # Quadrant Offset includes the Gap if qx=1 or qy=1
+
+                    x_start = DEFAULT_OFFSET_X + (qx * (quad_w + gap_x)) + (lx * cell_w)
+                    y_start = DEFAULT_OFFSET_Y + (qy * (quad_h + gap_y)) + (ly * cell_h)
+
+                    x_end = x_start + cell_w
+                    y_end = y_start + cell_h
+
+                    # Generate uniform random coord within this cell
+                    rx = np.random.uniform(x_start, x_end)
+                    ry = np.random.uniform(y_start, y_end)
+
+                    rand_x_coords_mm.append(rx)
+                    rand_y_coords_mm.append(ry)
+
+                rand_x_coords_mm = np.array(rand_x_coords_mm)
+                rand_y_coords_mm = np.array(rand_y_coords_mm)
+
+                # Convert mm to microns
+                rand_x_coords = rand_x_coords_mm * 1000
+                rand_y_coords = rand_y_coords_mm * 1000
+
+                unit_x = np.array(final_unit_x)
+                unit_y = np.array(final_unit_y)
 
                 # Generate Defect Types and Verification statuses
                 defect_types = []
@@ -228,11 +301,13 @@ def load_data(
                     'Verification': verifications,
                     'SOURCE_FILE': [f'Sample Data Layer {layer_num}{side}'] * num_points,
                     'SIDE': side,
-                    'HAS_VERIFICATION_DATA': [True] * num_points
+                    'HAS_VERIFICATION_DATA': [True] * num_points,
+                    'X_COORDINATES': rand_x_coords,
+                    'Y_COORDINATES': rand_y_coords
                 }
 
                 df = pd.DataFrame(defect_data)
-                layer_obj = BuildUpLayer(layer_num, side, df, panel_rows, panel_cols)
+                layer_obj = BuildUpLayer(layer_num, side, df, panel_rows, panel_cols, panel_width, panel_height, gap_x, gap_y)
                 panel_data.add_layer(layer_obj)
 
     return panel_data
@@ -282,7 +357,8 @@ def get_true_defect_coordinates(
 
     # Filter for True Defects
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
-    is_true_defect = ~all_layers_df['Verification'].str.upper().isin(safe_values_upper)
+    # Verification is already normalized to upper in load_data
+    is_true_defect = ~all_layers_df['Verification'].isin(safe_values_upper)
     true_defects_df = all_layers_df[is_true_defect].copy()
 
     if true_defects_df.empty:
@@ -327,7 +403,8 @@ def prepare_multi_layer_data(_panel_data: PanelData, panel_uid: str = "") -> pd.
 
     def true_defect_filter(df):
         if 'Verification' in df.columns:
-            return df[~df['Verification'].str.upper().isin(safe_values_upper)]
+            # Verification is already normalized to upper in load_data
+            return df[~df['Verification'].isin(safe_values_upper)]
         return df
 
     return _panel_data.get_combined_dataframe(filter_func=true_defect_filter)
@@ -381,27 +458,40 @@ def aggregate_stress_data_from_df(
     valid_df = df[valid_mask]
 
     if 'DEFECT_TYPE' in valid_df.columns:
-        # Group by (Y, X, Type) -> Count
-        type_counts = valid_df.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X', 'DEFECT_TYPE'], observed=True).size()
+        # Optimization: Avoid iterating through every cell group if possible
+        # Use a vectorized approach or simplified tooltip for massive data
 
-        # Group by Cell (Y, X)
-        grouped_cells = type_counts.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X'], observed=True)
+        # 1. Count by Cell + Type
+        type_counts = valid_df.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X', 'DEFECT_TYPE'], observed=True).size().reset_index(name='Count')
 
-        for (gy, gx), sub_series in grouped_cells:
-            cell_total = sub_series.sum()
-            counts_per_type = sub_series.droplevel([0, 1])
-            sorted_types = counts_per_type.sort_values(ascending=False)
-            top_3 = sorted_types.head(3)
+        # 2. Sort by Count descending within each cell (Y, X)
+        type_counts.sort_values(['UNIT_INDEX_Y', 'UNIT_INDEX_X', 'Count'], ascending=[True, True, False], inplace=True)
 
-            tooltip = f"<b>Total: {cell_total}</b><br>"
-            tooltip_lines = [f"{dtype}: {cnt}" for dtype, cnt in top_3.items()]
-            tooltip += "<br>".join(tooltip_lines)
+        # 3. Calculate Total per Cell
+        cell_totals = type_counts.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X'])['Count'].sum()
 
-            remaining = len(sorted_types) - 3
-            if remaining > 0:
-                tooltip += f"<br>... (+{remaining} types)"
+        # 4. Get Top 3 per Cell
+        top_3 = type_counts.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X']).head(3)
 
-            hover_text[gy, gx] = tooltip
+        # 5. Count how many types per cell
+        types_per_cell = type_counts.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X']).size()
+
+        # 6. Build Tooltip parts
+        # Iterate over the groups of 'top_3' (simplified dataset)
+        top_3_dict = {}
+        for (y, x), group in top_3.groupby(['UNIT_INDEX_Y', 'UNIT_INDEX_X']):
+             lines = [f"{row.DEFECT_TYPE}: {row.Count}" for row in group.itertuples()]
+             top_3_dict[(y, x)] = lines
+
+        for (y, x), total in cell_totals.items():
+            lines = top_3_dict.get((y,x), [])
+            tooltip = f"<b>Total: {total}</b><br>" + "<br>".join(lines)
+
+            total_types = types_per_cell.get((y,x), 0)
+            if total_types > 3:
+                tooltip += f"<br>... (+{total_types - 3} types)"
+
+            hover_text[y, x] = tooltip
     else:
         # Fallback if no Defect Type
         # Just show total count
@@ -444,7 +534,8 @@ def aggregate_stress_data(
     # Filter True Defects (Standard)
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
     if 'Verification' in combined_df.columns:
-        is_true = ~combined_df['Verification'].astype(str).str.upper().isin(safe_values_upper)
+        # Verification is already normalized to upper in load_data
+        is_true = ~combined_df['Verification'].astype(str).isin(safe_values_upper)
         combined_df = combined_df[is_true]
 
     # Filter by Specific Selection (if provided)
@@ -468,7 +559,8 @@ def calculate_yield_killers(_panel_data: PanelData, panel_rows: int, panel_cols:
 
     def true_defect_filter(df):
         if 'Verification' in df.columns:
-            return df[~df['Verification'].str.upper().isin(safe_values_upper)]
+            # Verification is already normalized to upper in load_data
+            return df[~df['Verification'].isin(safe_values_upper)]
         return df
 
     combined_df = _panel_data.get_combined_dataframe(filter_func=true_defect_filter)
@@ -552,10 +644,12 @@ def get_cross_section_matrix(
             df = layer_obj.data
             if df.empty: continue
 
-            df_copy = df.copy()
-            if 'Verification' in df_copy.columns:
-                is_true = ~df_copy['Verification'].str.upper().isin(safe_values_upper)
-                df_copy = df_copy[is_true]
+            # Optimization: Avoid full copy
+            if 'Verification' in df.columns:
+                is_true = ~df['Verification'].isin(safe_values_upper)
+                df_copy = df[is_true].copy() # Filter first then copy
+            else:
+                df_copy = df.copy()
 
             if df_copy.empty: continue
 

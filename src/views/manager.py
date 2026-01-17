@@ -43,13 +43,12 @@ class ViewManager:
             elif m == 'reporting': self.store.active_view = 'reporting'
             else:
                 # Analysis default
+                # Changed default from HEATMAP to STILL_ALIVE as per user request
                 if self.store.active_view not in ['still_alive', 'multi_layer_defects', 'analysis_dashboard']:
-                     self.store.active_view = 'analysis_dashboard'
-                     self.store.analysis_subview = ViewMode.HEATMAP.value
+                     self.store.active_view = 'still_alive'
                 elif self.store.active_view == 'documentation':
                      # Return to default analysis view if coming back
-                     self.store.active_view = 'analysis_dashboard'
-                     self.store.analysis_subview = ViewMode.HEATMAP.value
+                     self.store.active_view = 'still_alive'
 
         # Layer Inspection Button
         is_layer = self.store.active_view == 'layer'
@@ -84,6 +83,11 @@ class ViewManager:
         """Renders the top control row for Layer Inspection."""
 
         # Prepare Data for Dropdowns
+        # Use metadata from store instead of pulling full object if possible,
+        # but to get BU name we need the dataframe.
+        # Since we have caching, accessing self.store.layer_data is cheap enough now?
+        # Yes, it calls load_data which returns cached object.
+
         layer_keys = sorted(self.store.layer_data.keys())
         if not layer_keys:
             return
@@ -97,6 +101,7 @@ class ViewManager:
             # Try to get BU name
             bu_name = ""
             try:
+                # Accessing layer data
                 first_side_key = next(iter(self.store.layer_data[num]))
                 source_file = self.store.layer_data[num][first_side_key]['SOURCE_FILE'].iloc[0]
                 bu_name = get_bu_name_from_filename(str(source_file))
@@ -146,15 +151,20 @@ class ViewManager:
                  valid_selection = [x for x in current_selection if x in ver_options]
                  st.session_state['multi_verification_selection'] = valid_selection
 
-             # Determine default if no state exists yet
-             default_ver = ver_options # Default to all
-
-             st.multiselect(
-                 "Filter Verification Status",
-                 options=ver_options,
-                 default=default_ver,
-                 key="multi_verification_selection"
-             )
+                 st.multiselect(
+                     "Filter Verification Status",
+                     options=ver_options,
+                     key="multi_verification_selection"
+                 )
+             else:
+                 # Determine default if no state exists yet
+                 default_ver = ver_options # Default to all
+                 st.multiselect(
+                     "Filter Verification Status",
+                     options=ver_options,
+                     default=default_ver,
+                     key="multi_verification_selection"
+                 )
 
         # Update Store with Multi-Select for Layer View as well
         # Note: Layer view logic needs to handle list instead of string now
@@ -293,18 +303,39 @@ class ViewManager:
                  valid_selection = [x for x in current_selection if x in all_verifications]
                  st.session_state['multi_verification_selection'] = valid_selection
 
-             default_ver = all_verifications # Default to all
+                 st.multiselect(
+                     "Filter Verification Status",
+                     options=all_verifications,
+                     key="multi_verification_selection"
+                 )
+             else:
+                 default_ver = all_verifications # Default to all
 
-             st.multiselect(
-                 "Filter Verification Status",
-                 options=all_verifications,
-                 default=default_ver,
-                 key="multi_verification_selection"
-             )
+                 st.multiselect(
+                     "Filter Verification Status",
+                     options=all_verifications,
+                     default=default_ver,
+                     key="multi_verification_selection"
+                 )
 
-             # Toggle for Back Side Alignment
-             st.markdown("### Alignment")
-             st.checkbox("Align Back Side (Flip Units)", value=True, key="flip_back_side", help="If enabled, Back Side units are mirrored horizontally to match Front Side position (Through-Board View).")
+             # Toggle for Back Side Alignment - Show only for Heatmap or Multi-Layer
+             # Check current active tab text logic from _render_analysis_page_controls
+             # We need to replicate that logic or access it.
+             # Logic is:
+             # current_tab_text = "Heatmap" if analysis_subview is HEATMAP
+             # or active_view == 'multi_layer_defects'
+
+             show_alignment = False
+             if self.store.active_view == 'multi_layer_defects':
+                 show_alignment = True
+             elif self.store.active_view == 'analysis_dashboard':
+                 if self.store.analysis_subview == ViewMode.HEATMAP.value:
+                     show_alignment = True
+
+             if show_alignment:
+                 st.markdown("### Alignment")
+                 # Default value set to False as per user request
+                 st.checkbox("Align Back Side (Flip Units)", value=False, key="flip_back_side", help="If enabled, Back Side units are mirrored horizontally to match Front Side position (Through-Board View).")
 
         # Logic to determine active tab text (Needed early for conditional rendering)
         current_tab_text = "Heatmap"
@@ -446,7 +477,8 @@ class ViewManager:
 
         elif current_tab_text == "Root Cause":
              c1, c2 = st.columns(2)
-             with c1: st.radio("Slice Axis", ["X (Column)", "Y (Row)"], horizontal=True, key="rca_axis")
+             # Fixed: Zonal Yield (Slice Axis) made vertical (column) instead of row as requested
+             with c1: st.radio("Slice Axis", ["X (Column)", "Y (Row)"], horizontal=False, key="rca_axis")
              with c2:
                  max_idx = (self.store.analysis_params.get('panel_cols', 7) * 2) - 1
                  st.slider("Slice Index", 0, max_idx, 0, key="rca_index")
@@ -486,6 +518,10 @@ class ViewManager:
                 full_df = self.store.layer_data.get_combined_dataframe()
                 true_defect_coords = get_true_defect_coordinates(self.store.layer_data)
 
+                # Fetch Theme for Reporting (Optional - for now using defaults/user choice in app state)
+                # Reporting might need to pass theme if PNGs are generated with it.
+                current_theme = st.session_state.get('plot_theme', None)
+
                 self.store.report_bytes = generate_zip_package(
                     full_df=full_df,
                     panel_rows=self.store.analysis_params.get('panel_rows', 7),
@@ -504,14 +540,24 @@ class ViewManager:
                     include_stress_png=include_stress_png,
                     include_root_cause_png=include_root_cause_png,
                     include_still_alive_png=include_still_alive_png,
-                    layer_data=self.store.layer_data
+                    layer_data=self.store.layer_data,
+                    process_comment=self.store.analysis_params.get("process_comment", ""),
+                    lot_number=self.store.analysis_params.get("lot_number", ""),
+                    theme_config=current_theme
                 )
                 st.success("Package generated successfully!")
 
         if self.store.report_bytes:
-            params_local = self.store.analysis_params
-            lot_num_str = f"_{params_local.get('lot_number', '')}" if params_local.get('lot_number') else ""
-            zip_filename = f"defect_package_layer_{self.store.selected_layer}{lot_num_str}.zip"
+            from src.utils import generate_standard_filename
+
+            zip_filename = generate_standard_filename(
+                prefix="Defect_Analysis_Package",
+                selected_layer=self.store.selected_layer,
+                layer_data=self.store.layer_data,
+                analysis_params=self.store.analysis_params,
+                extension="zip"
+            )
+
             st.download_button(
                 "Download Package (ZIP)",
                 data=self.store.report_bytes,
@@ -528,26 +574,35 @@ class ViewManager:
              st.info("Please upload data and run analysis to proceed.")
              return
 
+        # Retrieve current theme from session state
+        current_theme = st.session_state.get('plot_theme', None)
+
         if self.store.active_view == 'still_alive':
-            render_still_alive_main(self.store)
+            render_still_alive_main(self.store, theme_config=current_theme)
 
         elif self.store.active_view == 'multi_layer_defects':
             render_multi_layer_view(
                 self.store,
                 self.store.multi_layer_selection,
-                self.store.multi_side_selection
+                self.store.multi_side_selection,
+                theme_config=current_theme
             )
 
         elif self.store.active_view == 'analysis_dashboard':
             tool = get_analysis_tool(self.store.analysis_subview, self.store)
-            tool.render_main()
+            # Pass theme to analysis tool if it supports it
+            if hasattr(tool, 'render_main_with_theme'):
+                 tool.render_main_with_theme(theme_config=current_theme)
+            else:
+                 tool.render_main()
 
         elif self.store.active_view == 'layer':
             render_layer_view(
                 self.store,
                 self.store.view_mode,
                 self.store.quadrant_selection,
-                self.store.verification_selection
+                self.store.verification_selection,
+                theme_config=current_theme
             )
 
         elif self.store.active_view == 'documentation':

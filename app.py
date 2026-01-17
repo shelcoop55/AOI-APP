@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR
+from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y, DEFAULT_PANEL_ROWS, DEFAULT_PANEL_COLS, DYNAMIC_GAP_X, DYNAMIC_GAP_Y, DEFAULT_THEME, PlotTheme
 from src.data_handler import load_data, get_true_defect_coordinates
 from src.reporting import generate_zip_package
 from src.enums import ViewMode, Quadrant
@@ -30,7 +30,7 @@ def load_css(file_path: str) -> None:
 
 def main() -> None:
     """Main function to configure and run the Streamlit application."""
-    st.set_page_config(layout="wide", page_title="Panel Defect Analysis")
+    st.set_page_config(layout="wide", page_title="Panel Defect Analysis", initial_sidebar_state="expanded")
     load_css("assets/styles.css")
 
     # --- Initialize Session State & View Manager ---
@@ -56,12 +56,12 @@ def main() -> None:
                     key=uploader_key
                 )
                 st.number_input(
-                    "Panel Rows", min_value=1, value=7,
+                    "Panel Rows", min_value=1, value=DEFAULT_PANEL_ROWS,
                     help="Number of vertical units in a single quadrant.",
                     key="panel_rows"
                 )
                 st.number_input(
-                    "Panel Columns", min_value=1, value=7,
+                    "Panel Columns", min_value=1, value=DEFAULT_PANEL_COLS,
                     help="Number of horizontal units in a single quadrant.",
                     key="panel_cols"
                 )
@@ -76,6 +76,26 @@ def main() -> None:
                     key="process_comment"
                 )
 
+            with st.expander("⚙️ Advanced Configuration", expanded=False):
+                # 1. Panel Dimensions (UI Removed - Hardcoded Defaults)
+                # Used to be: c_dim1, c_dim2 inputs for Panel Width/Height
+                # Now using Frame Width/Height (510/515) internally for calculation.
+
+                # 2. Origins (Renamed from Offsets)
+                c_off1, c_off2 = st.columns(2)
+                with c_off1:
+                    # FIX: Explicitly cast value to float to avoid StreamlitMixedNumericTypesError
+                    st.number_input("X Origin (mm)", value=float(DEFAULT_OFFSET_X), step=1.0, key="offset_x", help="Shift origin X by this amount.")
+                with c_off2:
+                    st.number_input("Y Origin (mm)", value=float(DEFAULT_OFFSET_Y), step=1.0, key="offset_y", help="Shift origin Y by this amount.")
+
+                # 3. Dynamic Gaps
+                c_gap1, c_gap2 = st.columns(2)
+                with c_gap1:
+                    st.number_input("Dynamic Gap X (mm)", value=float(DYNAMIC_GAP_X), step=1.0, min_value=0.0, key="dyn_gap_x", help="Dynamic Horizontal Gap.")
+                with c_gap2:
+                    st.number_input("Dynamic Gap Y (mm)", value=float(DYNAMIC_GAP_Y), step=1.0, min_value=0.0, key="dyn_gap_y", help="Dynamic Vertical Gap.")
+
             # Callback for Analysis
             def on_run_analysis():
                 # Read from dynamic key
@@ -87,10 +107,40 @@ def main() -> None:
                 lot = st.session_state.lot_number
                 comment = st.session_state.process_comment
 
-                # Load Data
-                data = load_data(files, rows, cols)
+                # Retrieve Advanced Params
+                off_x = st.session_state.get("offset_x", DEFAULT_OFFSET_X)
+                off_y = st.session_state.get("offset_y", DEFAULT_OFFSET_Y)
+                # Hardcoded gaps are now used instead of UI inputs
+                gap_x = DEFAULT_GAP_X
+                gap_y = DEFAULT_GAP_Y
+                # Retrieve dynamic gaps from session state
+                dyn_gap_x = st.session_state.get("dyn_gap_x", DYNAMIC_GAP_X)
+                dyn_gap_y = st.session_state.get("dyn_gap_y", DYNAMIC_GAP_Y)
+
+                # DYNAMIC CALCULATION of Active Panel Dimensions
+                # Logic: Active_Dim = Total_Frame - 2*(Offset + DynamicGap) - Gap
+                p_width = float(FRAME_WIDTH) - 2 * (off_x + dyn_gap_x) - gap_x
+                p_height = float(FRAME_HEIGHT) - 2 * (off_y + dyn_gap_y) - gap_y
+
+                # Load Data (This will now hit the cache if arguments are same)
+                # Pass dynamically calculated width/height
+                data = load_data(files, rows, cols, p_width, p_height, gap_x, gap_y)
                 if data:
-                    store.layer_data = data
+                    # UPDATE: Store ID and Metadata, NOT the object
+                    if not files:
+                        store.dataset_id = "sample_data"
+                    else:
+                        # Simple ID generation based on filenames for tracking
+                        store.dataset_id = str(hash(tuple(f.name for f in files)))
+
+                    # Store lightweight metadata for UI logic (keys only)
+                    # We need a serializable dict structure: {layer_num: {side: True}}
+                    meta = {}
+                    for l_num, sides in data.items():
+                        meta[l_num] = list(sides.keys())
+                    store.layer_data_keys = meta
+
+                    # Logic using the data object (which is local var here, safe)
                     store.selected_layer = max(data.keys())
                     store.active_view = 'layer'
 
@@ -112,12 +162,29 @@ def main() -> None:
                 else:
                     store.selected_layer = None
 
+                # Calculate TOTAL OFFSET for Plotting
+                # The plotting grid must start at (Offset + DynamicGap), not just Offset.
+                total_off_x = off_x + dyn_gap_x
+                total_off_y = off_y + dyn_gap_y
+
                 store.analysis_params = {
                     "panel_rows": rows,
                     "panel_cols": cols,
-                    "gap_size": GAP_SIZE,
+                    "panel_width": p_width,
+                    "panel_height": p_height,
+                    "gap_x": gap_x,
+                    "gap_y": gap_y,
+                    "gap_size": gap_x, # Backwards compatibility
                     "lot_number": lot,
-                    "process_comment": comment
+                    "process_comment": comment,
+                    # IMPORTANT: Store the TOTAL offset for plotting functions
+                    "offset_x": total_off_x,
+                    "offset_y": total_off_y,
+                    # Keep original values if needed for UI restoration (handled by session_state keys)
+                    "raw_offset_x": off_x,
+                    "raw_offset_y": off_y,
+                    "dyn_gap_x": dyn_gap_x,
+                    "dyn_gap_y": dyn_gap_y
                 }
                 store.report_bytes = None
 
@@ -134,11 +201,41 @@ def main() -> None:
 
                 def on_reset():
                     store.clear_all()
+                    # Re-initialize uploader_key immediately after clearing state
+                    # to prevent KeyError on rerun or subsequent access
+                    if "uploader_key" not in st.session_state:
+                        st.session_state["uploader_key"] = 0
+
                     # Increment key to recreate file uploader widget (effectively clearing it)
                     st.session_state["uploader_key"] += 1
                     # Rerun will happen automatically after callback
 
                 st.form_submit_button("🔄 Reset", on_click=on_reset, type="secondary")
+
+        # --- 2. Appearance & Style (Expander) ---
+        with st.expander("🎨 Appearance & Style", expanded=False):
+            # Create PlotTheme inputs and update session state immediately
+            bg_color = st.color_picker("Background Color", value=DEFAULT_THEME.background_color, key="style_bg")
+            plot_color = st.color_picker("Plot Area Color", value=DEFAULT_THEME.plot_area_color, key="style_plot")
+            panel_color = st.color_picker("Panel Color", value=DEFAULT_THEME.panel_background_color, key="style_panel")
+            axis_color = st.color_picker("Axis Color", value=DEFAULT_THEME.axis_color, key="style_axis")
+            text_color = st.color_picker("Text Color", value=DEFAULT_THEME.text_color, key="style_text")
+            unit_color = st.color_picker("Unit Color", value=DEFAULT_THEME.unit_face_color, key="style_unit")
+
+            # Construct Theme Object
+            current_theme = PlotTheme(
+                background_color=bg_color,
+                plot_area_color=plot_color,
+                panel_background_color=panel_color,
+                axis_color=axis_color,
+                text_color=text_color,
+                # Use user selection
+                unit_face_color=unit_color,
+                unit_edge_color=axis_color # Match axis for grid edges
+            )
+
+            # Store in session state for Views to access
+            st.session_state['plot_theme'] = current_theme
 
     # --- Main Content Area ---
     # Header removed to save space

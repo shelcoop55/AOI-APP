@@ -2,6 +2,56 @@ import streamlit as st
 import pandas as pd
 from src.analysis.base import AnalysisTool
 from src.plotting import create_density_contour_map
+from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT
+
+@st.cache_data
+def get_filtered_heatmap_data(
+    _panel_data,
+    panel_data_id: str,
+    selected_layer_nums: list,
+    side_selection: list,
+    selected_verifs: list,
+    selected_quadrant: str
+) -> pd.DataFrame:
+    """
+    Cached helper to filter and aggregate heatmap data.
+    args:
+        _panel_data: The PanelData object (not hashed).
+        panel_data_id: Unique ID of the dataset (hashed).
+        selected_layer_nums: List of layer numbers to include.
+        side_selection: List of strings ["Front", "Back"].
+        selected_verifs: List of verification codes to include.
+        selected_quadrant: Quadrant filter ("All", "Q1", etc.).
+    """
+    dfs_to_concat = []
+
+    for layer_num in selected_layer_nums:
+        # PanelData.get() returns dict of {side: DataFrame}
+        layer_dict = _panel_data.get(layer_num, {})
+
+        sides_to_process = []
+        if "Front" in side_selection: sides_to_process.append('F')
+        if "Back" in side_selection: sides_to_process.append('B')
+
+        for side in sides_to_process:
+            if side in layer_dict:
+                df = layer_dict[side]
+                if not df.empty:
+                    # Apply Verification Filter
+                    if 'Verification' in df.columns and selected_verifs:
+                         df = df[df['Verification'].astype(str).isin(selected_verifs)]
+
+                    # Apply Quadrant Filter
+                    if selected_quadrant != "All" and 'QUADRANT' in df.columns:
+                         df = df[df['QUADRANT'] == selected_quadrant]
+
+                    if not df.empty:
+                         dfs_to_concat.append(df)
+
+    if dfs_to_concat:
+        return pd.concat(dfs_to_concat, ignore_index=True)
+    return pd.DataFrame()
+
 
 class HeatmapTool(AnalysisTool):
     @property
@@ -45,35 +95,33 @@ class HeatmapTool(AnalysisTool):
         # 6. Quadrant Filter
         selected_quadrant = st.session_state.get("analysis_quadrant_selection", "All")
 
-        # --- DATA PREPARATION ---
-        dfs_to_concat = []
+        # 7. Layout Params
+        offset_x = params.get("offset_x", 0.0)
+        offset_y = params.get("offset_y", 0.0)
+        gap_x = params.get("gap_x", GAP_SIZE)
+        gap_y = params.get("gap_y", GAP_SIZE)
+        gap_size = gap_x # Local alias for compatibility with click logic
 
-        for layer_num in selected_layer_nums:
-            layer_dict = self.store.layer_data.get(layer_num, {})
+        # Dynamic Panel Size
+        panel_width = params.get("panel_width", PANEL_WIDTH)
+        panel_height = params.get("panel_height", PANEL_HEIGHT)
 
-            sides_to_process = []
-            if "Front" in side_selection: sides_to_process.append('F')
-            if "Back" in side_selection: sides_to_process.append('B')
+        quad_width = panel_width / 2
+        quad_height = panel_height / 2
 
-            for side in sides_to_process:
-                if side in layer_dict:
-                    df = layer_dict[side]
-                    if not df.empty:
-                        # Apply Verification Filter
-                        if 'Verification' in df.columns and selected_verifs:
-                             df = df[df['Verification'].astype(str).isin(selected_verifs)]
+        # --- DATA PREPARATION (CACHED) ---
+        # We pass self.store.layer_data.id if available, else a dummy or we assume static.
+        # PanelData in models.py has .id attribute.
+        panel_id = getattr(self.store.layer_data, "id", "static")
 
-                        # Apply Quadrant Filter
-                        # The dataframe should have 'QUADRANT' column.
-                        if selected_quadrant != "All" and 'QUADRANT' in df.columns:
-                             df = df[df['QUADRANT'] == selected_quadrant]
-
-                        if not df.empty:
-                             dfs_to_concat.append(df)
-
-        combined_heatmap_df = pd.DataFrame()
-        if dfs_to_concat:
-            combined_heatmap_df = pd.concat(dfs_to_concat, ignore_index=True)
+        combined_heatmap_df = get_filtered_heatmap_data(
+            self.store.layer_data,
+            panel_id,
+            selected_layer_nums,
+            side_selection,
+            selected_verifs,
+            selected_quadrant
+        )
 
         if not combined_heatmap_df.empty:
             flip_back = st.session_state.get("flip_back_side", True)
@@ -84,8 +132,49 @@ class HeatmapTool(AnalysisTool):
                 saturation_cap=saturation,
                 show_grid=False,
                 view_mode=view_mode,
-                flip_back=flip_back
+                flip_back=flip_back,
+                quadrant_selection=selected_quadrant,
+                offset_x=offset_x,
+                offset_y=offset_y,
+                gap_x=gap_x,
+                gap_y=gap_y,
+                panel_width=panel_width,
+                panel_height=panel_height
             )
-            st.plotly_chart(contour_fig, use_container_width=True)
+
+            # --- INTERACTIVITY: CLICK TO ZOOM ---
+            # Enable selection events to capture clicks
+            selection = st.plotly_chart(contour_fig, use_container_width=True, on_select="rerun", selection_mode="points")
+
+            if selection and selection.selection and selection.selection["points"]:
+                # Only process if we are in "All" mode (Drill Down)
+                if selected_quadrant == "All":
+                    point = selection.selection["points"][0]
+                    # Get Physical Coordinates of the click
+                    click_x = point.get("x")
+                    click_y = point.get("y")
+
+                    if click_x is not None and click_y is not None:
+                        # Determine Quadrant
+                        clicked_quad = None
+
+                        # Logic matches create_grid_shapes / config.py
+                        # Adjusted for Dynamic Offsets and Gap
+
+                        is_left = (click_x >= offset_x) and (click_x < offset_x + quad_width)
+                        is_right = (click_x > offset_x + quad_width + gap_size)
+
+                        is_bottom = (click_y >= offset_y) and (click_y < offset_y + quad_height)
+                        is_top = (click_y > offset_y + quad_height + gap_size)
+
+                        if is_left and is_bottom: clicked_quad = "Q1"
+                        elif is_right and is_bottom: clicked_quad = "Q2"
+                        elif is_left and is_top: clicked_quad = "Q3"
+                        elif is_right and is_top: clicked_quad = "Q4"
+
+                        if clicked_quad:
+                            st.session_state["analysis_quadrant_selection"] = clicked_quad
+                            st.rerun()
+
         else:
             st.warning("No data available for the selected filters.")

@@ -4,6 +4,7 @@ import numpy as np
 from src.state import SessionStore
 from src.plotting import create_still_alive_figure
 from src.data_handler import get_true_defect_coordinates
+from src.config import GAP_SIZE
 
 def render_still_alive_sidebar(store: SessionStore):
     """
@@ -12,7 +13,7 @@ def render_still_alive_sidebar(store: SessionStore):
     """
     pass
 
-def render_still_alive_main(store: SessionStore):
+def render_still_alive_main(store: SessionStore, theme_config=None):
     """Renders the Main Content for the Still Alive view."""
     params = store.analysis_params
     panel_rows = params.get("panel_rows", 7)
@@ -76,7 +77,20 @@ def render_still_alive_main(store: SessionStore):
     map_col, summary_col = st.columns([3, 1])
 
     with map_col:
-        fig = create_still_alive_figure(panel_rows, panel_cols, true_defect_data)
+        offset_x = params.get("offset_x", 0.0)
+        offset_y = params.get("offset_y", 0.0)
+        gap_x = params.get("gap_x", GAP_SIZE)
+        gap_y = params.get("gap_y", GAP_SIZE)
+        panel_width = params.get("panel_width", 410)
+        panel_height = params.get("panel_height", 452)
+
+        fig = create_still_alive_figure(
+            panel_rows, panel_cols, true_defect_data,
+            offset_x=offset_x, offset_y=offset_y,
+            gap_x=gap_x, gap_y=gap_y,
+            panel_width=panel_width, panel_height=panel_height,
+            theme_config=theme_config
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     with summary_col:
@@ -134,10 +148,9 @@ def render_still_alive_main(store: SessionStore):
         e_yield = (edge_alive / edge_total * 100) if edge_total > 0 else 0
 
         # Displaying with counts for verification
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Center Yield", f"{c_yield:.1f}%", help=f"Inner Core (Ring 4+). Total Units: {center_total}")
-        col2.metric("Middle Yield", f"{m_yield:.1f}%", help=f"Rings 2 & 3. Total Units: {middle_total}")
-        col3.metric("Edge Yield", f"{e_yield:.1f}%", help=f"Outer Ring (Ring 1). Total Units: {edge_total}")
+        st.metric("Center Yield", f"{c_yield:.1f}%", help=f"Inner Core (Ring 4+). Total Units: {center_total}")
+        st.metric("Middle Yield", f"{m_yield:.1f}%", help=f"Rings 2 & 3. Total Units: {middle_total}")
+        st.metric("Edge Yield", f"{e_yield:.1f}%", help=f"Outer Ring (Ring 1). Total Units: {edge_total}")
 
         st.divider()
 
@@ -149,12 +162,27 @@ def render_still_alive_main(store: SessionStore):
                     alive_units.append({'PHYSICAL_X': c, 'UNIT_INDEX_Y': r})
 
         if alive_units:
+            from src.utils import generate_standard_filename
+
+            # Smart determination of layer context
+            target_layer = None
+            if store.multi_layer_selection and len(store.multi_layer_selection) == 1:
+                target_layer = store.multi_layer_selection[0]
+
+            filename = generate_standard_filename(
+                prefix="Pick_List",
+                selected_layer=target_layer,
+                layer_data=store.layer_data,
+                analysis_params=store.analysis_params,
+                extension="csv"
+            )
+
             df_alive = pd.DataFrame(alive_units)
             csv = df_alive.to_csv(index=False).encode('utf-8')
             st.download_button(
                 "📥 Download Pick List",
                 data=csv,
-                file_name="alive_units_picklist.csv",
+                file_name=filename,
                 mime="text/csv",
                 help="CSV list of coordinate pairs (Physical X, Y) for good units."
             )
