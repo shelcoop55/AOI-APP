@@ -26,8 +26,8 @@ INTER_UNIT_GAP = 0.25
 # Active Panel Dimensions (Calculated Defaults)
 # These act as fallback constants if dynamic calculation isn't used.
 # Logic: Active = Total - 2*(Offset + DynamicGap) - Gap
-PANEL_WIDTH = FRAME_WIDTH - 2*(DEFAULT_OFFSET_X + DYNAMIC_GAP_X) - DEFAULT_GAP_X
-PANEL_HEIGHT = FRAME_HEIGHT - 2*(DEFAULT_OFFSET_Y + DYNAMIC_GAP_Y) - DEFAULT_GAP_Y
+PANEL_WIDTH = FRAME_WIDTH - (DEFAULT_OFFSET_X + DYNAMIC_GAP_X) - DEFAULT_GAP_X
+PANEL_HEIGHT = FRAME_HEIGHT - (DEFAULT_OFFSET_Y + DYNAMIC_GAP_Y) - DEFAULT_GAP_Y
 
 # Legacy Gap Constant (for backward compatibility)
 GAP_SIZE = DEFAULT_GAP_X
