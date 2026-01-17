@@ -384,13 +384,13 @@ def create_multi_layer_defect_map(
             title="Unit Column Index",
             tickvals=x_tick_vals_q1 + x_tick_vals_q2,
             ticktext=x_tick_text,
-            range=[offset_x, offset_x + panel_width + gap_x], constrain='domain'
+            range=[0, 510], constrain='domain'
         ),
         yaxis=dict(
             title="Unit Row Index",
             tickvals=y_tick_vals_q1 + y_tick_vals_q3,
             ticktext=y_tick_text,
-            range=[offset_y, offset_y + panel_height + gap_y]
+            range=[0, 515]
         ),
         legend=dict(title=dict(text="Build-Up Layer"))
     )
@@ -416,8 +416,11 @@ def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int,
     y_tick_vals_q3 = [(quad_height + gap_y) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
 
-    x_axis_range = [offset_x, offset_x + panel_width + gap_x]
-    y_axis_range = [offset_y, offset_y + panel_height + gap_y]
+    # Full Frame View (0 to 510mm) to show Dead Zones
+    # offset_x is the start of copper. 0 is the start of Frame.
+    # We want to see the full physical context.
+    x_axis_range = [0, 510] # Hardcoded Frame Width as per requirement
+    y_axis_range = [0, 515] # Hardcoded Frame Height
     show_ticks = True
 
     if quadrant_selection != Quadrant.ALL.value:
@@ -646,11 +649,11 @@ def create_still_alive_figure(
 
     fig.update_layout(
         xaxis=dict(
-            title="Unit Column Index", range=[offset_x, offset_x + panel_width + gap_x], constrain='domain',
+            title="Unit Column Index", range=[0, 510], constrain='domain',
             tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text
         ),
         yaxis=dict(
-            title="Unit Row Index", range=[offset_y, offset_y + panel_height + gap_y],
+            title="Unit Row Index", range=[0, 515],
             tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text
         ),
         shapes=map_shapes, margin=dict(l=20, r=20, t=80, b=20),
@@ -1108,9 +1111,9 @@ def create_density_contour_map(
         y_tick_vals.append(center_mm)
         y_tick_text.append(str(i))
 
-    # Axis Ranges shifted by offset (NO MARGIN)
-    x_axis_range = [offset_x, offset_x + panel_width + gap_x]
-    y_axis_range = [offset_y, offset_y + panel_height + gap_y]
+    # Axis Ranges Full Frame
+    x_axis_range = [0, 510]
+    y_axis_range = [0, 515]
 
     if quadrant_selection != 'All':
         # Apply offsets to quadrant ranges
@@ -1294,8 +1297,8 @@ def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int,
         max_y = panel_height + gap_y
 
         fig.update_layout(
-            xaxis=dict(title="Physical X", range=[offset_x, max_x + offset_x], constrain='domain', showticklabels=False),
-            yaxis=dict(title="Physical Y", range=[offset_y, max_y + offset_y], showticklabels=False)
+            xaxis=dict(title="Physical X", range=[0, 510], constrain='domain', showticklabels=False),
+            yaxis=dict(title="Physical Y", range=[0, 515], showticklabels=False)
         )
 
     else:
@@ -1378,8 +1381,8 @@ def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_row
         max_y = panel_height + gap_y
 
         fig.update_layout(
-            xaxis=dict(title="Physical X", range=[offset_x, max_x + offset_x], constrain='domain', showticklabels=False),
-            yaxis=dict(title="Physical Y", range=[offset_y, max_y + offset_y], showticklabels=False)
+            xaxis=dict(title="Physical X", range=[0, 510], constrain='domain', showticklabels=False),
+            yaxis=dict(title="Physical Y", range=[0, 515], showticklabels=False)
         )
 
     else:
