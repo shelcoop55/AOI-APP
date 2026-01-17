@@ -416,8 +416,8 @@ def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int,
     y_tick_vals_q3 = [(quad_height + gap_y) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
 
-    x_axis_range = [offset_x, offset_x + panel_width + gap_x]
-    y_axis_range = [offset_y, offset_y + panel_height + gap_y]
+    x_axis_range = [0, offset_x + panel_width + gap_x]
+    y_axis_range = [0, offset_y + panel_height + gap_y]
     show_ticks = True
 
     if quadrant_selection != Quadrant.ALL.value:
