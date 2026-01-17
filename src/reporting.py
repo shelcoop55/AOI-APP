@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 import zipfile
 import json
-from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR
+from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR, PlotTheme
 from src.plotting import (
     create_defect_traces, create_defect_sankey, create_defect_sunburst,
     create_grid_shapes, create_still_alive_figure, create_defect_map_figure,
@@ -288,7 +288,8 @@ def generate_zip_package(
     include_still_alive_png: bool = False,
     layer_data: Optional[Dict] = None,
     process_comment: str = "",
-    lot_number: str = ""
+    lot_number: str = "",
+    theme_config: Optional[PlotTheme] = None
 ) -> bytes:
     """
     Generates a ZIP file containing selected report components.
@@ -327,17 +328,18 @@ def generate_zip_package(
         if include_map:
             fig = create_defect_map_figure(
                 full_df, panel_rows, panel_cols, quadrant_selection,
-                title=f"Panel Defect Map - {quadrant_selection}"
+                title=f"Panel Defect Map - {quadrant_selection}",
+                theme_config=theme_config
             )
             html_content = fig.to_html(full_html=True, include_plotlyjs='cdn')
             zip_file.writestr("Defect_Map.html", html_content)
 
         # 4. Insights Charts (Interactive HTML) - CURRENT VIEW
         if include_insights:
-            sunburst_fig = create_defect_sunburst(full_df)
+            sunburst_fig = create_defect_sunburst(full_df, theme_config=theme_config)
             zip_file.writestr("Insights_Sunburst.html", sunburst_fig.to_html(full_html=True, include_plotlyjs='cdn'))
 
-            sankey_fig = create_defect_sankey(full_df)
+            sankey_fig = create_defect_sankey(full_df, theme_config=theme_config)
             if sankey_fig:
                 zip_file.writestr("Insights_Sankey.html", sankey_fig.to_html(full_html=True, include_plotlyjs='cdn'))
 
@@ -388,7 +390,8 @@ def generate_zip_package(
                             log("  Generating Defect Map PNG...")
                             fig_map = create_defect_map_figure(
                                 filtered_df, panel_rows, panel_cols, Quadrant.ALL.value,
-                                title=f"Layer {layer_num} - {side_name} - Defect Map"
+                                title=f"Layer {layer_num} - {side_name} - Defect Map",
+                                theme_config=theme_config
                             )
                             try:
                                 img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2)
@@ -402,7 +405,7 @@ def generate_zip_package(
                         # Generate Pareto PNG
                         if include_pareto_png:
                             log("  Generating Pareto PNG...")
-                            fig_pareto = create_pareto_figure(filtered_df, Quadrant.ALL.value)
+                            fig_pareto = create_pareto_figure(filtered_df, Quadrant.ALL.value, theme_config=theme_config)
                             fig_pareto.update_layout(title=f"Layer {layer_num} - {side_name} - Pareto")
                             try:
                                 img_bytes = fig_pareto.to_image(format="png", engine="kaleido", scale=2)
@@ -419,7 +422,7 @@ def generate_zip_package(
         if include_still_alive_png or include_png_all_layers:
             if true_defect_coords:
                 log("Generating Still Alive Map PNG...")
-                fig_alive = create_still_alive_figure(panel_rows, panel_cols, true_defect_coords)
+                fig_alive = create_still_alive_figure(panel_rows, panel_cols, true_defect_coords, theme_config=theme_config)
                 try:
                     img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2)
                     zip_file.writestr("Images/Still_Alive_Map.png", img_bytes)
@@ -449,7 +452,7 @@ def generate_zip_package(
                 # If user selected specific verification filter, we might want to respect that?
                 # But usually Heatmap is for Yield (True Defects).
                 # We will use full_df.
-                fig_heat = create_unit_grid_heatmap(full_df, panel_rows, panel_cols)
+                fig_heat = create_unit_grid_heatmap(full_df, panel_rows, panel_cols, theme_config=theme_config)
                 img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2)
                 zip_file.writestr("Images/Analysis_Heatmap.png", img_bytes)
                 log("Success.")
@@ -463,7 +466,7 @@ def generate_zip_package(
                 # Need to aggregate first
                 # Default to Cumulative Mode
                 stress_data = aggregate_stress_data_from_df(full_df, panel_rows, panel_cols)
-                fig_stress = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode="Continuous")
+                fig_stress = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode="Continuous", theme_config=theme_config)
                 img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2)
                 zip_file.writestr("Images/Analysis_StressMap_Cumulative.png", img_bytes)
                 log("Success.")
