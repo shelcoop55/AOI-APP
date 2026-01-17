@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y, DEFAULT_PANEL_ROWS, DEFAULT_PANEL_COLS, DYNAMIC_GAP_X, DYNAMIC_GAP_Y
+from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y, DEFAULT_PANEL_ROWS, DEFAULT_PANEL_COLS, DYNAMIC_GAP_X, DYNAMIC_GAP_Y, DEFAULT_THEME, PlotTheme
 from src.data_handler import load_data, get_true_defect_coordinates
 from src.reporting import generate_zip_package
 from src.enums import ViewMode, Quadrant
@@ -211,6 +211,30 @@ def main() -> None:
                     # Rerun will happen automatically after callback
 
                 st.form_submit_button("🔄 Reset", on_click=on_reset, type="secondary")
+
+        # --- 2. Appearance & Style (Expander) ---
+        with st.expander("🎨 Appearance & Style", expanded=False):
+            # Create PlotTheme inputs and update session state immediately
+            bg_color = st.color_picker("Background Color", value=DEFAULT_THEME.background_color, key="style_bg")
+            plot_color = st.color_picker("Plot Area Color", value=DEFAULT_THEME.plot_area_color, key="style_plot")
+            panel_color = st.color_picker("Panel Color", value=DEFAULT_THEME.panel_background_color, key="style_panel")
+            axis_color = st.color_picker("Axis Color", value=DEFAULT_THEME.axis_color, key="style_axis")
+            text_color = st.color_picker("Text Color", value=DEFAULT_THEME.text_color, key="style_text")
+
+            # Construct Theme Object
+            current_theme = PlotTheme(
+                background_color=bg_color,
+                plot_area_color=plot_color,
+                panel_background_color=panel_color,
+                axis_color=axis_color,
+                text_color=text_color,
+                # Use default derived colors for now, or match panel/axis
+                unit_face_color=DEFAULT_THEME.unit_face_color,
+                unit_edge_color=axis_color # Match axis for grid edges
+            )
+
+            # Store in session state for Views to access
+            st.session_state['plot_theme'] = current_theme
 
     # --- Main Content Area ---
     # Header removed to save space

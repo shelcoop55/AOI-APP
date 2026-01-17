@@ -4,6 +4,7 @@ Configuration and Styling Module.
 This module contains all configuration and styling variables for the application,
 including color themes and the method for loading defect-specific styles.
 """
+from dataclasses import dataclass
 
 # --- Physical Constants (in mm) ---
 # Hardcoded Total Frame Dimensions as per user request
@@ -37,21 +38,39 @@ GAP_SIZE = DEFAULT_GAP_X
 QUADRANT_WIDTH = PANEL_WIDTH / 2
 QUADRANT_HEIGHT = PANEL_HEIGHT / 2
 
-# --- Style Theme: Copper Grid Panel ---
-# This palette is designed to look like a copper-clad panel.
+# --- Theme Configuration ---
+@dataclass
+class PlotTheme:
+    background_color: str
+    plot_area_color: str
+    panel_background_color: str
+    axis_color: str
+    text_color: str
 
-PANEL_COLOR = '#C87533'            # Rich Copper (Main Panel Background)
-PANEL_BACKGROUND_COLOR = '#C87533' # Alias for clarity
+    # Grid colors derived from panel/axis usually
+    unit_face_color: str = '#F4B486' # Light Copper/Peach
+    unit_edge_color: str = '#8B4513' # Saddle Brown
 
-UNIT_FACE_COLOR = '#F4B486'        # Light Copper/Peach (Unit Faces)
-UNIT_EDGE_COLOR = '#8B4513'        # Saddle Brown (Unit Edges)
+# Default Theme (Dark Mode / Copper)
+DEFAULT_THEME = PlotTheme(
+    background_color='#2C3E50',       # Dark Blue-Grey
+    plot_area_color='#333333',        # Dark Grey
+    panel_background_color='#C87533', # Rich Copper
+    axis_color='#8B4513',             # Saddle Brown
+    text_color='#FFFFFF'              # White
+)
 
-GRID_COLOR = UNIT_EDGE_COLOR       # Use edge color for grid lines if drawn as lines
-AXIS_TEXT_COLOR = '#FFFFFF'        # Dark Bronze (Text/Labels)
-
-BACKGROUND_COLOR = '#2C3E50' # White background.
-PLOT_AREA_COLOR = '#333333'  # Dark Grey for plot area (contrast).
-TEXT_COLOR = '#FFFFFF'       # Black text for readability on white.
+# --- Legacy Constants (Backward Compatibility) ---
+# These are used if no dynamic theme is passed
+PANEL_COLOR = DEFAULT_THEME.panel_background_color
+PANEL_BACKGROUND_COLOR = DEFAULT_THEME.panel_background_color
+UNIT_FACE_COLOR = DEFAULT_THEME.unit_face_color
+UNIT_EDGE_COLOR = DEFAULT_THEME.unit_edge_color
+GRID_COLOR = DEFAULT_THEME.axis_color # Often same as axis
+AXIS_TEXT_COLOR = DEFAULT_THEME.text_color # Often same as text
+BACKGROUND_COLOR = DEFAULT_THEME.background_color
+PLOT_AREA_COLOR = DEFAULT_THEME.plot_area_color
+TEXT_COLOR = DEFAULT_THEME.text_color
 
 # Colors for the "Still Alive" yield map
 ALIVE_CELL_COLOR = '#2ECC71' # A vibrant green for cells without "True" defects.

@@ -518,6 +518,10 @@ class ViewManager:
                 full_df = self.store.layer_data.get_combined_dataframe()
                 true_defect_coords = get_true_defect_coordinates(self.store.layer_data)
 
+                # Fetch Theme for Reporting (Optional - for now using defaults/user choice in app state)
+                # Reporting might need to pass theme if PNGs are generated with it.
+                current_theme = st.session_state.get('plot_theme', None)
+
                 self.store.report_bytes = generate_zip_package(
                     full_df=full_df,
                     panel_rows=self.store.analysis_params.get('panel_rows', 7),
@@ -538,7 +542,8 @@ class ViewManager:
                     include_still_alive_png=include_still_alive_png,
                     layer_data=self.store.layer_data,
                     process_comment=self.store.analysis_params.get("process_comment", ""),
-                    lot_number=self.store.analysis_params.get("lot_number", "")
+                    lot_number=self.store.analysis_params.get("lot_number", ""),
+                    theme_config=current_theme
                 )
                 st.success("Package generated successfully!")
 
@@ -569,26 +574,35 @@ class ViewManager:
              st.info("Please upload data and run analysis to proceed.")
              return
 
+        # Retrieve current theme from session state
+        current_theme = st.session_state.get('plot_theme', None)
+
         if self.store.active_view == 'still_alive':
-            render_still_alive_main(self.store)
+            render_still_alive_main(self.store, theme_config=current_theme)
 
         elif self.store.active_view == 'multi_layer_defects':
             render_multi_layer_view(
                 self.store,
                 self.store.multi_layer_selection,
-                self.store.multi_side_selection
+                self.store.multi_side_selection,
+                theme_config=current_theme
             )
 
         elif self.store.active_view == 'analysis_dashboard':
             tool = get_analysis_tool(self.store.analysis_subview, self.store)
-            tool.render_main()
+            # Pass theme to analysis tool if it supports it
+            if hasattr(tool, 'render_main_with_theme'):
+                 tool.render_main_with_theme(theme_config=current_theme)
+            else:
+                 tool.render_main()
 
         elif self.store.active_view == 'layer':
             render_layer_view(
                 self.store,
                 self.store.view_mode,
                 self.store.quadrant_selection,
-                self.store.verification_selection
+                self.store.verification_selection,
+                theme_config=current_theme
             )
 
         elif self.store.active_view == 'documentation':
