@@ -4,7 +4,7 @@ import matplotlib.colors as mcolors
 from src.state import SessionStore
 from src.enums import ViewMode, Quadrant
 from src.plotting import create_defect_map_figure, create_pareto_figure
-from src.config import SAFE_VERIFICATION_VALUES, PLOT_AREA_COLOR, PANEL_COLOR
+from src.config import SAFE_VERIFICATION_VALUES, PLOT_AREA_COLOR, PANEL_COLOR, GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
 
 def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: str, verification_selection: any):
     params = store.analysis_params
@@ -20,14 +20,6 @@ def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: s
             # Handle list-based verification (from multiselect) or single string
             if isinstance(verification_selection, list):
                 if not verification_selection:
-                    # Case: Empty Selection -> Standard UX is show nothing, but in this app context,
-                    # previously 'All' was default. If user deselects everything, it's safer to show nothing (filtering everything out)
-                    # OR we can assume it means "Show All" if that's preferred.
-                    # Given the manager.py sets default to ALL options, an empty list means explicit Deselect All.
-                    # Thus, we should return empty DF (or filter out everything).
-                    # But wait, manager.py says "default to all if empty or first load".
-                    # If I explicitly click 'x' on all tags, list becomes [].
-                    # Let's stick to strict filtering: [] -> matches nothing.
                     filtered_df = side_df[side_df['Verification'].isin([])]
                 else:
                     filtered_df = side_df[side_df['Verification'].isin(verification_selection)]
@@ -38,7 +30,20 @@ def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: s
             display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
 
             if view_mode == ViewMode.DEFECT.value:
-                fig = create_defect_map_figure(display_df, panel_rows, panel_cols, quadrant_selection, lot_number)
+                # Retrieve layout params
+                offset_x = params.get("offset_x", 0.0)
+                offset_y = params.get("offset_y", 0.0)
+                gap_x = params.get("gap_x", GAP_SIZE)
+                gap_y = params.get("gap_y", GAP_SIZE)
+                panel_width = params.get("panel_width", PANEL_WIDTH)
+                panel_height = params.get("panel_height", PANEL_HEIGHT)
+
+                fig = create_defect_map_figure(
+                    display_df, panel_rows, panel_cols, quadrant_selection, lot_number,
+                    offset_x=offset_x, offset_y=offset_y,
+                    gap_x=gap_x, gap_y=gap_y,
+                    panel_width=panel_width, panel_height=panel_height
+                )
                 st.plotly_chart(fig, use_container_width=True)
             elif view_mode == ViewMode.PARETO.value:
                 fig = create_pareto_figure(display_df, quadrant_selection)

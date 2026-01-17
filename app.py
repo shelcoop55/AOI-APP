@@ -84,6 +84,7 @@ def main() -> None:
                 # 2. Origins (Renamed from Offsets)
                 c_off1, c_off2 = st.columns(2)
                 with c_off1:
+                    # FIX: Explicitly cast value to float to avoid StreamlitMixedNumericTypesError
                     st.number_input("X Origin (mm)", value=float(DEFAULT_OFFSET_X), step=1.0, key="offset_x", help="Shift origin X by this amount.")
                 with c_off2:
                     st.number_input("Y Origin (mm)", value=float(DEFAULT_OFFSET_Y), step=1.0, key="offset_y", help="Shift origin Y by this amount.")
