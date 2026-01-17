@@ -52,14 +52,14 @@ def _draw_border_and_gaps(ox: float = 0.0, oy: float = 0.0, gap_x: float = GAP_S
     gap_color = theme_config.panel_background_color if theme_config else PANEL_BACKGROUND_COLOR
     border_color = theme_config.axis_color if theme_config else GRID_COLOR
 
-    x_start = ox - 6*gap_x
-    x_end = ox + panel_width + 6* gap_x
+    x_start = ox - 7 * gap_x
+    x_end = ox + panel_width + 8 * gap_x
 
-    y_start = oy - 6*gap_y
-    y_end = oy + panel_height + 6* gap_y
+    y_start = oy - 7 * gap_y
+    y_end = oy + panel_height + 8 * gap_y
 
     # Corner Radius
-    radius = 20 # Match quadrant radius
+    radius = 20.0 # Match quadrant radius
 
     # Draw One Big Rounded Rectangle
     path = _get_rounded_rect_path(x_start, y_start, x_end, y_end, radius)
@@ -100,7 +100,7 @@ def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int
     for x_start, y_start in origins_to_draw.values():
         if fill:
             # 1. Draw the Background Copper Rect for the whole quadrant (ROUNDED)
-            path = _get_rounded_rect_path(x_start, y_start, x_start + quad_width, y_start + quad_height, 15.0)
+            path = _get_rounded_rect_path(x_start, y_start, x_start + quad_width, y_start + quad_height, 20.0)
             shapes.append(dict(
                 type="path",
                 path=path,
