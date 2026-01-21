@@ -206,7 +206,11 @@ def main() -> None:
                     "visual_origin_y": visual_origin_y,
 
                     "dyn_gap_x": dyn_gap_x,
-                    "dyn_gap_y": dyn_gap_y
+                    "dyn_gap_y": dyn_gap_y,
+
+                    # Store Structural Fixed Offsets for Inner Border Drawing
+                    "fixed_offset_x": off_x_struct,
+                    "fixed_offset_y": off_y_struct
                 }
                 store.report_bytes = None
 
