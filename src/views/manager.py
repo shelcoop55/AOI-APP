@@ -83,7 +83,7 @@ class ViewManager:
 
             # Reset verification filter to select all available options on new run
             # This ensures the UI explicitly shows all tags selected, matching user expectation
-            full_df = self.store.layer_data.get_combined_dataframe()
+            full_df = data.get_combined_dataframe()
             if not full_df.empty and 'Verification' in full_df.columns:
                 all_verifs = sorted(full_df['Verification'].dropna().astype(str).unique().tolist())
                 self.store.multi_verification_selection = all_verifs
