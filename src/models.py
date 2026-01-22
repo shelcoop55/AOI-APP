@@ -300,3 +300,14 @@ class PanelData:
         if key in self._layers:
             return self[key] # Use the __getitem__ proxy logic
         return default
+
+    def get_layers_for_reporting(self):
+        """
+        Yields all layer objects in a consistent order for reporting.
+        Yields: (layer_num, side, BuildUpLayer)
+        """
+        for layer_num in sorted(self._layers.keys()):
+            # Sort sides: Front first, then Back
+            sides = self._layers[layer_num]
+            for side in sorted(sides.keys(), key=lambda s: 0 if s == 'F' else 1):
+                yield layer_num, side, sides[side]
