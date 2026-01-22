@@ -111,7 +111,7 @@ class ViewManager:
         self.store.analysis_params = current_params
         self.store.report_bytes = None
 
-    def render_navigation(self):
+    def render_navigation(self, filter_container=None):
         # Inject Keyboard Shortcuts
         with open("src/components/keyboard_shortcuts.html", "r") as f:
             components.html(f.read(), height=0, width=0)
@@ -122,11 +122,11 @@ class ViewManager:
         self._render_top_nav_buttons()
 
         if self.store.active_view == 'layer':
-            self._render_layer_inspection_controls()
+            self._render_layer_inspection_controls(filter_container)
         elif self.store.active_view in ['documentation', 'reporting']:
             pass
         else:
-            self._render_analysis_page_controls()
+            self._render_analysis_page_controls(filter_container)
 
     def _render_top_nav_buttons(self):
         nav_cols = st.columns(4, gap="small")
@@ -153,7 +153,7 @@ class ViewManager:
         is_rep = self.store.active_view == 'reporting'
         nav_cols[3].button("Reporting", type="primary" if is_rep else "secondary", use_container_width=True, on_click=lambda: set_mode('reporting'))
 
-    def _render_layer_inspection_controls(self):
+    def _render_layer_inspection_controls(self, filter_container=None):
         layer_keys = sorted(self.store.layer_data.keys())
         if not layer_keys: return
 
@@ -187,7 +187,8 @@ class ViewManager:
             ver_options = sorted(active_df['Verification'].dropna().astype(str).unique().tolist())
 
         # Sidebar Filters
-        with st.sidebar:
+        target = filter_container if filter_container else st.sidebar
+        with target:
              st.divider()
              st.markdown("### Analysis Filters")
              if 'multi_verification_selection' in st.session_state:
@@ -251,14 +252,15 @@ class ViewManager:
                 return cb
             cols[i].button(label, key=f"view_mode_btn_{i}", type="primary" if is_active else "secondary", use_container_width=True, on_click=make_callback(mapped_val))
 
-    def _render_analysis_page_controls(self):
+    def _render_analysis_page_controls(self, filter_container=None):
         all_layers = sorted(self.store.layer_data.keys())
         full_df = self.store.layer_data.get_combined_dataframe()
         all_verifications = []
         if not full_df.empty and 'Verification' in full_df.columns:
             all_verifications = sorted(full_df['Verification'].dropna().astype(str).unique().tolist())
 
-        with st.sidebar:
+        target = filter_container if filter_container else st.sidebar
+        with target:
              st.divider()
              st.markdown("### Analysis Filters")
              if 'multi_verification_selection' in st.session_state:
@@ -373,6 +375,32 @@ class ViewManager:
                  max_idx = (self.store.analysis_params.get('panel_cols', 7) * 2) - 1
                  st.slider("Slice Index", 0, max_idx, 0, key="rca_index")
 
+    def _sync_params_from_session_state(self):
+        """
+        Updates analysis_params with latest values from session state widgets
+        that are not part of the main form (e.g. Advanced Config).
+        """
+        # Mapping of widget key to param key
+        mapping = {
+            "plot_origin_x": "visual_origin_x",
+            "plot_origin_y": "visual_origin_y",
+            "dyn_gap_x": "dyn_gap_x",
+            "dyn_gap_y": "dyn_gap_y"
+        }
+
+        updated = False
+        current_params = self.store.analysis_params.copy()
+
+        for widget_key, param_key in mapping.items():
+            if widget_key in st.session_state:
+                val = st.session_state[widget_key]
+                if current_params.get(param_key) != val:
+                    current_params[param_key] = val
+                    updated = True
+
+        if updated:
+            self.store.analysis_params = current_params
+
     def render_reporting_view(self):
         st.header("📥 Generate Analysis Reports")
         st.markdown("Use this page to generate and download comprehensive reports.")
@@ -435,6 +463,8 @@ class ViewManager:
             st.download_button("Download Package (ZIP)", data=self.store.report_bytes, file_name=zip_filename, mime="application/zip", type="primary", use_container_width=True)
 
     def render_main_view(self):
+        self._sync_params_from_session_state()
+
         if not self.store.layer_data:
              st.info("Please upload data and run analysis to proceed.")
              return
