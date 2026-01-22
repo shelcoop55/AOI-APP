@@ -27,8 +27,9 @@ class ViewManager:
         """
         Orchestrates the analysis process: loads data, calculates layout, and initializes state.
         """
-        rows = self.store.analysis_params.get("panel_rows", 7)
-        cols = self.store.analysis_params.get("panel_cols", 7)
+        # Prioritize values from the widgets in session_state, falling back to stored params or defaults
+        rows = st.session_state.get("panel_rows", self.store.analysis_params.get("panel_rows", 7))
+        cols = st.session_state.get("panel_cols", self.store.analysis_params.get("panel_cols", 7))
 
         # Retrieve Advanced Params
         off_x_struct = DEFAULT_OFFSET_X
@@ -88,6 +89,8 @@ class ViewManager:
         # Update Params with Calculated Values
         current_params = self.store.analysis_params.copy()
         current_params.update({
+            "panel_rows": rows,
+            "panel_cols": cols,
             "panel_width": p_width,
             "panel_height": p_height,
             "gap_x": effective_gap_x,
