@@ -3,15 +3,8 @@ import pandas as pd
 import numpy as np
 from src.state import SessionStore
 from src.plotting import create_still_alive_figure
-from src.data_handler import get_true_defect_coordinates
-from src.config import GAP_SIZE
-
-def render_still_alive_sidebar(store: SessionStore):
-    """
-    Deprecated: Sidebar logic is now handled in manager.py unified controls.
-    Kept as empty or redirect if needed.
-    """
-    pass
+from src.analysis.calculations import get_true_defect_coordinates, FilterContext
+from src.config import GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
 
 def render_still_alive_main(store: SessionStore, theme_config=None):
     """Renders the Main Content for the Still Alive view."""
@@ -19,60 +12,34 @@ def render_still_alive_main(store: SessionStore, theme_config=None):
     panel_rows = params.get("panel_rows", 7)
     panel_cols = params.get("panel_cols", 7)
 
-    # Header removed to save space
-    # st.header("Still Alive Panel Yield Map")
-
     # --- Filter Logic Adaptation ---
-    # Unified filters provide:
-    # 1. multi_layer_selection (List[int]) -> Layers to INCLUDE
-    # 2. multi_verification_selection (List[str]) -> Verifications to INCLUDE (usually)
-    # 3. analysis_side_select (Front/Back/Both)
-
-    # "Still Alive" traditionally works by EXCLUDING layers/defects to see what survives.
-    # We must map the Inclusion lists to Exclusions or modify get_true_defect_coordinates.
-
-    # 1. Layers
-    # If user selects layers [1, 2], it means INCLUDE 1, 2. So Exclude all others.
     all_layers = store.layer_data.get_all_layer_nums()
     selected_layers = store.multi_layer_selection if store.multi_layer_selection else all_layers
     excluded_layers = list(set(all_layers) - set(selected_layers))
 
-    # 2. Side Filter
-    # Unified filter returns List[str] e.g., ["Front", "Back"]
     side_pills = st.session_state.get("analysis_side_pills", ["Front", "Back"])
     included_sides = []
     if "Front" in side_pills: included_sides.append('F')
     if "Back" in side_pills: included_sides.append('B')
-
-    # 3. Verification
-    # Unified filter selects verifications to INCLUDE (i.e., Show).
-    # If I select "CU10", I want to see CU10.
-    # Still Alive: "Filter out ... defects to simulate yield".
-    # If I UNSELECT "CU10" in the unified filter, it means "Don't show CU10" -> "Treat CU10 as Good"?
-    # Yes, typically "Filter" means "Include in Analysis". If I exclude it, it's not a defect.
-    # So `excluded_defect_types` = All Types - Selected Types.
 
     full_df = store.layer_data.get_combined_dataframe()
     all_verifs = []
     if not full_df.empty and 'Verification' in full_df.columns:
         all_verifs = sorted(full_df['Verification'].dropna().unique().tolist())
 
-    selected_verifs = st.session_state.get('multi_verification_selection', all_verifs) # Default all
+    selected_verifs = st.session_state.get('multi_verification_selection', all_verifs)
     excluded_defects = list(set(all_verifs) - set(selected_verifs))
 
-    true_defect_data = get_true_defect_coordinates(
-        store.layer_data,
+    context = FilterContext(
         excluded_layers=excluded_layers,
         excluded_defect_types=excluded_defects,
         included_sides=included_sides
     )
 
-    # If side_mode != Both, we might need to post-filter the true_defect_data?
-    # No, true_defect_data is "Is this unit dead?".
-    # If we filter sides, a unit dead on Back might be alive on Front.
-    # If I select Front, I only care if it's dead on Front.
-    # This requires data_handler update. I will note this for the user or implement if feasible.
-    # For now, proceeding with standard logic.
+    true_defect_data = get_true_defect_coordinates(
+        store.layer_data,
+        context
+    )
 
     map_col, summary_col = st.columns([3, 1])
 
@@ -81,8 +48,8 @@ def render_still_alive_main(store: SessionStore, theme_config=None):
         offset_y = params.get("offset_y", 0.0)
         gap_x = params.get("gap_x", GAP_SIZE)
         gap_y = params.get("gap_y", GAP_SIZE)
-        panel_width = params.get("panel_width", 410)
-        panel_height = params.get("panel_height", 452)
+        p_width = params.get("panel_width", PANEL_WIDTH)
+        p_height = params.get("panel_height", PANEL_HEIGHT)
         visual_origin_x = params.get("visual_origin_x", 0.0)
         visual_origin_y = params.get("visual_origin_y", 0.0)
         fixed_offset_x = params.get("fixed_offset_x", 0.0)
@@ -92,7 +59,7 @@ def render_still_alive_main(store: SessionStore, theme_config=None):
             panel_rows, panel_cols, true_defect_data,
             offset_x=offset_x, offset_y=offset_y,
             gap_x=gap_x, gap_y=gap_y,
-            panel_width=panel_width, panel_height=panel_height,
+            panel_width=p_width, panel_height=p_height,
             theme_config=theme_config,
             visual_origin_x=visual_origin_x,
             visual_origin_y=visual_origin_y,
@@ -114,69 +81,78 @@ def render_still_alive_main(store: SessionStore, theme_config=None):
 
         st.divider()
 
-        # --- Edge vs Center Analysis (User Defined Logic) ---
+        # --- Vectorized Zonal Yield Analysis ---
         st.subheader("Zonal Yield")
-
-        edge_alive = 0
-        edge_total = 0
-        center_alive = 0
-        center_total = 0
-        middle_alive = 0
-        middle_total = 0
 
         total_rows_grid = panel_rows * 2
         total_cols_grid = panel_cols * 2
 
-        for r in range(total_rows_grid):
-            for c in range(total_cols_grid):
-                is_dead = (c, r) in true_defect_data
+        # Create grid of indices (Note: meshgrid ij indexing gives row, col)
+        yy, xx = np.meshgrid(np.arange(total_rows_grid), np.arange(total_cols_grid), indexing='ij')
 
-                # Calculate Ring Index (Distance from nearest edge)
-                # 0 = Outer Ring, 1 = Ring 2, etc.
-                dist_x = min(c, total_cols_grid - 1 - c)
-                dist_y = min(r, total_rows_grid - 1 - r)
-                ring_index = min(dist_x, dist_y)
+        # Calculate distance to nearest edge
+        # Columns (xx) are 0..total_cols-1
+        dist_x = np.minimum(xx, total_cols_grid - 1 - xx)
+        dist_y = np.minimum(yy, total_rows_grid - 1 - yy)
+        ring_index = np.minimum(dist_x, dist_y)
 
-                if ring_index == 0:
-                    # Edge: Outer Ring (1 unit thick)
-                    edge_total += 1
-                    if not is_dead: edge_alive += 1
-                elif 1 <= ring_index <= 2:
-                    # Middle: Rings 2 and 3 (Indices 1 and 2)
-                    middle_total += 1
-                    if not is_dead: middle_alive += 1
-                else:
-                    # Center: The rest (Index 3+)
-                    center_total += 1
-                    if not is_dead: center_alive += 1
+        # Define Zones
+        # Ring 0
+        mask_edge = (ring_index == 0)
+        # Ring 1, 2
+        mask_middle = (ring_index >= 1) & (ring_index <= 2)
+        # Ring > 2
+        mask_center = (ring_index > 2)
 
-        # Render Metrics
+        # Create Dead Mask
+        is_dead_grid = np.zeros((total_rows_grid, total_cols_grid), dtype=bool)
+        if true_defect_data:
+            # Keys are (col, row) -> (x, y)
+            dead_coords = np.array(list(true_defect_data.keys()))
+            if dead_coords.size > 0:
+                # Assign True. dead_coords[:, 1] is Y (row), [:, 0] is X (col)
+                is_dead_grid[dead_coords[:, 1], dead_coords[:, 0]] = True
+
+        def calc_yield(mask):
+            total = np.sum(mask)
+            if total == 0: return 0, 0
+            dead = np.sum(is_dead_grid & mask)
+            alive = total - dead
+            return alive, total
+
+        center_alive, center_total = calc_yield(mask_center)
+        middle_alive, middle_total = calc_yield(mask_middle)
+        edge_alive, edge_total = calc_yield(mask_edge)
+
         c_yield = (center_alive / center_total * 100) if center_total > 0 else 0
         m_yield = (middle_alive / middle_total * 100) if middle_total > 0 else 0
         e_yield = (edge_alive / edge_total * 100) if edge_total > 0 else 0
 
-        # Displaying with counts for verification
         st.metric("Center Yield", f"{c_yield:.1f}%", help=f"Inner Core (Ring 4+). Total Units: {center_total}")
         st.metric("Middle Yield", f"{m_yield:.1f}%", help=f"Rings 2 & 3. Total Units: {middle_total}")
         st.metric("Edge Yield", f"{e_yield:.1f}%", help=f"Outer Ring (Ring 1). Total Units: {edge_total}")
 
         st.divider()
 
-        # --- Pick List Download ---
-        alive_units = []
-        for r in range(total_rows_grid):
-            for c in range(total_cols_grid):
-                if (c, r) not in true_defect_data:
-                    alive_units.append({'PHYSICAL_X': c, 'UNIT_INDEX_Y': r})
+        # --- Pick List Download (Optimized Generation) ---
+        # Generate DataFrame only when requested or lazily?
+        # Streamlit download button requires data upfront usually.
+        # But we can generate the string efficiently.
 
-        if alive_units:
+        # Vectorized generation of alive units
+        # Get indices where is_dead_grid is False
+        alive_rows, alive_cols = np.where(~is_dead_grid)
+        # We need physical x (cols) and unit index y (rows)
+        # Create DF directly
+
+        if len(alive_rows) > 0:
+            df_alive = pd.DataFrame({
+                'PHYSICAL_X': alive_cols,
+                'UNIT_INDEX_Y': alive_rows
+            })
+
             from src.utils import generate_standard_filename
-
-            # Smart determination of layer context
-            target_layer = None
-            if store.multi_layer_selection and len(store.multi_layer_selection) == 1:
-                target_layer = store.multi_layer_selection[0]
-
+            target_layer = store.multi_layer_selection[0] if len(store.multi_layer_selection) == 1 else None
             filename = generate_standard_filename(
                 prefix="Pick_List",
                 selected_layer=target_layer,
@@ -185,11 +161,9 @@ def render_still_alive_main(store: SessionStore, theme_config=None):
                 extension="csv"
             )
 
-            df_alive = pd.DataFrame(alive_units)
-            csv = df_alive.to_csv(index=False).encode('utf-8')
             st.download_button(
                 "📥 Download Pick List",
-                data=csv,
+                data=df_alive.to_csv(index=False).encode('utf-8'),
                 file_name=filename,
                 mime="text/csv",
                 help="CSV list of coordinate pairs (Physical X, Y) for good units."
