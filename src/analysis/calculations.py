@@ -25,16 +25,16 @@ class FilterContext:
 
 @st.cache_data
 def get_true_defect_coordinates(
-    panel_data: PanelData,
+    _panel_data: PanelData,
     filter_context: Optional[FilterContext] = None
 ) -> Dict[Tuple[int, int], Dict[str, Any]]:
     """
     Aggregates all "True" defects to find unique defective cell coordinates.
     """
-    if not panel_data:
+    if not _panel_data:
         return {}
 
-    all_layers_df = panel_data.get_combined_dataframe()
+    all_layers_df = _panel_data.get_combined_dataframe()
     if all_layers_df.empty or 'Verification' not in all_layers_df.columns:
         return {}
 
