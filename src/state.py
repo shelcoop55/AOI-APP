@@ -4,9 +4,32 @@ Implements the 'Store' pattern to unify access to Streamlit's session state.
 """
 import streamlit as st
 from dataclasses import dataclass
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, TypedDict
 from src.enums import ViewMode, Quadrant
 from src.data_handler import load_data, PanelData  # Import load_data
+
+# --- TypedDict for Analysis Parameters ---
+class AnalysisParams(TypedDict, total=False):
+    """
+    Type definition for analysis parameters stored in session state.
+    """
+    panel_rows: int
+    panel_cols: int
+    panel_width: float
+    panel_height: float
+    gap_x: float
+    gap_y: float
+    gap_size: float # Backwards compatibility
+    lot_number: str
+    process_comment: str
+    offset_x: float
+    offset_y: float
+    visual_origin_x: float
+    visual_origin_y: float
+    dyn_gap_x: float
+    dyn_gap_y: float
+    fixed_offset_x: float
+    fixed_offset_y: float
 
 @dataclass
 class SessionStore:
@@ -139,11 +162,11 @@ class SessionStore:
         st.session_state.analysis_subview = subview
 
     @property
-    def analysis_params(self) -> Dict:
+    def analysis_params(self) -> AnalysisParams:
         return st.session_state.analysis_params
 
     @analysis_params.setter
-    def analysis_params(self, params: Dict):
+    def analysis_params(self, params: AnalysisParams):
         st.session_state.analysis_params = params
 
     @property

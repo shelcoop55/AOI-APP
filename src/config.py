@@ -116,6 +116,9 @@ FALLBACK_COLORS = NEON_PALETTE + [
 
 # --- Reporting Constants ---
 CRITICAL_DEFECT_TYPES = ["Short", "Cut/Short"]
+REPORT_HEADER_COLOR = '#DDEBF7'
+CRITICAL_DEFECT_BG_COLOR = '#FFC7CE'
+CRITICAL_DEFECT_FONT_COLOR = '#9C0006'
 
 # --- Verification Logic ---
 # Values in the 'Verification' column that are considered "Safe" (Non-Defects).
