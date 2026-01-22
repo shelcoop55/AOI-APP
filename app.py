@@ -32,10 +32,6 @@ def main() -> None:
                     key=uploader_key
                 )
 
-                # Store inputs in session state automatically via keys, or read them in callback
-                # We need them in session state for persistence.
-                # If we use key="panel_rows", they are in session state.
-
                 st.number_input(
                     "Panel Rows", min_value=1, value=DEFAULT_PANEL_ROWS,
                     help="Number of vertical units in a single quadrant.",
@@ -57,22 +53,6 @@ def main() -> None:
                     key="process_comment"
                 )
 
-                st.markdown("---")
-                st.markdown("##### Plot Origin Configuration")
-                c_origin1, c_origin2 = st.columns(2)
-                with c_origin1:
-                    st.number_input("X Origin (mm)", value=0.0, step=1.0, key="plot_origin_x", help="Shift the visual coordinate system X origin.")
-                with c_origin2:
-                    st.number_input("Y Origin (mm)", value=0.0, step=1.0, key="plot_origin_y", help="Shift the visual coordinate system Y origin.")
-
-
-            with st.expander("⚙️ Advanced Configuration", expanded=False):
-                c_gap1, c_gap2 = st.columns(2)
-                with c_gap1:
-                    st.number_input("Dynamic Gap X (mm)", value=float(DYNAMIC_GAP_X), step=1.0, min_value=0.0, key="dyn_gap_x", help="Dynamic Horizontal Gap.")
-                with c_gap2:
-                    st.number_input("Dynamic Gap Y (mm)", value=float(DYNAMIC_GAP_Y), step=1.0, min_value=0.0, key="dyn_gap_y", help="Dynamic Vertical Gap.")
-
             # Callback for Analysis
             def on_run_analysis():
                 # Read from dynamic key
@@ -93,7 +73,27 @@ def main() -> None:
 
                 st.form_submit_button("🔄 Reset", on_click=on_reset, type="secondary")
 
-        # --- 2. Appearance & Style (Expander) ---
+        # --- 2. Analysis Filters Placeholder (Injectable) ---
+        filter_container = st.container()
+
+        # --- 3. Advanced Configuration (Standalone) ---
+        with st.expander("⚙️ Advanced Configuration", expanded=False):
+            st.markdown("##### Plot Origin Configuration")
+            c_origin1, c_origin2 = st.columns(2)
+            with c_origin1:
+                st.number_input("X Origin (mm)", value=0.0, step=1.0, key="plot_origin_x", help="Shift the visual coordinate system X origin.")
+            with c_origin2:
+                st.number_input("Y Origin (mm)", value=0.0, step=1.0, key="plot_origin_y", help="Shift the visual coordinate system Y origin.")
+
+            st.divider()
+
+            c_gap1, c_gap2 = st.columns(2)
+            with c_gap1:
+                st.number_input("Dynamic Gap X (mm)", value=float(DYNAMIC_GAP_X), step=1.0, min_value=0.0, key="dyn_gap_x", help="Dynamic Horizontal Gap.")
+            with c_gap2:
+                st.number_input("Dynamic Gap Y (mm)", value=float(DYNAMIC_GAP_Y), step=1.0, min_value=0.0, key="dyn_gap_y", help="Dynamic Vertical Gap.")
+
+        # --- 4. Appearance & Style (Expander) ---
         with st.expander("🎨 Appearance & Style", expanded=False):
             # Create PlotTheme inputs and update session state immediately
             bg_color = st.color_picker("Background Color", value=DEFAULT_THEME.background_color, key="style_bg")
@@ -118,7 +118,7 @@ def main() -> None:
 
     # --- Main Content Area ---
     # Render Navigation (Triggers full rerun to update Sidebar context)
-    view_manager.render_navigation()
+    view_manager.render_navigation(filter_container=filter_container)
 
     @st.fragment
     def render_chart_area():
