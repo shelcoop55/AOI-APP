@@ -76,7 +76,7 @@ class SessionStore:
             'view_mode': ViewMode.DEFECT.value,
             'quadrant_selection': Quadrant.ALL.value,
             'verification_selection': 'All',
-            'multi_verification_selection': [],
+            # 'multi_verification_selection': [],  <-- Removed to allow detection of uninitialized state
             'multi_layer_selection': [],
             'multi_side_selection': []
         }

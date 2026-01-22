@@ -182,22 +182,29 @@ class ViewManager:
             layer_info = self.store.layer_data.get(self.store.selected_layer, {})
             active_df = layer_info.get(self.store.selected_side, pd.DataFrame())
 
+        # Use Global Options for Filtering to prevent selection state loss on layer switch
+        full_df = self.store.layer_data.get_combined_dataframe()
         ver_options = []
-        if not active_df.empty and 'Verification' in active_df.columns:
-            ver_options = sorted(active_df['Verification'].dropna().astype(str).unique().tolist())
+        if not full_df.empty and 'Verification' in full_df.columns:
+            ver_options = sorted(full_df['Verification'].dropna().astype(str).unique().tolist())
 
         # Sidebar Filters
         target = filter_container if filter_container else st.sidebar
         with target:
              st.divider()
              st.markdown("### Analysis Filters")
-             if 'multi_verification_selection' in st.session_state:
-                 current_selection = st.session_state['multi_verification_selection']
-                 valid_selection = [x for x in current_selection if x in ver_options]
-                 st.session_state['multi_verification_selection'] = valid_selection
-                 st.multiselect("Filter Verification Status", options=ver_options, key="multi_verification_selection")
+             # No need to filter valid_selection against a subset anymore since we use global options
+             if 'multi_verification_selection' not in st.session_state:
+                 # Initialize if missing (e.g. direct nav)
+                 st.session_state['multi_verification_selection'] = ver_options
              else:
-                 st.multiselect("Filter Verification Status", options=ver_options, default=ver_options, key="multi_verification_selection")
+                 # Sanitize selection against current global options to prevent Streamlit errors on dataset switch
+                 # This handles the case where the user uploads a new file (reactive update) but hasn't clicked "Run" yet.
+                 current_sel = st.session_state['multi_verification_selection']
+                 valid_sel = [x for x in current_sel if x in ver_options]
+                 st.session_state['multi_verification_selection'] = valid_sel
+
+             st.multiselect("Filter Verification Status", options=ver_options, key="multi_verification_selection")
 
         self.store.verification_selection = st.session_state.get('multi_verification_selection', ver_options)
 
