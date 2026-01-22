@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any, Optional, List
 from src.models import PanelData, StressMapData, YieldKillerMetrics
-from src.config import SAFE_VERIFICATION_VALUES
+from src.config import SAFE_VERIFICATION_VALUES_UPPER
 
 def get_true_defect_coordinates(
     panel_data: PanelData,
@@ -54,9 +54,8 @@ def get_true_defect_coordinates(
         return {}
 
     # Filter for True Defects
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
     # Verification is already normalized to upper in load_data
-    is_true_defect = ~all_layers_df['Verification'].isin(safe_values_upper)
+    is_true_defect = ~all_layers_df['Verification'].isin(SAFE_VERIFICATION_VALUES_UPPER)
     true_defects_df = all_layers_df[is_true_defect].copy()
 
     if true_defects_df.empty:
@@ -192,12 +191,10 @@ def calculate_yield_killers(panel_data: PanelData, panel_rows: int, panel_cols: 
     """
     if not panel_data: return None
 
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
-
     def true_defect_filter(df):
         if 'Verification' in df.columns:
             # Verification is already normalized to upper in load_data
-            return df[~df['Verification'].isin(safe_values_upper)]
+            return df[~df['Verification'].isin(SAFE_VERIFICATION_VALUES_UPPER)]
         return df
 
     combined_df = panel_data.get_combined_dataframe(filter_func=true_defect_filter)

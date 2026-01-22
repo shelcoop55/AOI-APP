@@ -14,7 +14,7 @@ from src.config import (
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, FALLBACK_COLORS, SAFE_VERIFICATION_VALUES,
     VERIFICATION_COLOR_SAFE, VERIFICATION_COLOR_DEFECT, NEON_PALETTE,
     UNIT_FACE_COLOR, UNIT_EDGE_COLOR, AXIS_TEXT_COLOR, PANEL_BACKGROUND_COLOR, INTER_UNIT_GAP,
-    PlotTheme
+    PlotTheme, SAFE_VERIFICATION_VALUES_UPPER
 )
 from src.models import StressMapData
 from src.documentation import VERIFICATION_DESCRIPTIONS
@@ -866,10 +866,9 @@ def create_defect_sankey(df: pd.DataFrame, theme_config: Optional[PlotTheme] = N
         source_colors_hex.append(color)
 
     # Assign Status Colors to Target Nodes
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
     target_colors_hex = []
     for status in verification_statuses:
-        if status.upper() in safe_values_upper:
+        if status.upper() in SAFE_VERIFICATION_VALUES_UPPER:
             target_colors_hex.append(VERIFICATION_COLOR_SAFE)
         else:
             target_colors_hex.append(VERIFICATION_COLOR_DEFECT)
@@ -1319,9 +1318,8 @@ def create_density_contour_map(
         return go.Figure()
 
     # Filter for True Defects
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
     if 'Verification' in df.columns:
-        df_true = df[~df['Verification'].str.upper().isin(safe_values_upper)].copy()
+        df_true = df[~df['Verification'].str.upper().isin(SAFE_VERIFICATION_VALUES_UPPER)].copy()
     else:
         df_true = df.copy()
 
@@ -1639,9 +1637,8 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int,
         return go.Figure()
 
     # Filter for True Defects
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
     if 'Verification' in df.columns:
-        df_true = df[~df['Verification'].str.upper().isin(safe_values_upper)].copy()
+        df_true = df[~df['Verification'].str.upper().isin(SAFE_VERIFICATION_VALUES_UPPER)].copy()
     else:
         df_true = df.copy()
 
