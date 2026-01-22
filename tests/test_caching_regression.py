@@ -3,6 +3,7 @@ import streamlit as st
 import importlib
 from src.models import PanelData
 from src.analysis import calculations
+from src.analysis.calculations import FilterContext
 
 def test_get_true_defect_coordinates_caching_behavior():
     """
@@ -11,19 +12,26 @@ def test_get_true_defect_coordinates_caching_behavior():
     Streamlit trying to hash it (due to the leading underscore fix).
     """
     # Force reload of calculations to ensure we are using the real st.cache_data
-    # and not a mock from another test file (since pytest shares the process).
+    # and not a mock from another test file.
     importlib.reload(calculations)
 
-    # Create a PanelData instance (which is unhashable)
     panel_data = PanelData()
 
-    # Call the function.
-    # If the argument is not prefixed with '_', Streamlit's cache_data
-    # will attempt to hash 'panel_data' and raise UnhashableParamError
-    # (or TypeError: cannot pickle 'function' object depending on recursion).
     try:
-        # We don't need actual data, just the call to trigger the cache logic check.
+        # Case 1: Only PanelData (Original crash)
         result = calculations.get_true_defect_coordinates(panel_data)
         assert isinstance(result, dict)
+
+        # Case 2: PanelData + FilterContext (Potential secondary crash)
+        # Verify that passing a FilterContext (which contains lists) works fine
+        # and doesn't trigger hashing errors now that the first argument is fixed.
+        context = FilterContext(
+            selected_layers=[1, 2],
+            selected_sides=['F'],
+            excluded_defect_types=['TypeA']
+        )
+        result_with_context = calculations.get_true_defect_coordinates(panel_data, context)
+        assert isinstance(result_with_context, dict)
+
     except Exception as e:
-        pytest.fail(f"get_true_defect_coordinates raised an exception with PanelData: {e}")
+        pytest.fail(f"get_true_defect_coordinates raised an exception: {e}")
