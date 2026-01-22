@@ -1,95 +1,176 @@
 # Panel Defect Analysis Dashboard
 
-This is a professional, interactive web application built with Streamlit for visualizing and analyzing semiconductor panel defect data. The dashboard is designed for engineers and technicians to easily upload multi-layer build-up data, identify trends, and generate insightful reports.
+**Version 2.0 | Advanced Semiconductor Manufacturing Analytics**
 
-The application is architected for robustness and flexibility, featuring a modular Python backend located in the `src/` directory, which makes the code clean, maintainable, and easy to extend.
+![Status](https://img.shields.io/badge/Status-Active-success)
+![Python](https://img.shields.io/badge/Python-3.12-blue)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.40%2B-FF4B4B)
+
+A professional, high-performance interactive web application built with Streamlit for visualizing and analyzing semiconductor panel defect data. Designed for engineers and technicians, this dashboard enables multi-layer build-up analysis, spatial defect mapping, and automated yield reporting.
 
 ![App Screenshot](assets/screenshot.png)
-*(Please replace `assets/screenshot.png` with an actual screenshot of the application.)*
 
-## Key Features
+---
 
-- **Multi-Layer Defect Analysis**: Upload and analyze data from multiple build-up (BU) layers simultaneously (e.g., `BU-01.xlsx`, `BU-02.xlsx`).
-- **Interactive Defect Map**: Visualize the spatial distribution of defects on a true-to-scale 2x2 panel grid.
-- **"Still Alive" Yield Map**: A powerful view that aggregates "True" defects across all layers to show a final yield map of which panel units are still defect-free.
-- **Dynamic Defect Coloring**: New, unknown defect types from an uploaded file are automatically assigned a unique color and plotted, requiring no manual configuration.
-- **Pareto Analysis**: Instantly identify the most frequent defect types, with views for individual quadrants or a stacked bar chart for the entire panel.
-- **Statistical Summary**: View key performance indicators (KPIs) like defect density, true defective cell counts, and estimated yield, with breakdowns per quadrant.
-- **Flexible Configuration**: Interactively configure the panel's row and column dimensions to match the physical layout of your product.
-- **Data Filtering**: Isolate and analyze data by quadrant (Q1-Q4) or by verification status (True, False, Acceptable).
-- **Professional Theming**: A polished, dark-themed UI designed for a professional manufacturing environment.
-- **Comprehensive Reporting**: Generate a multi-sheet, presentation-ready Excel report with a single click. The report includes a summary, themed charts, top defect lists, and a full raw data dump with conditional formatting for critical defects.
+## 🚀 Key Features
 
-## How to Use the Dashboard
+### 1. Multi-Layer & Multi-Side Analysis
+- **Build-Up (BU) Support**: Upload and analyze data from multiple layers simultaneously (e.g., `BU-01`, `BU-02`).
+- **Front & Back Side Alignment**: Automatically handles Front/Back side flipping and alignment for true-to-physical spatial stacking.
+- **Robust Data Ingestion**: Intelligently normalizes column names (e.g., `Verification`, `DEFECT_TYPE`) to handle inconsistencies in input files.
 
-1.  **Launch the application.** It will start with sample data for three layers.
-2.  **Upload Your Data**:
-    - In the sidebar, under the "Data Source & Configuration" expander, click **Browse files**.
-    - Select one or more Excel files. The application expects filenames to start with `BU-XX` (e.g., `BU-01-MyData.xlsx`), where `XX` is the layer number.
-    - The Excel file must contain a sheet named `Defects` with the columns: `DEFECT_TYPE`, `UNIT_INDEX_X`, and `UNIT_INDEX_Y`.
-3.  **Configure Panel Size**: Set the `Panel Rows` and `Panel Columns` to match the dimensions of a single quadrant on your physical panel.
-4.  **Run Analysis**: Click the **"Run Analysis"** button to process the data.
-5.  **Navigate Views**:
-    - Use the buttons at the top of the main view to switch between different build-up layers or the "Still Alive" map.
-    - Use the "Analysis Controls" in the sidebar to switch between the `Defect Map`, `Pareto`, and `Summary` views for the selected layer.
-6.  **Download Reports**:
-    - In the layer views, you can generate and download a comprehensive Excel report for the currently selected filters.
-    - In the "Still Alive" view, you can download a simple coordinate list of all defective cells.
+### 2. Advanced Visualization
+- **Interactive Defect Map**: Zoomable, pan-able Plotly maps representing the true physical scale of the panel.
+- **"Still Alive" Yield Map**: A powerful yield aggregation view that identifies "killer" defects across all layers to pinpoint units that remain defect-free.
+- **Heatmaps & Stress Maps**: Visualize defect density hotspots and mechanical stress points across the panel surface.
 
-## Developer Setup and Installation
+### 3. Intelligent Filtering & Controls
+- **Global Verification Filters**: Filter defects by verification status (e.g., `True`, `False`, `Acceptable`) with a global scope that persists across layer views.
+- **Smart Defaults**: Automatically detects available data and pre-selects all options, ensuring you never start with an empty view.
+- **Quadrant Focusing**: Isolate specific panel quadrants (Q1-Q4) for detailed inspection.
 
-Follow these instructions to set up the development environment and run the application locally.
+### 4. Reporting & Metrics
+- **Automated Reporting**: Generate presentation-ready Excel packages containing summary statistics, raw data, and embedded charts.
+- **Pareto Analysis**: Dynamic Pareto charts to identify top defect contributors.
+- **KPI Dashboard**: Real-time calculation of Defect Density, Yield Loss, and Kill Ratios.
 
-1.  **Clone the repository:**
+---
+
+## 🛠️ Installation & Setup
+
+### Prerequisites
+- **Python 3.12+** (Managed via `pyenv` recommended)
+- **Git**
+
+### Step-by-Step Guide
+
+1.  **Clone the Repository**
     ```bash
-    git clone <your-repository-url>
-    cd <repository-directory>
+    git clone <your-repo-url>
+    cd panel-defect-analysis
     ```
-2.  **Install Python Version**: This project uses `pyenv` to manage Python versions. Ensure you have the version specified in the `.python-version` file installed.
+
+2.  **Set Up Python Environment**
     ```bash
-    # This will automatically read the version from the .python-version file
-    pyenv install
+    # Install specific python version
+    pyenv install 3.12.12
+    pyenv local 3.12.12
     ```
-3.  **Install Dependencies**: The project uses two requirements files. `requirements.txt` for the core application and `requirements-dev.txt` for testing and development.
+
+3.  **Install Dependencies**
+    It is recommended to use a virtual environment.
     ```bash
-    # Install application dependencies
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+    # Install Core Dependencies
     pip install -r requirements.txt
 
-    # Install development dependencies
+    # Install Dev/Test Dependencies (Optional)
     pip install -r requirements-dev.txt
     ```
 
-4.  **Run the Streamlit App**:
+4.  **Launch the Application**
     ```bash
     streamlit run app.py
     ```
-The application will open in your default web browser.
+    The app will open automatically in your browser at `http://localhost:8501`.
 
-## Configuration
+---
 
-### Defect Colors
-You can customize the colors used for each defect type in the plots.
+## 📖 Usage Guide
 
-1.  Open the `assets/defect_styles.json` file.
-2.  This file contains a simple JSON object mapping defect names (strings) to hex color codes (strings).
-3.  You can change the hex color codes for existing defects or add new defect types to give them a specific color.
+### 1. Data Preparation
+Your Excel files should follow this naming convention:
+- **Format**: `BU-XX[F|B]*.xlsx` (e.g., `BU-01F_Lot123.xlsx`, `BU-02B.xlsx`)
+- **Sheet**: Must contain a sheet named `Defects`.
+- **Columns**:
+  - `DEFECT_TYPE` (String)
+  - `UNIT_INDEX_X` (Integer)
+  - `UNIT_INDEX_Y` (Integer)
+  - `Verification` (String, Optional) - *Note: The app robustly handles variations like "VERIFICATION", "Verification ", etc.*
 
-**Example `defect_styles.json`:**
+### 2. Running Analysis
+1.  **Upload**: Use the sidebar **"Data Source & Configuration"** to upload one or multiple BU layer files.
+2.  **Configure**: Set the `Panel Rows` and `Panel Columns` to match your product's grid.
+3.  **Run**: Click **🚀 Run Analysis**. The dashboard will load with the highest layer selected by default.
+
+### 3. Navigation
+- **Layer Inspection**: View defects for a specific single layer. Toggle between "Front" and "Back" sides.
+- **Analysis Page**: Access advanced tools like Heatmaps, Stress Maps, and Root Cause Analysis.
+- **Still Alive**: View the cumulative yield map.
+
+### 4. Exporting Results
+- Navigate to the **Reporting** tab via the top navigation bar.
+- Choose your export options (Excel Report, PNG Maps, Coordinate Lists).
+- Click **📦 Generate Download Package** to get a ZIP file with all assets.
+
+---
+
+## ⚙️ Configuration
+
+### Customizing Defect Colors
+Map specific defect types to custom colors by editing `assets/defect_styles.json`.
 ```json
 {
     "Nick": "#9B59B6",
     "Short": "#E74C3C",
-    "Missing Feature": "#2ECC71",
-    "Cut": "#1ABC9C"
+    "Open": "#3498DB"
 }
 ```
-**Note**: If a defect type is found in an uploaded file but is *not* in this JSON file, it will be automatically assigned a color from a fallback palette defined in `src/config.py`.
+*Any defect type not listed will receive a color from the auto-generated palette.*
 
-## Testing
+### Advanced Plot Settings
+In the **Advanced Configuration** sidebar expander:
+- **Plot Origin**: Shift the (0,0) visual origin.
+- **Dynamic Gaps**: Adjust the visual spacing between quadrants for better clarity.
 
-This project uses `pytest` for automated testing. To ensure code quality and prevent regressions, run the test suite after making any changes.
+---
+
+## 🏗️ Project Structure
+
+The project follows a modular architecture for scalability and maintenance.
+
+```
+├── app.py                 # Main Streamlit Entry Point
+├── src/
+│   ├── config.py          # Global constants and theme settings
+│   ├── state.py           # Centralized SessionState management
+│   ├── data_handler.py    # Data ingestion, cleaning, and normalization
+│   ├── plotting.py        # Plotly visualization logic
+│   ├── reporting.py       # Excel/ZIP report generation
+│   ├── analysis/          # Advanced analysis logic (Heatmaps, Stress)
+│   ├── views/             # UI View Components (Layer View, Dashboard)
+│   └── models.py          # Data classes (PanelData, BuildUpLayer)
+├── assets/
+│   └── defect_styles.json # Color configuration
+├── tests/                 # Pytest suite
+└── requirements.txt       # Dependencies
+```
+
+---
+
+## 🧪 Testing
+
+We use `pytest` for robust unit and integration testing.
 
 ```bash
+# Run all tests
 pytest
+
+# Run a specific test file
+pytest tests/test_data_handler.py
 ```
-The tests will run and provide a report on the status of the application's core logic.
+
+---
+
+## 🤝 Contributing
+
+1.  Create a feature branch (`git checkout -b feature/amazing-feature`).
+2.  Commit your changes.
+3.  Run tests to ensure no regressions.
+4.  Push to the branch and open a Pull Request.
+
+---
+
+**Developed for Semiconductor Excellence.**
