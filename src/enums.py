@@ -18,11 +18,17 @@ class ViewMode(Enum):
     ROOT_CAUSE = "Root Cause Analysis"
     STILL_ALIVE = "Still Alive"
     MULTI_LAYER = "Multi-Layer"
+    DOCUMENTATION = "Documentation"
+    REPORTING = "Reporting"
 
     @classmethod
     def values(cls) -> list[str]:
         """Returns the string values of all enum members."""
         return [item.value for item in cls]
+
+    def is_analysis(self) -> bool:
+        """Returns True if the view is considered an 'Analysis' subview."""
+        return self in [ViewMode.HEATMAP, ViewMode.STRESS, ViewMode.ROOT_CAUSE, ViewMode.INSIGHTS, ViewMode.STILL_ALIVE, ViewMode.MULTI_LAYER]
 
 class Quadrant(Enum):
     """Enumeration for the panel quadrants."""
@@ -36,3 +42,12 @@ class Quadrant(Enum):
     def values(cls) -> list[str]:
         """Returns the string values of all enum members."""
         return [item.value for item in cls]
+
+    @property
+    def index(self) -> int:
+        """Returns a 0-based index for the quadrant (Q1=0, Q2=1, Q3=2, Q4=3). Returns -1 for ALL."""
+        if self == Quadrant.Q1: return 0
+        if self == Quadrant.Q2: return 1
+        if self == Quadrant.Q3: return 2
+        if self == Quadrant.Q4: return 3
+        return -1

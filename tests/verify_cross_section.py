@@ -1,77 +1,64 @@
+
+import pytest
 import pandas as pd
 import numpy as np
-from src.data_handler import get_cross_section_matrix
+from src.analysis.calculations import get_cross_section_matrix
+from src.models import PanelData, BuildUpLayer
 
-def verify_cross_section():
-    # Mock Data
-    df = pd.DataFrame({
-        'UNIT_INDEX_X': [2, 2, 3, 5],
-        'UNIT_INDEX_Y': [3, 4, 3, 5],
-        'Verification': ['Cu10', 'Cu10', 'Cu10', 'Cu10']
+def create_mock_panel_data():
+    panel_rows = 5
+    panel_cols = 5
+    panel_data = PanelData()
+
+    # Layer 1
+    # Defect at (2, 0) - Should show up in Y-slice 0, at X=2
+    # Defect at (5, 5) - Should show up in X-slice 5, at Y=5
+    df1 = pd.DataFrame({
+        'DEFECT_ID': [1, 2],
+        'UNIT_INDEX_X': [2, 5],
+        'UNIT_INDEX_Y': [0, 5],
+        'DEFECT_TYPE': ['TypeA', 'TypeB'],
+        'Verification': ['TypeA', 'TypeB'], # True defects
+        'SIDE': ['F', 'F']
     })
+    layer1 = BuildUpLayer(1, 'F', df1, panel_rows, panel_cols)
+    panel_data.add_layer(layer1)
 
-    layer_data = {
-        1: {'F': df}
-    }
+    # Layer 2
+    # Defect at (2, 0) - Stack on top of Layer 1
+    df2 = pd.DataFrame({
+        'DEFECT_ID': [3],
+        'UNIT_INDEX_X': [2],
+        'UNIT_INDEX_Y': [0],
+        'DEFECT_TYPE': ['TypeA'],
+        'Verification': ['TypeA'],
+        'SIDE': ['F']
+    })
+    layer2 = BuildUpLayer(2, 'F', df2, panel_rows, panel_cols)
+    panel_data.add_layer(layer2)
 
-    panel_rows = 10
-    panel_cols = 10
+    return panel_data, panel_rows, panel_cols
 
-    # Test 1: Full ROI Coverage
-    # X Range: 2-3, Y Range: 3-4
-    x_range = (2, 3)
-    y_range = (3, 4)
-    slice_axis = 'Y' # Project onto X
+def test_cross_section_y_slice():
+    panel_data, rows, cols = create_mock_panel_data()
 
-    matrix, layer_labels, axis_labels = get_cross_section_matrix(
-        layer_data, slice_axis, x_range, y_range, panel_rows, panel_cols
-    )
+    # Test 1: Slice Y=0
+    # Expected:
+    # Layer 1: Defect at X=2 -> Matrix[0, 2] == 1
+    # Layer 2: Defect at X=2 -> Matrix[1, 2] == 1
+    matrix_y, labels_y, axis_y = get_cross_section_matrix(panel_data, 'Y', 0, rows, cols)
 
-    print("Test 1 Matrix:\n", matrix)
-    print("Test 1 Labels:", axis_labels)
+    assert matrix_y.shape == (2, cols * 2)
+    assert matrix_y[0, 2] == 1
+    assert matrix_y[1, 2] == 1
 
-    # Expected: [2, 1]
-    assert matrix[0, 0] == 2 # X=2
-    assert matrix[0, 1] == 1 # X=3
-    assert axis_labels == ['2', '3']
+def test_cross_section_x_slice():
+    panel_data, rows, cols = create_mock_panel_data()
 
-    # Test 2: Restricted Y Range
-    # X Range: 2-3, Y Range: 3-3
-    y_range_restrict = (3, 3)
+    # Test 2: Slice X=5
+    # Expected:
+    # Layer 1: Defect at Y=5 -> Matrix[0, 5] == 1
+    matrix_x, labels_x, axis_x = get_cross_section_matrix(panel_data, 'X', 5, rows, cols)
 
-    matrix2, _, _ = get_cross_section_matrix(
-        layer_data, slice_axis, x_range, y_range_restrict, panel_rows, panel_cols
-    )
-
-    print("Test 2 Matrix:\n", matrix2)
-
-    # Expected: [1, 1] (Defect at 2,4 excluded)
-    assert matrix2[0, 0] == 1
-    assert matrix2[0, 1] == 1
-
-    # Test 3: View by Column (Project onto Y)
-    # ROI: X 2-2, Y 3-4
-    x_range_restrict = (2, 2)
-    y_range = (3, 4)
-    slice_axis = 'X'
-
-    matrix3, _, axis_labels3 = get_cross_section_matrix(
-        layer_data, slice_axis, x_range_restrict, y_range, panel_rows, panel_cols
-    )
-
-    print("Test 3 Matrix:\n", matrix3)
-    print("Test 3 Labels:", axis_labels3)
-
-    # Width = 4-3+1 = 2 (Y=3, Y=4)
-    # At X=2:
-    # Y=3: 1 defect
-    # Y=4: 1 defect
-
-    assert matrix3[0, 0] == 1 # Y=3
-    assert matrix3[0, 1] == 1 # Y=4
-    assert axis_labels3 == ['3', '4']
-
-    print("All verification tests passed!")
-
-if __name__ == "__main__":
-    verify_cross_section()
+    assert matrix_x.shape == (2, rows * 2)
+    assert matrix_x[0, 5] == 1

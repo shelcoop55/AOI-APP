@@ -2,12 +2,13 @@
 Domain Models for Panel Defect Analysis.
 Encapsulates logic for Build-Up Layers, Coordinate Transformations, and Defect Data.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import pandas as pd
 import numpy as np
 import uuid
-from typing import Dict, List, Optional
-from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT, INTER_UNIT_GAP
+from typing import Dict, List, Optional, Iterator, Tuple
+import warnings
+from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, INTER_UNIT_GAP
 
 @dataclass
 class StressMapData:
@@ -43,15 +44,16 @@ class BuildUpLayer:
     gap_x: float = GAP_SIZE
     gap_y: float = GAP_SIZE
 
+    _plotting_coords_added: bool = field(default=False, init=False)
+
     def __post_init__(self):
         self._validate()
-        self._add_plotting_coordinates()
+        # Lazy loading: Coordinate calculation deferred until .data is accessed
 
     def _validate(self):
         if self.side not in ['F', 'B']:
             raise ValueError(f"Invalid side '{self.side}'. Must be 'F' or 'B'.")
-        if self.raw_df.empty:
-            return
+        # Ensure we don't hold empty references unnecessarily, but raw_df is needed.
 
     @property
     def is_front(self) -> bool:
@@ -69,6 +71,9 @@ class BuildUpLayer:
     @property
     def data(self) -> pd.DataFrame:
         """Returns the dataframe with both Raw and Physical plotting coordinates."""
+        if not self._plotting_coords_added:
+            self._add_plotting_coordinates()
+            self._plotting_coords_added = True
         return self.raw_df
 
     def _add_plotting_coordinates(self):
@@ -284,12 +289,8 @@ class PanelData:
         return self._layers.values()
 
     def __getitem__(self, key):
-        # Returns the inner dict {side: BuildUpLayer}
-        # Ideally we refactor consumers to not need this, but for now:
-        # Consumers expect Dict[str, DataFrame].
-        # We need to return a proxy that behaves like { 'F': df, 'B': df }
-        # This is a bit hacky but allows gradual refactor.
-
+        # Deprecation warning
+        # warnings.warn("Using PanelData as a dict is deprecated. Use get_layer() instead.", DeprecationWarning, stacklevel=2)
         inner = self._layers[key]
         return {side: layer_obj.data for side, layer_obj in inner.items()}
 
@@ -301,7 +302,7 @@ class PanelData:
             return self[key] # Use the __getitem__ proxy logic
         return default
 
-    def get_layers_for_reporting(self):
+    def get_layers_for_reporting(self) -> Iterator[Tuple[int, str, BuildUpLayer]]:
         """
         Yields all layer objects in a consistent order for reporting.
         Yields: (layer_num, side, BuildUpLayer)
