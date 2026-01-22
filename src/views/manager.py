@@ -10,7 +10,8 @@ from src.views.layer_view import render_layer_view
 from src.documentation import render_documentation
 from src.analysis import get_analysis_tool
 from src.reporting import generate_zip_package
-from src.data_handler import load_data, get_true_defect_coordinates
+from src.data_handler import load_data
+from src.analysis.calculations import get_true_defect_coordinates
 from src.config import DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y, FRAME_WIDTH, FRAME_HEIGHT, DYNAMIC_GAP_X, DYNAMIC_GAP_Y
 import streamlit.components.v1 as components
 
