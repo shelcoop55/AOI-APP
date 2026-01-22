@@ -133,6 +133,9 @@ SAFE_VERIFICATION_VALUES = [
     'F'
 ]
 
+# Pre-computed set for efficient case-insensitive lookup
+SAFE_VERIFICATION_VALUES_UPPER = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+
 # --- Defect Styling (Loaded from JSON) ---
 import json
 from pathlib import Path

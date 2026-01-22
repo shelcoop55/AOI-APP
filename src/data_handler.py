@@ -8,10 +8,9 @@ import pandas as pd
 import numpy as np
 import re
 from typing import List, Dict, Set, Tuple, Any, Optional
-from io import BytesIO
 
 # Import constants from the configuration file
-from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, INTER_UNIT_GAP
+from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES_UPPER, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, INTER_UNIT_GAP
 from .models import PanelData, BuildUpLayer, StressMapData, YieldKillerMetrics
 
 # --- DEFECT DEFINITIONS ---
@@ -324,12 +323,10 @@ def prepare_multi_layer_data(_panel_data: PanelData, panel_uid: str = "") -> pd.
     if not _panel_data:
         return pd.DataFrame()
 
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
-
     def true_defect_filter(df):
         if 'Verification' in df.columns:
             # Verification is already normalized to upper in load_data
-            return df[~df['Verification'].isin(safe_values_upper)]
+            return df[~df['Verification'].isin(SAFE_VERIFICATION_VALUES_UPPER)]
         return df
 
     return _panel_data.get_combined_dataframe(filter_func=true_defect_filter)
@@ -360,10 +357,9 @@ def aggregate_stress_data(
     combined_df = pd.concat(dfs_to_agg, ignore_index=True)
 
     # Filter True Defects (Standard)
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
     if 'Verification' in combined_df.columns:
         # Verification is already normalized to upper in load_data
-        is_true = ~combined_df['Verification'].astype(str).isin(safe_values_upper)
+        is_true = ~combined_df['Verification'].astype(str).isin(SAFE_VERIFICATION_VALUES_UPPER)
         combined_df = combined_df[is_true]
 
     # Filter by Specific Selection (if provided)
@@ -420,8 +416,6 @@ def get_cross_section_matrix(
     matrix = np.zeros((num_layers, width_dim), dtype=int)
     layer_labels = [f"L{num}" for num in sorted_layers]
 
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
-
     for i, layer_num in enumerate(sorted_layers):
         sides = _panel_data._layers[layer_num] # Direct access to dict for now
         for side, layer_obj in sides.items():
@@ -430,7 +424,7 @@ def get_cross_section_matrix(
 
             # Optimization: Avoid full copy
             if 'Verification' in df.columns:
-                is_true = ~df['Verification'].isin(safe_values_upper)
+                is_true = ~df['Verification'].isin(SAFE_VERIFICATION_VALUES_UPPER)
                 df_copy = df[is_true].copy() # Filter first then copy
             else:
                 df_copy = df.copy()
