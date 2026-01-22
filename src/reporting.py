@@ -10,17 +10,24 @@ import pandas as pd
 import io
 import plotly.graph_objects as go
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable, Union
 import zipfile
 import json
-from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR, PlotTheme
+import logging
+from concurrent.futures import ThreadPoolExecutor
+
+from src.config import (
+    PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR, PlotTheme,
+    REPORT_HEADER_COLOR, CRITICAL_DEFECT_BG_COLOR, CRITICAL_DEFECT_FONT_COLOR, ExcelReportStyle
+)
 from src.plotting import (
     create_defect_traces, create_defect_sankey, create_defect_sunburst,
     create_grid_shapes, create_still_alive_figure, create_defect_map_figure,
     create_pareto_figure
 )
-from src.data_handler import aggregate_stress_data_from_df
+from src.analysis.calculations import aggregate_stress_data_from_df
 from src.enums import Quadrant
+from src.models import PanelData
 
 # ==============================================================================
 # --- Private Helper Functions for Report Generation ---
@@ -28,16 +35,8 @@ from src.enums import Quadrant
 
 def _define_formats(workbook):
     """Defines all the custom formats used in the Excel report."""
-    formats = {
-        'title': workbook.add_format({'bold': True, 'font_size': 18, 'font_color': PANEL_COLOR, 'valign': 'vcenter'}),
-        'subtitle': workbook.add_format({'bold': True, 'font_size': 12, 'valign': 'vcenter'}),
-        'header': workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#DDEBF7', 'border': 1, 'align': 'center'}),
-        'cell': workbook.add_format({'border': 1}),
-        'percent': workbook.add_format({'num_format': '0.00%', 'border': 1}),
-        'density': workbook.add_format({'num_format': '0.00', 'border': 1}),
-        'critical': workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
-    }
-    return formats
+    # Use centralized style definition
+    return ExcelReportStyle.get_formats(workbook)
 
 def _write_report_header(worksheet, formats, source_filename):
     """Writes the main header section to a worksheet."""
@@ -206,6 +205,32 @@ def _create_full_defect_list_sheet(writer, formats, full_df):
 
     worksheet.autofit()
 
+def _generate_and_save_image(
+    zip_file: zipfile.ZipFile,
+    image_path: str,
+    fig_generator: Callable[[], go.Figure],
+    logger: logging.Logger
+) -> None:
+    """
+    Helper to generate a Plotly figure, convert it to PNG, and save it to the zip file.
+    Handles exceptions and logging.
+    """
+    try:
+        fig = fig_generator()
+        img_bytes = fig.to_image(format="png", engine="kaleido", scale=2)
+        # ZipFile is thread-safe for writing (but file ordering might vary)
+        # To be safe, we acquire a lock if we were writing to disk, but writestr to a BytesIO-backed zip might need care
+        # Python's zipfile docs say: "The ZipFile class is not thread-safe."
+        # Ah! So parallel execution needs to return BYTES, and the main thread writes to ZIP.
+
+        # NOTE: This function is called by the thread. Returning bytes is safer.
+        return image_path, img_bytes
+
+    except Exception as e:
+        msg = f"Failed to generate {image_path}: {e}"
+        logger.error(msg)
+        return image_path, None
+
 # ==============================================================================
 # --- Public API Function ---
 # ==============================================================================
@@ -286,7 +311,7 @@ def generate_zip_package(
     include_stress_png: bool = False,
     include_root_cause_png: bool = False,
     include_still_alive_png: bool = False,
-    layer_data: Optional[Dict] = None,
+    layer_data: Optional[PanelData] = None,
     process_comment: str = "",
     lot_number: str = "",
     theme_config: Optional[PlotTheme] = None
@@ -298,15 +323,22 @@ def generate_zip_package(
     """
     zip_buffer = io.BytesIO()
 
-    # --- Debug Logging Setup ---
-    debug_logs: List[str] = ["DEBUG LOG FOR IMAGE GENERATION\n" + "="*30]
+    # --- Logging Setup ---
+    log_capture_string = io.StringIO()
+    ch = logging.StreamHandler(log_capture_string)
+    ch.setLevel(logging.INFO)
+    logger = logging.getLogger('report_generator')
+    logger.addHandler(ch)
+    logger.setLevel(logging.INFO)
+
     def log(msg):
-        debug_logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+        logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
     log("Starting generate_zip_package")
     log(f"Options: PNG_Maps={include_png_all_layers}, PNG_Pareto={include_pareto_png}")
-    log(f"New Options: Heatmap={include_heatmap_png}, Stress={include_stress_png}, RCA={include_root_cause_png}, Alive={include_still_alive_png}")
-    log(f"Verification Selection: {verification_selection}")
+
+    # Store futures for parallel execution
+    image_tasks = []
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
 
@@ -343,27 +375,29 @@ def generate_zip_package(
             if sankey_fig:
                 zip_file.writestr("Insights_Sankey.html", sankey_fig.to_html(full_html=True, include_plotlyjs='cdn'))
 
-        # 5. PNG Images (All Layers/Sides) - OPTIONAL
-        if (include_png_all_layers or include_pareto_png):
-            if layer_data:
-                log(f"Layer data found. Processing {len(layer_data)} layers.")
-                # Iterate through all layers in layer_data
-                for layer_num, layer_sides in layer_data.items():
-                    for side, layer_obj in layer_sides.items():
-                        # Handle PanelData BuildUpLayer objects vs legacy Dict[str, DF]
-                        if hasattr(layer_obj, 'data'):
-                            df = layer_obj.data
-                        else:
-                            df = layer_obj # Legacy support
+        # Prepare for parallel image generation
+        # We need a ThreadPoolExecutor.
+        # Since Streamlit runs in threads, we must be careful with context, but kaleido usually runs as subprocess.
 
+        # Only start executor if we have image tasks
+        if (include_png_all_layers or include_pareto_png or include_heatmap_png or include_stress_png or include_still_alive_png):
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+
+                # 5. PNG Images (All Layers/Sides) - OPTIONAL
+                if (include_png_all_layers or include_pareto_png) and layer_data:
+                    log(f"Layer data found. Processing layers.")
+
+                    # Use the new iterator method
+                    for layer_num, side, layer_obj in layer_data.get_layers_for_reporting():
+                        df = layer_obj.data
                         side_name = "Front" if side == 'F' else "Back"
-                        log(f"Processing Layer {layer_num} - {side_name}")
+                        log(f"Queueing Layer {layer_num} - {side_name}")
 
                         filtered_df = df
                         if verification_selection != 'All':
                             if isinstance(verification_selection, list):
                                 if not verification_selection:
-                                    # If empty list (unselected all), assume NO filtering match -> empty
                                     filtered_df = filtered_df.iloc[0:0]
                                 else:
                                     filtered_df = filtered_df[filtered_df['Verification'].isin(verification_selection)]
@@ -371,127 +405,99 @@ def generate_zip_package(
                                 filtered_df = filtered_df[filtered_df['Verification'] == verification_selection]
 
                         if filtered_df.empty:
-                            log(f"  Skipped: DataFrame empty after filtering (Filter: {verification_selection})")
+                            log(f"  Skipped: DataFrame empty after filtering.")
                             continue
 
-                        # Suffix for images
-                        # Format: _{Comment}_{LotNumber}
-                        # Handle empty fields gracefully to avoid double underscores
+                        # Suffix
                         parts = []
-                        if process_comment:
-                            parts.append(process_comment)
-                        if lot_number:
-                            parts.append(lot_number)
-
+                        if process_comment: parts.append(process_comment)
+                        if lot_number: parts.append(lot_number)
                         img_suffix = "_" + "_".join(parts) if parts else ""
 
-                        # Generate Defect Map PNG
+                        # Task: Defect Map
                         if include_png_all_layers:
-                            log("  Generating Defect Map PNG...")
-                            fig_map = create_defect_map_figure(
-                                filtered_df, panel_rows, panel_cols, Quadrant.ALL.value,
-                                title=f"Layer {layer_num} - {side_name} - Defect Map",
-                                theme_config=theme_config
+                            task = executor.submit(
+                                _generate_and_save_image,
+                                None, # zip_file not used in thread
+                                f"Images/Layer_{layer_num}_{side_name}_DefectMap{img_suffix}.png",
+                                lambda d=filtered_df, ln=layer_num, sn=side_name: create_defect_map_figure(
+                                    d, panel_rows, panel_cols, Quadrant.ALL.value,
+                                    title=f"Layer {ln} - {sn} - Defect Map",
+                                    theme_config=theme_config
+                                ),
+                                logger
                             )
-                            try:
-                                img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2)
-                                zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_DefectMap{img_suffix}.png", img_bytes)
-                                log("  Success.")
-                            except Exception as e:
-                                msg = f"Failed to generate map PNG for Layer {layer_num} {side}: {e}"
-                                print(msg)
-                                log(f"  ERROR: {msg}")
+                            image_tasks.append(task)
 
-                        # Generate Pareto PNG
+                        # Task: Pareto
                         if include_pareto_png:
-                            log("  Generating Pareto PNG...")
-                            fig_pareto = create_pareto_figure(filtered_df, Quadrant.ALL.value, theme_config=theme_config)
-                            fig_pareto.update_layout(title=f"Layer {layer_num} - {side_name} - Pareto")
-                            try:
-                                img_bytes = fig_pareto.to_image(format="png", engine="kaleido", scale=2)
-                                zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_Pareto{img_suffix}.png", img_bytes)
-                                log("  Success.")
-                            except Exception as e:
-                                msg = f"Failed to generate pareto PNG for Layer {layer_num} {side}: {e}"
-                                print(msg)
-                                log(f"  ERROR: {msg}")
-            else:
-                log("WARNING: No layer_data provided!")
+                            def _make_pareto(d=filtered_df, ln=layer_num, sn=side_name):
+                                f = create_pareto_figure(d, Quadrant.ALL.value, theme_config=theme_config)
+                                f.update_layout(title=f"Layer {ln} - {sn} - Pareto")
+                                return f
 
-        # 6. Still Alive Map PNG (Explicit Option or Legacy)
-        if include_still_alive_png or include_png_all_layers:
-            if true_defect_coords:
-                log("Generating Still Alive Map PNG...")
-                fig_alive = create_still_alive_figure(panel_rows, panel_cols, true_defect_coords, theme_config=theme_config)
-                try:
-                    img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2)
-                    zip_file.writestr("Images/Still_Alive_Map.png", img_bytes)
-                    log("Success.")
-                except Exception as e:
-                    msg = f"Failed to generate Still Alive Map PNG: {e}"
-                    print(msg)
-                    log(f"ERROR: {msg}")
-            else:
-                log("Skipping Still Alive Map: No true defect coordinates found.")
+                            task = executor.submit(
+                                _generate_and_save_image,
+                                None,
+                                f"Images/Layer_{layer_num}_{side_name}_Pareto{img_suffix}.png",
+                                _make_pareto,
+                                logger
+                            )
+                            image_tasks.append(task)
 
-        # 7. Additional Analysis Charts (Heatmap, Stress, RCA)
-        # These operate on the COMBINED dataset (full_df) usually, or we can iterate layers.
-        # Ideally, these represent the "Analysis View" summaries.
-        # We will generate one global chart for each enabled option using 'full_df'.
+                # 6. Still Alive Map PNG
+                if include_still_alive_png or include_png_all_layers:
+                    if true_defect_coords:
+                        log("Queueing Still Alive Map PNG...")
+                        task = executor.submit(
+                            _generate_and_save_image,
+                            None,
+                            "Images/Still_Alive_Map.png",
+                            lambda: create_still_alive_figure(panel_rows, panel_cols, true_defect_coords, theme_config=theme_config),
+                            logger
+                        )
+                        image_tasks.append(task)
 
-        if include_heatmap_png:
-            log("Generating Heatmap PNG (Global)...")
-            from src.plotting import create_unit_grid_heatmap
-            try:
-                # Filter full_df based on Verification Selection first?
-                # Heatmap usually shows True Defects.
-                # The function handles verification internally if present.
-                # But let's respect global filter if applied to 'full_df' passed in?
-                # Actually, 'full_df' passed in is usually RAW.
-                # create_unit_grid_heatmap filters internally for True Defects (excluding SAFE values).
-                # If user selected specific verification filter, we might want to respect that?
-                # But usually Heatmap is for Yield (True Defects).
-                # We will use full_df.
-                fig_heat = create_unit_grid_heatmap(full_df, panel_rows, panel_cols, theme_config=theme_config)
-                img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2)
-                zip_file.writestr("Images/Analysis_Heatmap.png", img_bytes)
-                log("Success.")
-            except Exception as e:
-                log(f"ERROR Generating Heatmap: {e}")
+                # 7. Additional Analysis Charts
+                if include_heatmap_png:
+                    log("Queueing Heatmap PNG...")
+                    from src.plotting import create_unit_grid_heatmap
+                    task = executor.submit(
+                        _generate_and_save_image,
+                        None,
+                        "Images/Analysis_Heatmap.png",
+                        lambda: create_unit_grid_heatmap(full_df, panel_rows, panel_cols, theme_config=theme_config),
+                        logger
+                    )
+                    image_tasks.append(task)
 
-        if include_stress_png:
-            log("Generating Stress Map PNG (Cumulative)...")
-            from src.plotting import create_stress_heatmap
-            try:
-                # Need to aggregate first
-                # Default to Cumulative Mode
-                stress_data = aggregate_stress_data_from_df(full_df, panel_rows, panel_cols)
-                fig_stress = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode="Continuous", theme_config=theme_config)
-                img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2)
-                zip_file.writestr("Images/Analysis_StressMap_Cumulative.png", img_bytes)
-                log("Success.")
-            except Exception as e:
-                log(f"ERROR Generating Stress Map: {e}")
+                if include_stress_png:
+                    log("Queueing Stress Map PNG...")
+                    from src.plotting import create_stress_heatmap
+                    def _make_stress():
+                        stress_data = aggregate_stress_data_from_df(full_df, panel_rows, panel_cols)
+                        return create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode="Continuous", theme_config=theme_config)
 
-        if include_root_cause_png:
-            log("Generating Root Cause PNG (Top Killer Layer)...")
-            from src.analysis.root_cause import RootCauseTool
-            # Root Cause usually requires interactive slicing.
-            # For a static report, a reasonable default is the "Layer Stack" view (Cross Section)
-            # or the "Killer Layer Pareto".
-            # But we don't have easy access to the tool's internal state here.
-            # Let's generate a "Top Killer Layer" heatmap if possible, or just skip if too complex without state.
-            # Re-implementing simplified logic:
-            # We can use the logic from 'create_cross_section_heatmap' but we need a slice index.
-            # Without user input, maybe just a Pareto of Killer Layers?
-            # Or just skip RCA for static export if not defined.
-            # User asked for "Root Cause".
-            # Let's dump the "Layer Stack Distribution" (Pareto of layers) which is informative.
-            # Or better, a standard view: The layer with most defects?
-            # Let's skip RCA for now as it's highly interactive (X vs Y slice).
-            log("Skipping Root Cause PNG: Interactive slice required.")
+                    task = executor.submit(
+                        _generate_and_save_image,
+                        None,
+                        "Images/Analysis_StressMap_Cumulative.png",
+                        _make_stress,
+                        logger
+                    )
+                    image_tasks.append(task)
+
+            # Collect Results from Threads
+            for task in image_tasks:
+                path, data = task.result()
+                if data:
+                    zip_file.writestr(path, data)
+                    log(f"Saved {path}")
+                else:
+                    log(f"Failed to save {path}")
 
         # Write Debug Log to ZIP
-        zip_file.writestr("Debug_Log.txt", "\n".join(debug_logs))
+        log("Generation Complete.")
+        zip_file.writestr("Debug_Log.txt", log_capture_string.getvalue())
 
     return zip_buffer.getvalue()

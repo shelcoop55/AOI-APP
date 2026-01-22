@@ -7,26 +7,7 @@ from src.enums import ViewMode, Quadrant
 from src.state import SessionStore
 from src.views.manager import ViewManager
 from src.analysis import get_analysis_tool
-
-def load_css(file_path: str) -> None:
-    """Loads a CSS file and injects it into the Streamlit app."""
-    try:
-        with open(file_path) as f:
-            css = f.read()
-            css_variables = f'''
-            <style>
-                :root {{
-                    --background-color: {BACKGROUND_COLOR};
-                    --text-color: {TEXT_COLOR};
-                    --panel-color: {PANEL_COLOR};
-                    --panel-hover-color: #d48c46;
-                }}
-                {css}
-            </style>
-            '''
-            st.markdown(css_variables, unsafe_allow_html=True)
-    except FileNotFoundError:
-        pass # Handle missing CSS safely
+from src.utils import load_css
 
 def main() -> None:
     """Main function to configure and run the Streamlit application."""

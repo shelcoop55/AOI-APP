@@ -5,6 +5,7 @@ This module contains all configuration and styling variables for the application
 including color themes and the method for loading defect-specific styles.
 """
 from dataclasses import dataclass
+from typing import Dict, Any
 
 # --- Physical Constants (in mm) ---
 # Hardcoded Total Frame Dimensions as per user request
@@ -116,6 +117,9 @@ FALLBACK_COLORS = NEON_PALETTE + [
 
 # --- Reporting Constants ---
 CRITICAL_DEFECT_TYPES = ["Short", "Cut/Short"]
+REPORT_HEADER_COLOR = '#DDEBF7'
+CRITICAL_DEFECT_BG_COLOR = '#FFC7CE'
+CRITICAL_DEFECT_FONT_COLOR = '#9C0006'
 
 # --- Verification Logic ---
 # Values in the 'Verification' column that are considered "Safe" (Non-Defects).
@@ -129,6 +133,29 @@ SAFE_VERIFICATION_VALUES = [
     'FALSE ALARM',
     'F'
 ]
+
+# Pre-computed set for efficient case-insensitive lookup
+SAFE_VERIFICATION_VALUES_UPPER = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+
+# --- Excel Report Style Definitions ---
+class ExcelReportStyle:
+    """Centralized styling for Excel Reports."""
+
+    @staticmethod
+    def get_formats(workbook) -> Dict[str, Any]:
+        return {
+            'title': workbook.add_format({'bold': True, 'font_size': 18, 'font_color': PANEL_COLOR, 'valign': 'vcenter'}),
+            'subtitle': workbook.add_format({'bold': True, 'font_size': 12, 'valign': 'vcenter'}),
+            'header': workbook.add_format({
+                'bold': True, 'text_wrap': True, 'valign': 'top',
+                'fg_color': REPORT_HEADER_COLOR,
+                'border': 1, 'align': 'center'
+            }),
+            'cell': workbook.add_format({'border': 1}),
+            'percent': workbook.add_format({'num_format': '0.00%', 'border': 1}),
+            'density': workbook.add_format({'num_format': '0.00', 'border': 1}),
+            'critical': workbook.add_format({'bg_color': CRITICAL_DEFECT_BG_COLOR, 'font_color': CRITICAL_DEFECT_FONT_COLOR})
+        }
 
 # --- Defect Styling (Loaded from JSON) ---
 import json

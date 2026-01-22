@@ -1,5 +1,7 @@
 import re
+import streamlit as st
 from typing import Dict, Optional, Any
+from src.config import BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR
 
 def get_bu_name_from_filename(filename: str) -> str:
     """
@@ -87,3 +89,23 @@ def generate_standard_filename(
     safe_name = re.sub(r"_+", "_", safe_name)
 
     return f"{safe_name}.{extension}"
+
+def load_css(file_path: str) -> None:
+    """Loads a CSS file and injects it into the Streamlit app."""
+    try:
+        with open(file_path) as f:
+            css = f.read()
+            css_variables = f'''
+            <style>
+                :root {{
+                    --background-color: {BACKGROUND_COLOR};
+                    --text-color: {TEXT_COLOR};
+                    --panel-color: {PANEL_COLOR};
+                    --panel-hover-color: #d48c46;
+                }}
+                {css}
+            </style>
+            '''
+            st.markdown(css_variables, unsafe_allow_html=True)
+    except FileNotFoundError:
+        pass # Handle missing CSS safely
