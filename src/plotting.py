@@ -16,7 +16,7 @@ from src.config import (
     UNIT_FACE_COLOR, UNIT_EDGE_COLOR, AXIS_TEXT_COLOR, PANEL_BACKGROUND_COLOR, INTER_UNIT_GAP,
     PlotTheme
 )
-from src.data_handler import StressMapData
+from src.models import StressMapData
 from src.documentation import VERIFICATION_DESCRIPTIONS
 from src.enums import Quadrant
 
@@ -1684,8 +1684,9 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int,
         z=heatmap_data['Count'],
         colorscale='Magma', # Darker theme
         xgap=2, ygap=2,     # Clear separation
-        colorbar=dict(title='Defects', title_font=dict(color=text_color), tickfont=dict(color=text_color)),
+        colorbar=dict(title='Defects', title_font=dict(color=text_color), tickfont=dict(color=text_color),
         hovertemplate='Global Unit: (%{x}, %{y})<br>Defects: %{z}<extra></extra>'
+        )
     ))
 
     # Fix Axis Ranges
