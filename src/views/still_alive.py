@@ -33,7 +33,7 @@ def render_still_alive_main(store: SessionStore, theme_config=None):
     context = FilterContext(
         excluded_layers=excluded_layers,
         excluded_defect_types=excluded_defects,
-        included_sides=included_sides
+        selected_sides=included_sides
     )
 
     true_defect_data = get_true_defect_coordinates(
