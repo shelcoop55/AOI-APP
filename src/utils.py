@@ -1,19 +1,27 @@
 import re
 import streamlit as st
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, TYPE_CHECKING
 from src.config import BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR
+
+if TYPE_CHECKING:
+    from src.models import PanelData
+
+# Compile Regex Patterns Globally
+RE_BU_MATCH = re.compile(r"(BU-\d{2})", re.IGNORECASE)
+RE_SAMPLE_MATCH = re.compile(r"Sample Data Layer (\d+)")
+RE_CONSECUTIVE_UNDERSCORES = re.compile(r"_+")
 
 def get_bu_name_from_filename(filename: str) -> str:
     """
     Extracts the 'BU-XX' part from a filename.
     Returns the original filename if no match is found.
     """
-    match = re.search(r"(BU-\d{2})", filename, re.IGNORECASE)
+    match = RE_BU_MATCH.search(filename)
     if match:
         return match.group(1).upper()
 
     # Fallback for sample data
-    match = re.search(r"Sample Data Layer (\d+)", filename)
+    match = RE_SAMPLE_MATCH.search(filename)
     if match:
         return f"BU-{int(match.group(1)):02d}"
 
@@ -22,7 +30,7 @@ def get_bu_name_from_filename(filename: str) -> str:
 def generate_standard_filename(
     prefix: str,
     selected_layer: Optional[int],
-    layer_data: Any,
+    layer_data: "PanelData", # String forward reference
     analysis_params: Dict,
     extension: str = "zip"
 ) -> str:
@@ -39,7 +47,7 @@ def generate_standard_filename(
             # Accessing via standard dict access if possible.
             # In manager.py: self.store.layer_data[layer_id] works.
             if hasattr(layer_data, '__getitem__'):
-                 layer_info = layer_data[selected_layer]
+                 layer_info = layer_data[selected_layer] # type: ignore
                  first_side = next(iter(layer_info))
 
                  # Access dataframe: layer_info[first_side] is usually a DataFrame or object with 'SOURCE_FILE'
@@ -61,7 +69,7 @@ def generate_standard_filename(
                  else:
                      # Fallback to standard format using layer index if filename doesn't contain BU
                      bu_label = f"BU_{selected_layer:02d}"
-        except Exception:
+        except (KeyError, AttributeError, StopIteration, IndexError):
             # Fallback if extraction fails
             bu_label = f"BU_{selected_layer:02d}"
 
@@ -80,32 +88,36 @@ def generate_standard_filename(
     # Join and Sanitize
     base_name = "_".join(parts)
     # Allow alphanumeric, underscores, hyphens. Remove others.
-    # Note: User requested specific format, usually implies underscores.
-    # We should avoid double underscores if fields are empty, but the logic above appends only if present.
 
     safe_name = "".join([c if c.isalnum() or c in "._-" else "_" for c in base_name])
 
     # Remove consecutive underscores if sanitization caused them
-    safe_name = re.sub(r"_+", "_", safe_name)
+    safe_name = RE_CONSECUTIVE_UNDERSCORES.sub("_", safe_name)
 
     return f"{safe_name}.{extension}"
 
-def load_css(file_path: str) -> None:
-    """Loads a CSS file and injects it into the Streamlit app."""
+@st.cache_data
+def _read_css_file(file_path: str) -> Optional[str]:
+    """Reads CSS file content with caching."""
     try:
         with open(file_path) as f:
-            css = f.read()
-            css_variables = f'''
-            <style>
-                :root {{
-                    --background-color: {BACKGROUND_COLOR};
-                    --text-color: {TEXT_COLOR};
-                    --panel-color: {PANEL_COLOR};
-                    --panel-hover-color: #d48c46;
-                }}
-                {css}
-            </style>
-            '''
-            st.markdown(css_variables, unsafe_allow_html=True)
+            return f.read()
     except FileNotFoundError:
-        pass # Handle missing CSS safely
+        return None
+
+def load_css(file_path: str) -> None:
+    """Loads a CSS file and injects it into the Streamlit app."""
+    css_content = _read_css_file(file_path)
+    if css_content:
+        css_variables = f'''
+        <style>
+            :root {{
+                --background-color: {BACKGROUND_COLOR};
+                --text-color: {TEXT_COLOR};
+                --panel-color: {PANEL_COLOR};
+                --panel-hover-color: #d48c46;
+            }}
+            {css_content}
+        </style>
+        '''
+        st.markdown(css_variables, unsafe_allow_html=True)

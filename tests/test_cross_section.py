@@ -2,7 +2,8 @@
 import pytest
 import pandas as pd
 import numpy as np
-from src.data_handler import get_cross_section_matrix, PanelData, BuildUpLayer
+from src.analysis.calculations import get_cross_section_matrix
+from src.models import PanelData, BuildUpLayer
 
 def create_mock_panel_data():
     panel_rows = 5

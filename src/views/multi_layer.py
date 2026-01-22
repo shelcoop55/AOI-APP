@@ -1,37 +1,20 @@
 import streamlit as st
 import pandas as pd
 from src.state import SessionStore
-from src.data_handler import prepare_multi_layer_data
+from src.analysis.calculations import prepare_multi_layer_data
 from src.plotting import create_multi_layer_defect_map
-from src.config import GAP_SIZE
+from src.config import GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
 
 def render_multi_layer_view(store: SessionStore, selected_layers: list, selected_sides: list, theme_config=None):
-    # Header removed to save space
-    # st.header("Multi-Layer Combined Defect Map")
-    # st.info("Visualizing 'True Defects' from selected layers. Colors indicate the source layer.")
-
     params = store.analysis_params
     panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
-    panel_uid = store.layer_data.id
+    panel_uid = getattr(store.layer_data, "id", "static")
 
+    # Use cached preparation logic
     combined_df = prepare_multi_layer_data(store.layer_data, panel_uid)
 
     # --- Unified Filter Adaptation ---
-    # selected_layers is passed from manager.py (store.multi_layer_selection)
-    # selected_sides logic in manager.py provides: Front, Back, Both.
-    # The signature expects `selected_sides` as a LIST ['F', 'B'].
-    # But manager.py might pass... wait, manager.py calls this function.
-    # Let's check the call in manager.py:
-    # render_multi_layer_view(self.store, self.store.multi_layer_selection, self.store.multi_side_selection)
-
-    # ISSUE: In unified manager, I update `analysis_side_select` (Radio), but I might NOT be updating `multi_side_selection` (List).
-    # I need to ensure `multi_side_selection` is derived from the Radio state inside manager.py or here.
-    # Actually, manager.py call uses `self.store.multi_side_selection`.
-    # But the Radio updates `analysis_side_select`.
-    # I should update manager.py to sync them OR handle it here.
-    # Updating here is safer if I can read session state.
-
-    # Updated: Now using `analysis_side_pills` which is a LIST of strings ["Front", "Back"]
+    # Sync sides with unified state
     side_pills = st.session_state.get("analysis_side_pills", ["Front", "Back"])
     effective_sides = []
     if "Front" in side_pills: effective_sides.append('F')
@@ -46,7 +29,7 @@ def render_multi_layer_view(store: SessionStore, selected_layers: list, selected
             combined_df = combined_df[combined_df['LAYER_NUM'].isin(selected_layers)]
         else: combined_df = pd.DataFrame()
 
-        # 2. Side Filter (Using unified radio state)
+        # 2. Side Filter
         if not combined_df.empty and effective_sides:
              combined_df = combined_df[combined_df['SIDE'].isin(effective_sides)]
         elif not effective_sides: combined_df = pd.DataFrame()
@@ -56,14 +39,13 @@ def render_multi_layer_view(store: SessionStore, selected_layers: list, selected
              combined_df = combined_df[combined_df['Verification'].astype(str).isin(selected_verifs)]
 
     if not combined_df.empty:
-        # Pass the Flip Toggle state
         flip_back = st.session_state.get("flip_back_side", True)
         offset_x = params.get("offset_x", 0.0)
         offset_y = params.get("offset_y", 0.0)
         gap_x = params.get("gap_x", GAP_SIZE)
         gap_y = params.get("gap_y", GAP_SIZE)
-        panel_width = params.get("panel_width", 410)
-        panel_height = params.get("panel_height", 452)
+        panel_width = params.get("panel_width", PANEL_WIDTH)
+        panel_height = params.get("panel_height", PANEL_HEIGHT)
         visual_origin_x = params.get("visual_origin_x", 0.0)
         visual_origin_y = params.get("visual_origin_y", 0.0)
         fixed_offset_x = params.get("fixed_offset_x", 0.0)

@@ -5,12 +5,21 @@ This module contains all configuration and styling variables for the application
 including color themes and the method for loading defect-specific styles.
 """
 from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Dict, Any, TYPE_CHECKING
+import streamlit as st
+import json
+from pathlib import Path
+
+if TYPE_CHECKING:
+    try:
+        from xlsxwriter.workbook import Workbook
+    except ImportError:
+        pass
 
 # --- Physical Constants (in mm) ---
 # Hardcoded Total Frame Dimensions as per user request
-FRAME_WIDTH = 510
-FRAME_HEIGHT = 515
+FRAME_WIDTH = 510.0
+FRAME_HEIGHT = 515.0
 
 # Default Configuration Values (Copper Grid Panel Spec)
 # Updated to align with specific user guide:
@@ -30,8 +39,8 @@ INTER_UNIT_GAP = 0.25
 
 # Active Panel Dimensions (Calculated Defaults)
 # Derived from Quadrant Width 235mm * 2 = 470mm
-PANEL_WIDTH = 470
-PANEL_HEIGHT = 470
+PANEL_WIDTH = 470.0
+PANEL_HEIGHT = 470.0
 
 # Legacy Gap Constant (for backward compatibility)
 GAP_SIZE = DEFAULT_GAP_X
@@ -39,6 +48,25 @@ GAP_SIZE = DEFAULT_GAP_X
 # Derived constants
 QUADRANT_WIDTH = PANEL_WIDTH / 2
 QUADRANT_HEIGHT = PANEL_HEIGHT / 2
+
+@dataclass
+class PanelConfig:
+    """Dataclass to group panel physical dimensions."""
+    frame_width: float = FRAME_WIDTH
+    frame_height: float = FRAME_HEIGHT
+    offset_x: float = DEFAULT_OFFSET_X
+    offset_y: float = DEFAULT_OFFSET_Y
+    gap_x: float = DEFAULT_GAP_X
+    gap_y: float = DEFAULT_GAP_Y
+    dynamic_gap_x: float = DYNAMIC_GAP_X
+    dynamic_gap_y: float = DYNAMIC_GAP_Y
+    panel_rows: int = DEFAULT_PANEL_ROWS
+    panel_cols: int = DEFAULT_PANEL_COLS
+    panel_width: float = PANEL_WIDTH
+    panel_height: float = PANEL_HEIGHT
+    inter_unit_gap: float = INTER_UNIT_GAP
+
+DEFAULT_PANEL_CONFIG = PanelConfig()
 
 # --- Theme Configuration ---
 @dataclass
@@ -142,7 +170,13 @@ class ExcelReportStyle:
     """Centralized styling for Excel Reports."""
 
     @staticmethod
-    def get_formats(workbook) -> Dict[str, Any]:
+    def get_formats(workbook: Any) -> Dict[str, Any]:
+        """
+        Defines report formats.
+
+        Args:
+            workbook: xlsxwriter.Workbook (typed as Any to avoid hard dependency check)
+        """
         return {
             'title': workbook.add_format({'bold': True, 'font_size': 18, 'font_color': PANEL_COLOR, 'valign': 'vcenter'}),
             'subtitle': workbook.add_format({'bold': True, 'font_size': 12, 'valign': 'vcenter'}),
@@ -158,13 +192,12 @@ class ExcelReportStyle:
         }
 
 # --- Defect Styling (Loaded from JSON) ---
-import json
-from pathlib import Path
-from typing import Dict
 
+@st.cache_data
 def load_defect_styles() -> Dict[str, str]:
     """
     Loads the defect style mapping from an external JSON file.
+    Cached to prevent repeated disk I/O.
 
     This function looks for 'assets/defect_styles.json' relative to the project root.
     If the file is not found or is corrupted, it prints a warning and returns a
@@ -173,13 +206,13 @@ def load_defect_styles() -> Dict[str, str]:
     Returns:
         Dict[str, str]: A dictionary mapping defect types to their corresponding colors.
     """
-    style_path = Path(__file__).parent.parent / "assets/defect_styles.json"
+    style_path = Path("assets/defect_styles.json")
     try:
         with open(style_path, 'r') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         # Fallback to a default map if the file is missing or corrupt
-        print(f"Warning: Could not load 'defect_styles.json' ({e}). Using default colors.")
+        # print(f"Warning: Could not load 'defect_styles.json' ({e}). Using default colors.")
         return {
             'Nick': '#9B59B6', 'Short': '#E74C3C', 'Missing Feature': '#2ECC71',
             'Cut': '#1ABC9C', 'Fine Short': '#BE90D4', 'Pad Violation': '#BDC3C7',

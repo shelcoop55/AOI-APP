@@ -53,12 +53,8 @@ def test_generate_excel_report_structure(mock_panel_data):
             panel_rows=7,
             panel_cols=7,
             source_filename="Test",
-            # We pass empty metrics for simplicity as they are calculated in app usually
-            # But the function calculates some if not passed?
-            # Looking at signature: generate_excel_report(full_df, ...)
-            # It seems it doesn't take pre-calced metrics, it calculates inside or takes args?
-            # src/reporting.py isn't provided in context but we saw imports.
-            # Let's assume standard signature based on usage in app.py
+            quadrant_selection="All",
+            verification_selection="All"
         )
         assert isinstance(report_bytes, bytes)
         assert len(report_bytes) > 0
