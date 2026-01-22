@@ -69,7 +69,27 @@ def load_data(
             try:
                 # Use calamine for speed
                 df = pd.read_excel(uploaded_file, sheet_name='Defects', engine='calamine')
-                df.rename(columns={'VERIFICATION': 'Verification'}, inplace=True)
+
+                # Robust Column Normalization
+                # We want to find columns that match our expected names (case-insensitive, ignoring whitespace)
+                # and rename them to the canonical mixed-case or upper-case format expected by the app.
+                expected_columns = {
+                    'VERIFICATION': 'Verification',
+                    'DEFECT_ID': 'DEFECT_ID',
+                    'DEFECT_TYPE': 'DEFECT_TYPE',
+                    'UNIT_INDEX_X': 'UNIT_INDEX_X',
+                    'UNIT_INDEX_Y': 'UNIT_INDEX_Y'
+                }
+
+                rename_map = {}
+                for col in df.columns:
+                    col_str = str(col).strip().upper()
+                    if col_str in expected_columns:
+                        rename_map[col] = expected_columns[col_str]
+
+                if rename_map:
+                    df.rename(columns=rename_map, inplace=True)
+
                 df['SOURCE_FILE'] = file_name
                 df['SIDE'] = side
 
