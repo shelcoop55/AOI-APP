@@ -147,9 +147,14 @@ class HeatmapTool(AnalysisTool):
                 quadrant_selection=selected_quadrant,
                 offset_x=offset_x,
                 offset_y=offset_y,
-                gap_size=gap_size,
+                gap_x=gap_x,
+                gap_y=gap_y,
                 panel_width=panel_width,
-                panel_height=panel_height
+                panel_height=panel_height,
+                visual_origin_x=visual_origin_x,
+                visual_origin_y=visual_origin_y,
+                fixed_offset_x=fixed_offset_x,
+                fixed_offset_y=fixed_offset_y
             )
 
             # --- INTERACTIVITY: CLICK TO ZOOM ---
@@ -170,7 +175,20 @@ class HeatmapTool(AnalysisTool):
 
                         # Logic matches create_grid_shapes / config.py
                         # Adjusted for Dynamic Offsets and Gap
+                        # And Visual Shift!
+                        # The click coordinate is already shifted visually if the plot is shifted.
+                        # We need to map it back to structure?
+                        # Grid shape logic uses `offset_x` (structural).
+                        # But grid shape drawing does NOT shift.
+                        # Wait, my previous step said "Visual Origin does NOT affect the grid".
+                        # So the Grid is physically located at 0-510.
+                        # The axis is 0-510.
+                        # So `click_x` is relative to the Frame (0-510).
+                        # So we compare against structural `offset_x`.
 
+                        # `offset_x` is Structural Start of Q1.
+
+                        # Correct logic:
                         is_left = (click_x >= offset_x) and (click_x < offset_x + quad_width)
                         is_right = (click_x > offset_x + quad_width + gap_size)
 

@@ -5,7 +5,7 @@ from src.data_handler import prepare_multi_layer_data
 from src.plotting import create_multi_layer_defect_map
 from src.config import GAP_SIZE
 
-def render_multi_layer_view(store: SessionStore, selected_layers: list, selected_sides: list):
+def render_multi_layer_view(store: SessionStore, selected_layers: list, selected_sides: list, theme_config=None):
     # Header removed to save space
     # st.header("Multi-Layer Combined Defect Map")
     # st.info("Visualizing 'True Defects' from selected layers. Colors indicate the source layer.")
@@ -81,7 +81,18 @@ def render_multi_layer_view(store: SessionStore, selected_layers: list, selected
             panel_width = params.get("panel_width", 410)
             panel_height = params.get("panel_height", 452)
 
-        fig = create_multi_layer_defect_map(combined_df, panel_rows, panel_cols, flip_back=flip_back, offset_x=offset_x, offset_y=offset_y, gap_size=gap_size, panel_width=panel_width, panel_height=panel_height)
+        fig = create_multi_layer_defect_map(
+            combined_df, panel_rows, panel_cols,
+            flip_back=flip_back,
+            offset_x=offset_x, offset_y=offset_y,
+            gap_x=gap_x, gap_y=gap_y,
+            panel_width=panel_width, panel_height=panel_height,
+            theme_config=theme_config,
+            visual_origin_x=visual_origin_x,
+            visual_origin_y=visual_origin_y,
+            fixed_offset_x=fixed_offset_x,
+            fixed_offset_y=fixed_offset_y
+        )
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.warning("No data matches current filters.")

@@ -6,7 +6,7 @@ from src.enums import ViewMode, Quadrant
 from src.plotting import create_defect_map_figure, create_pareto_figure
 from src.config import SAFE_VERIFICATION_VALUES, PLOT_AREA_COLOR, PANEL_COLOR, GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
 
-def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: str, verification_selection: any):
+def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: str, verification_selection: any, theme_config: PlotTheme = None):
     params = store.analysis_params
     layout = params.get("layout")
 
@@ -38,14 +38,6 @@ def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: s
             # Handle list-based verification (from multiselect) or single string
             if isinstance(verification_selection, list):
                 if not verification_selection:
-                    # Case: Empty Selection -> Standard UX is show nothing, but in this app context,
-                    # previously 'All' was default. If user deselects everything, it's safer to show nothing (filtering everything out)
-                    # OR we can assume it means "Show All" if that's preferred.
-                    # Given the manager.py sets default to ALL options, an empty list means explicit Deselect All.
-                    # Thus, we should return empty DF (or filter out everything).
-                    # But wait, manager.py says "default to all if empty or first load".
-                    # If I explicitly click 'x' on all tags, list becomes [].
-                    # Let's stick to strict filtering: [] -> matches nothing.
                     filtered_df = side_df[side_df['Verification'].isin([])]
                 else:
                     filtered_df = side_df[side_df['Verification'].isin(verification_selection)]
@@ -63,7 +55,7 @@ def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: s
                 )
                 st.plotly_chart(fig, use_container_width=True)
             elif view_mode == ViewMode.PARETO.value:
-                fig = create_pareto_figure(display_df, quadrant_selection)
+                fig = create_pareto_figure(display_df, quadrant_selection, theme_config=theme_config)
                 st.plotly_chart(fig, use_container_width=True)
             elif view_mode == ViewMode.SUMMARY.value:
                 # Pass necessary context to the summary view
@@ -74,7 +66,8 @@ def render_layer_view(store: SessionStore, view_mode: str, quadrant_selection: s
                     panel_cols=panel_cols,
                     layer_info=layer_info,
                     selected_layer_num=selected_layer_num,
-                    filtered_df=filtered_df # Passed for Quarterly breakdown logic
+                    filtered_df=filtered_df, # Passed for Quarterly breakdown logic
+                    theme_config=theme_config
                 )
 
 def render_summary_view(
@@ -84,7 +77,8 @@ def render_summary_view(
     panel_cols: int,
     layer_info: dict,
     selected_layer_num: int,
-    filtered_df: pd.DataFrame
+    filtered_df: pd.DataFrame,
+    theme_config: PlotTheme = None
 ):
     """
     Renders the detailed Statistical Summary Dashboard.
@@ -98,6 +92,14 @@ def render_summary_view(
 
     # Helper set for safe values check
     safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+
+    # Determine table style colors
+    if theme_config:
+        plot_col = theme_config.plot_area_color
+        panel_col = theme_config.panel_background_color
+    else:
+        plot_col = PLOT_AREA_COLOR
+        panel_col = PANEL_COLOR
 
     if quadrant_selection != Quadrant.ALL.value:
         total_defects = len(display_df)
@@ -149,8 +151,13 @@ def render_summary_view(
             top_offenders.columns = ['Defect Type', 'Count']
 
         top_offenders['Percentage'] = (top_offenders['Count'] / total_defects) * 100
-        theme_cmap = mcolors.LinearSegmentedColormap.from_list("theme_cmap", [PLOT_AREA_COLOR, PANEL_COLOR])
-        st.dataframe(top_offenders.style.format({'Percentage': '{:.2f}%'}).background_gradient(cmap=theme_cmap, subset=['Count']), use_container_width=True)
+        theme_cmap = mcolors.LinearSegmentedColormap.from_list("theme_cmap", [plot_col, panel_col])
+        # st.dataframe(top_offenders.style.format({'Percentage': '{:.2f}%'}).background_gradient(cmap=theme_cmap, subset=['Count']), use_container_width=True)
+        # FIX: Replace use_container_width with width='stretch'
+        st.dataframe(
+            top_offenders.style.format({'Percentage': '{:.2f}%'}).background_gradient(cmap=theme_cmap, subset=['Count']),
+            width='stretch' # Deprecation fix for use_container_width=True
+        )
     else:
         st.markdown("### Panel-Wide KPIs (Filtered)")
         total_defects = len(display_df)
@@ -229,7 +236,7 @@ def render_summary_view(
                 kpi_df.style
                 .background_gradient(cmap='Reds', subset=['Total Defects', 'True Defects', 'Non-Detects (Safe)'])
                 .format({'Safe Ratio': '{:>8}', 'Yield': '{:>8}'}), # Alignment
-                use_container_width=True
+                width='stretch' # Deprecation fix for use_container_width=True
             )
         else:
             st.info("No data to display for the quarterly breakdown based on current filters.")

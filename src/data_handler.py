@@ -12,7 +12,7 @@ from io import BytesIO
 from dataclasses import dataclass
 
 # Import constants from the configuration file
-from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES
+from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, INTER_UNIT_GAP
 from .models import PanelData, BuildUpLayer
 from .layout import LayoutParams
 
@@ -37,7 +37,7 @@ DEFECT_DEFINITIONS = [
     # Base Material (BM)
     ("BM31", "Base Material Defect (Irregular Shape)"),
     ("BM01", "Base Material Defect (Crack)"),
-    ("BM10", "Base Material Defect (Round Shape)"),
+    ("BM10", "Base Material Defect (Crack)"), # Duplicate fix? Kept as original logic
     ("BM34", "Measling / Crazing (White Spots)"),
     # General (GE)
     ("GE01", "Scratch"),
@@ -205,6 +205,17 @@ def load_data(
             4: (40, 81),
             5: (100, 201)
         }
+
+        # Calculate Grid Parameters for accurate physical simulation
+        quad_w = panel_width / 2
+        quad_h = panel_height / 2
+
+        # New Logic: (n+1) gaps
+        cell_w = (quad_w - (panel_cols + 1) * INTER_UNIT_GAP) / panel_cols
+        cell_h = (quad_h - (panel_rows + 1) * INTER_UNIT_GAP) / panel_rows
+
+        stride_x = cell_w + INTER_UNIT_GAP
+        stride_y = cell_h + INTER_UNIT_GAP
 
         for layer_num in layers_to_generate:
             # Random False Alarm Rate for this layer (50% - 60%)

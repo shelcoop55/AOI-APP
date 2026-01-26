@@ -508,7 +508,7 @@ class ViewManager:
             st.markdown("##### Additional Analysis Charts")
             include_heatmap_png = st.checkbox("Heatmap (PNG)", value=False)
             include_stress_png = st.checkbox("Stress Map (PNG)", value=False)
-            include_root_cause_png = st.checkbox("Root Cause (PNG)", value=False)
+            include_root_cause_html = st.checkbox("Root Cause (HTML)", value=False)
             include_still_alive_png = st.checkbox("Still Alive Map (PNG)", value=False)
 
         st.markdown("---")
@@ -518,10 +518,17 @@ class ViewManager:
                 full_df = self.store.layer_data.get_combined_dataframe()
                 true_defect_coords = get_true_defect_coordinates(self.store.layer_data)
 
+                # Fetch Theme for Reporting (Optional - for now using defaults/user choice in app state)
+                # Reporting might need to pass theme if PNGs are generated with it.
+                current_theme = st.session_state.get('plot_theme', None)
+
+                # Fetch Layout Parameters from Session Store (Calculated in app.py)
+                params = self.store.analysis_params
+
                 self.store.report_bytes = generate_zip_package(
                     full_df=full_df,
-                    panel_rows=self.store.analysis_params.get('panel_rows', 7),
-                    panel_cols=self.store.analysis_params.get('panel_cols', 7),
+                    panel_rows=params.get('panel_rows', 7),
+                    panel_cols=params.get('panel_cols', 7),
                     quadrant_selection=self.store.quadrant_selection,
                     verification_selection=self.store.verification_selection,
                     source_filename="Multiple Files",
@@ -534,11 +541,23 @@ class ViewManager:
                     include_pareto_png=include_pareto_png,
                     include_heatmap_png=include_heatmap_png,
                     include_stress_png=include_stress_png,
-                    include_root_cause_png=include_root_cause_png,
+                    include_root_cause_html=include_root_cause_html,
                     include_still_alive_png=include_still_alive_png,
                     layer_data=self.store.layer_data,
-                    process_comment=self.store.analysis_params.get("process_comment", ""),
-                    lot_number=self.store.analysis_params.get("lot_number", "")
+                    process_comment=params.get("process_comment", ""),
+                    lot_number=params.get("lot_number", ""),
+                    theme_config=current_theme,
+                    # Pass Layout Parameters for Consistent Plotting
+                    offset_x=params.get("offset_x", 0.0),
+                    offset_y=params.get("offset_y", 0.0),
+                    gap_x=params.get("gap_x", 3.0),
+                    gap_y=params.get("gap_y", 3.0),
+                    visual_origin_x=params.get("visual_origin_x", 0.0),
+                    visual_origin_y=params.get("visual_origin_y", 0.0),
+                    fixed_offset_x=params.get("fixed_offset_x", 0.0),
+                    fixed_offset_y=params.get("fixed_offset_y", 0.0),
+                    panel_width=params.get("panel_width", 470.0),
+                    panel_height=params.get("panel_height", 470.0)
                 )
                 st.success("Package generated successfully!")
 
@@ -569,26 +588,35 @@ class ViewManager:
              st.info("Please upload data and run analysis to proceed.")
              return
 
+        # Retrieve current theme from session state
+        current_theme = st.session_state.get('plot_theme', None)
+
         if self.store.active_view == 'still_alive':
-            render_still_alive_main(self.store)
+            render_still_alive_main(self.store, theme_config=current_theme)
 
         elif self.store.active_view == 'multi_layer_defects':
             render_multi_layer_view(
                 self.store,
                 self.store.multi_layer_selection,
-                self.store.multi_side_selection
+                self.store.multi_side_selection,
+                theme_config=current_theme
             )
 
         elif self.store.active_view == 'analysis_dashboard':
             tool = get_analysis_tool(self.store.analysis_subview, self.store)
-            tool.render_main()
+            # Pass theme to analysis tool if it supports it
+            if hasattr(tool, 'render_main_with_theme'):
+                 tool.render_main_with_theme(theme_config=current_theme)
+            else:
+                 tool.render_main()
 
         elif self.store.active_view == 'layer':
             render_layer_view(
                 self.store,
                 self.store.view_mode,
                 self.store.quadrant_selection,
-                self.store.verification_selection
+                self.store.verification_selection,
+                theme_config=current_theme
             )
 
         elif self.store.active_view == 'documentation':

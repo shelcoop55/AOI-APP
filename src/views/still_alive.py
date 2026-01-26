@@ -13,7 +13,7 @@ def render_still_alive_sidebar(store: SessionStore):
     """
     pass
 
-def render_still_alive_main(store: SessionStore):
+def render_still_alive_main(store: SessionStore, theme_config=None):
     """Renders the Main Content for the Still Alive view."""
     params = store.analysis_params
     layout = params.get("layout")
