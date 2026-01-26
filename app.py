@@ -1,8 +1,13 @@
 import streamlit as st
 import pandas as pd
-from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y, DEFAULT_PANEL_ROWS, DEFAULT_PANEL_COLS, DYNAMIC_GAP_X, DYNAMIC_GAP_Y, DEFAULT_THEME, PlotTheme
+from src.config import (
+    GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR,
+    DEFAULT_QUAD_WIDTH, DEFAULT_QUAD_HEIGHT, DEFAULT_MARGIN_X, DEFAULT_MARGIN_Y,
+    DEFAULT_GAP_MID, DEFAULT_GAP_UNIT
+)
 from src.data_handler import load_data, get_true_defect_coordinates
 from src.reporting import generate_zip_package
+from src.layout import LayoutParams
 from src.enums import ViewMode, Quadrant
 from src.state import SessionStore
 from src.views.manager import ViewManager
@@ -76,32 +81,27 @@ def main() -> None:
                     key="process_comment"
                 )
 
-                # --- NEW: Coordinate Origin Inputs (User Facing) ---
-                # These default to 0,0 and only affect visual plotting, not structural calculation.
-                st.markdown("---")
-                st.markdown("##### Plot Origin Configuration")
-                c_origin1, c_origin2 = st.columns(2)
-                with c_origin1:
-                    st.number_input("X Origin (mm)", value=0.0, step=1.0, key="plot_origin_x", help="Shift the visual coordinate system X origin.")
-                with c_origin2:
-                    st.number_input("Y Origin (mm)", value=0.0, step=1.0, key="plot_origin_y", help="Shift the visual coordinate system Y origin.")
+            with st.expander("⚙️ Advanced Configuration (Layout)", expanded=False):
+                # 1. Quadrant Dimensions (Spec Driven)
+                c_dim1, c_dim2 = st.columns(2)
+                with c_dim1:
+                    st.number_input("Quadrant Width (mm)", value=float(DEFAULT_QUAD_WIDTH), step=1.0, key="quad_width", help="Width of a single quadrant.")
+                with c_dim2:
+                    st.number_input("Quadrant Height (mm)", value=float(DEFAULT_QUAD_HEIGHT), step=1.0, key="quad_height", help="Height of a single quadrant.")
 
-
-            with st.expander("⚙️ Advanced Configuration", expanded=False):
-                # 1. Panel Dimensions (UI Removed - Hardcoded Defaults)
-                # Used to be: c_dim1, c_dim2 inputs for Panel Width/Height
-                # Now using Frame Width/Height (510/515) internally for calculation.
-
-                # 2. Origins (Structrual Margins) - REMOVED FROM UI
-                # We now use DEFAULT_OFFSET_X (13.5) and DEFAULT_OFFSET_Y (15.0) hardcoded in config.py
-                # This ensures the panel structure is fixed.
+                # 2. Margins (Origins)
+                c_mar1, c_mar2 = st.columns(2)
+                with c_mar1:
+                    st.number_input("Margin X (Left/Right)", value=float(DEFAULT_MARGIN_X), step=0.5, key="margin_x", help="Outer margin on X axis.")
+                with c_mar2:
+                    st.number_input("Margin Y (Top/Bottom)", value=float(DEFAULT_MARGIN_Y), step=0.5, key="margin_y", help="Outer margin on Y axis.")
 
                 # 3. Dynamic Gaps
                 c_gap1, c_gap2 = st.columns(2)
                 with c_gap1:
-                    st.number_input("Dynamic Gap X (mm)", value=float(DYNAMIC_GAP_X), step=1.0, min_value=0.0, key="dyn_gap_x", help="Dynamic Horizontal Gap.")
+                    st.number_input("Central Gap (mm)", value=float(DEFAULT_GAP_MID), step=0.5, min_value=0.0, key="gap_mid", help="Gap between quadrants (X/Y).")
                 with c_gap2:
-                    st.number_input("Dynamic Gap Y (mm)", value=float(DYNAMIC_GAP_Y), step=1.0, min_value=0.0, key="dyn_gap_y", help="Dynamic Vertical Gap.")
+                    st.number_input("Inter-Unit Gap (mm)", value=float(DEFAULT_GAP_UNIT), step=0.05, min_value=0.0, format="%.2f", key="gap_unit", help="Gap between small units inside a quadrant.")
 
             # Callback for Analysis
             def on_run_analysis():
@@ -115,36 +115,30 @@ def main() -> None:
                 comment = st.session_state.process_comment
 
                 # Retrieve Advanced Params
-                # Use Hardcoded Defaults for Structural Calculation
-                off_x_struct = DEFAULT_OFFSET_X # 13.5
-                off_y_struct = DEFAULT_OFFSET_Y # 15.0
+                quad_w = st.session_state.get("quad_width", DEFAULT_QUAD_WIDTH)
+                quad_h = st.session_state.get("quad_height", DEFAULT_QUAD_HEIGHT)
+                margin_x = st.session_state.get("margin_x", DEFAULT_MARGIN_X)
+                margin_y = st.session_state.get("margin_y", DEFAULT_MARGIN_Y)
+                gap_mid = st.session_state.get("gap_mid", DEFAULT_GAP_MID)
+                gap_unit = st.session_state.get("gap_unit", DEFAULT_GAP_UNIT)
 
-                # Retrieve User Visual Origins
-                visual_origin_x = st.session_state.get("plot_origin_x", 0.0)
-                visual_origin_y = st.session_state.get("plot_origin_y", 0.0)
+                # Create LayoutParams object
+                layout = LayoutParams(
+                    panel_cols=cols, panel_rows=rows,
+                    quad_width=quad_w, quad_height=quad_h,
+                    margin_x=margin_x, margin_y=margin_y,
+                    gap_mid=gap_mid, gap_unit=gap_unit
+                )
 
-                # Hardcoded gaps are now used instead of UI inputs
-                gap_x_fixed = DEFAULT_GAP_X # 3.0
-                gap_y_fixed = DEFAULT_GAP_Y # 3.0
-                # Retrieve dynamic gaps from session state
-                dyn_gap_x = st.session_state.get("dyn_gap_x", DYNAMIC_GAP_X)
-                dyn_gap_y = st.session_state.get("dyn_gap_y", DYNAMIC_GAP_Y)
+                # Load Data
+                # load_data needs to know how to calculate coordinates.
+                # We pass the LayoutParams object or just the dimensions?
+                # load_data caching logic is strict on args.
+                # Ideally, we pass the `layout` object.
+                # Updating `load_data` signature in data_handler.py is next step.
+                # For now, I will pass `layout`.
 
-                # DYNAMIC CALCULATION of Active Panel Dimensions
-                # Updated Logic per User Request (Symmetrical):
-                # 4 Dynamic Gaps total (Left of Q1, Right of Q1, Left of Q2, Right of Q2)
-                # Active Width = Frame - 2*Offset - FixedGap - 4*DynGap
-                p_width = float(FRAME_WIDTH) - 2 * off_x_struct - gap_x_fixed - 4 * dyn_gap_x
-                p_height = float(FRAME_HEIGHT) - 2 * off_y_struct - gap_y_fixed - 4 * dyn_gap_y
-
-                # Calculate EFFECTIVE GAP for Plotting
-                # Symmetrical Logic: Gap between Q1 and Q2 = FixedGap + DynGap(Right Q1) + DynGap(Left Q2)
-                effective_gap_x = gap_x_fixed + 2 * dyn_gap_x
-                effective_gap_y = gap_y_fixed + 2 * dyn_gap_y
-
-                # Load Data (This will now hit the cache if arguments are same)
-                # Pass dynamically calculated width/height and EFFECTIVE GAPS
-                data = load_data(files, rows, cols, p_width, p_height, effective_gap_x, effective_gap_y)
+                data = load_data(files, layout)
                 if data:
                     # UPDATE: Store ID and Metadata, NOT the object
                     if not files:
@@ -188,29 +182,9 @@ def main() -> None:
                 total_off_y_struct = off_y_struct + dyn_gap_y
 
                 store.analysis_params = {
-                    "panel_rows": rows,
-                    "panel_cols": cols,
-                    "panel_width": p_width,
-                    "panel_height": p_height,
-                    "gap_x": effective_gap_x, # Use effective gap for plotting logic
-                    "gap_y": effective_gap_y,
-                    "gap_size": effective_gap_x, # Backwards compatibility
+                    "layout": layout, # Store the full layout object
                     "lot_number": lot,
-                    "process_comment": comment,
-                    # IMPORTANT: Use Structural Offset for drawing the grid in the Frame
-                    "offset_x": total_off_x_struct,
-                    "offset_y": total_off_y_struct,
-
-                    # Store Visual Origins for Axis Correction
-                    "visual_origin_x": visual_origin_x,
-                    "visual_origin_y": visual_origin_y,
-
-                    "dyn_gap_x": dyn_gap_x,
-                    "dyn_gap_y": dyn_gap_y,
-
-                    # Store Structural Fixed Offsets for Inner Border Drawing
-                    "fixed_offset_x": off_x_struct,
-                    "fixed_offset_y": off_y_struct
+                    "process_comment": comment
                 }
                 store.report_bytes = None
 
@@ -227,11 +201,6 @@ def main() -> None:
 
                 def on_reset():
                     store.clear_all()
-                    # Re-initialize uploader_key immediately after clearing state
-                    # to prevent KeyError on rerun or subsequent access
-                    if "uploader_key" not in st.session_state:
-                        st.session_state["uploader_key"] = 0
-
                     # Increment key to recreate file uploader widget (effectively clearing it)
                     st.session_state["uploader_key"] += 1
                     # Rerun will happen automatically after callback

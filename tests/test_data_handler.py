@@ -6,12 +6,21 @@ import importlib
 from src import data_handler
 from src.data_handler import load_data
 from src.models import PanelData
+from src.layout import LayoutParams
 
 # Mock Cache Decorator properly to handle arguments
 def mock_cache_data(*args, **kwargs):
     def decorator(func):
         return func
     return decorator
+
+def create_layout():
+    return LayoutParams(
+        panel_cols=7, panel_rows=7,
+        quad_width=200.0, quad_height=200.0,
+        margin_x=10.0, margin_y=10.0,
+        gap_mid=20.0, gap_unit=0.0
+    )
 
 @pytest.fixture(autouse=True)
 def mock_streamlit(monkeypatch):
@@ -45,7 +54,7 @@ def test_load_data_multilayer(mock_streamlit):
     with pytest.MonkeyPatch.context() as m:
         m.setattr(pd, "read_excel", MagicMock(side_effect=[df1, df2]))
 
-        panel_data = data_handler.load_data([file1, file2], 7, 7)
+        panel_data = data_handler.load_data([file1, file2], create_layout())
 
         assert isinstance(panel_data, PanelData)
         assert len(panel_data._layers) == 2
@@ -56,7 +65,7 @@ def test_load_data_multilayer(mock_streamlit):
 
 def test_load_data_sample_generation(mock_streamlit):
     """Test sample data generation when no files provided."""
-    panel_data = data_handler.load_data([], 7, 7)
+    panel_data = data_handler.load_data([], create_layout())
 
     assert isinstance(panel_data, PanelData)
     # Should generate 5 layers
@@ -70,7 +79,7 @@ def test_load_data_invalid_filename(mock_streamlit):
     file1.name = "InvalidName.xlsx"
 
     # load_data handles this by skipping and warning
-    panel_data = data_handler.load_data([file1], 7, 7)
+    panel_data = data_handler.load_data([file1], create_layout())
 
     assert isinstance(panel_data, PanelData)
     assert len(panel_data._layers) == 0 # No layers loaded
@@ -90,7 +99,7 @@ def test_load_data_missing_columns(mock_streamlit):
     with pytest.MonkeyPatch.context() as m:
         m.setattr(pd, "read_excel", MagicMock(return_value=df_bad))
 
-        panel_data = data_handler.load_data([file1], 7, 7)
+        panel_data = data_handler.load_data([file1], create_layout())
 
         # Should skip file
         assert len(panel_data._layers) == 0

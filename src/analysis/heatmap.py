@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from src.analysis.base import AnalysisTool
 from src.plotting import create_density_contour_map
-from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT
+from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE
 
 @st.cache_data
 def get_filtered_heatmap_data(
@@ -68,7 +68,14 @@ class HeatmapTool(AnalysisTool):
         # st.info("Visualizing smoothed defect density across selected layers.")
 
         params = self.store.analysis_params
-        panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
+        layout = params.get("layout")
+
+        if layout:
+            panel_rows = layout.panel_rows
+            panel_cols = layout.panel_cols
+        else:
+            panel_rows = params.get("panel_rows", 7)
+            panel_cols = params.get("panel_cols", 7)
 
         # READ INPUTS FROM UNIFIED FILTER STATE (set in manager.py)
 
@@ -96,24 +103,22 @@ class HeatmapTool(AnalysisTool):
         selected_quadrant = st.session_state.get("analysis_quadrant_selection", "All")
 
         # 7. Layout Params
-        offset_x = params.get("offset_x", 0.0)
-        offset_y = params.get("offset_y", 0.0)
-        gap_x = params.get("gap_x", GAP_SIZE)
-        gap_y = params.get("gap_y", GAP_SIZE)
-        gap_size = gap_x # Local alias for compatibility with click logic
-
-        # New Params for Visual Shift & Inner Border
-        visual_origin_x = params.get("visual_origin_x", 0.0)
-        visual_origin_y = params.get("visual_origin_y", 0.0)
-        fixed_offset_x = params.get("fixed_offset_x", 0.0)
-        fixed_offset_y = params.get("fixed_offset_y", 0.0)
-
-        # Dynamic Panel Size
-        panel_width = params.get("panel_width", PANEL_WIDTH)
-        panel_height = params.get("panel_height", PANEL_HEIGHT)
-
-        quad_width = panel_width / 2
-        quad_height = panel_height / 2
+        if layout:
+            offset_x = layout.margin_x
+            offset_y = layout.margin_y
+            gap_size = layout.gap_mid
+            panel_width = (layout.quad_width * 2) + layout.gap_mid
+            panel_height = (layout.quad_height * 2) + layout.gap_mid
+            quad_width = layout.quad_width
+            quad_height = layout.quad_height
+        else:
+            offset_x = params.get("offset_x", 0.0)
+            offset_y = params.get("offset_y", 0.0)
+            gap_size = params.get("gap_size", GAP_SIZE)
+            panel_width = params.get("panel_width", PANEL_WIDTH)
+            panel_height = params.get("panel_height", PANEL_HEIGHT)
+            quad_width = panel_width / 2
+            quad_height = panel_height / 2
 
         # --- DATA PREPARATION (CACHED) ---
         # We pass self.store.layer_data.id if available, else a dummy or we assume static.

@@ -11,7 +11,15 @@ def render_multi_layer_view(store: SessionStore, selected_layers: list, selected
     # st.info("Visualizing 'True Defects' from selected layers. Colors indicate the source layer.")
 
     params = store.analysis_params
-    panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
+    layout = params.get("layout")
+
+    if layout:
+        panel_rows = layout.panel_rows
+        panel_cols = layout.panel_cols
+    else:
+        panel_rows = params.get("panel_rows", 7)
+        panel_cols = params.get("panel_cols", 7)
+
     panel_uid = store.layer_data.id
 
     combined_df = prepare_multi_layer_data(store.layer_data, panel_uid)
@@ -58,16 +66,20 @@ def render_multi_layer_view(store: SessionStore, selected_layers: list, selected
     if not combined_df.empty:
         # Pass the Flip Toggle state
         flip_back = st.session_state.get("flip_back_side", True)
-        offset_x = params.get("offset_x", 0.0)
-        offset_y = params.get("offset_y", 0.0)
-        gap_x = params.get("gap_x", GAP_SIZE)
-        gap_y = params.get("gap_y", GAP_SIZE)
-        panel_width = params.get("panel_width", 410)
-        panel_height = params.get("panel_height", 452)
-        visual_origin_x = params.get("visual_origin_x", 0.0)
-        visual_origin_y = params.get("visual_origin_y", 0.0)
-        fixed_offset_x = params.get("fixed_offset_x", 0.0)
-        fixed_offset_y = params.get("fixed_offset_y", 0.0)
+
+        if layout:
+            offset_x = layout.margin_x
+            offset_y = layout.margin_y
+            gap_size = layout.gap_mid
+            # Reconstruct total width/height for plotting limits
+            panel_width = (layout.quad_width * 2) + layout.gap_mid
+            panel_height = (layout.quad_height * 2) + layout.gap_mid
+        else:
+            offset_x = params.get("offset_x", 0.0)
+            offset_y = params.get("offset_y", 0.0)
+            gap_size = params.get("gap_size", GAP_SIZE)
+            panel_width = params.get("panel_width", 410)
+            panel_height = params.get("panel_height", 452)
 
         fig = create_multi_layer_defect_map(
             combined_df, panel_rows, panel_cols,

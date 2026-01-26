@@ -6,7 +6,9 @@ import streamlit as st
 from dataclasses import dataclass
 from typing import Optional, Dict, List
 from src.enums import ViewMode, Quadrant
-from src.data_handler import load_data, PanelData  # Import load_data
+from src.data_handler import load_data, PanelData
+from src.layout import LayoutParams
+from src.config import DEFAULT_QUAD_WIDTH, DEFAULT_QUAD_HEIGHT, DEFAULT_MARGIN_X, DEFAULT_MARGIN_Y, DEFAULT_GAP_MID, DEFAULT_GAP_UNIT
 
 @dataclass
 class SessionStore:
@@ -81,8 +83,20 @@ class SessionStore:
 
         current_uploader_key = f"uploaded_files_{st.session_state.get('uploader_key', 0)}"
         files = st.session_state.get(current_uploader_key, [])
-        rows = self.analysis_params.get("panel_rows", 7)
-        cols = self.analysis_params.get("panel_cols", 7)
+
+        # Retrieve layout or fallback
+        layout = self.analysis_params.get("layout")
+
+        if not layout:
+            # Construct default if missing (Fallback)
+            rows = self.analysis_params.get("panel_rows", 7)
+            cols = self.analysis_params.get("panel_cols", 7)
+            layout = LayoutParams(
+                panel_cols=cols, panel_rows=rows,
+                quad_width=DEFAULT_QUAD_WIDTH, quad_height=DEFAULT_QUAD_HEIGHT,
+                margin_x=DEFAULT_MARGIN_X, margin_y=DEFAULT_MARGIN_Y,
+                gap_mid=DEFAULT_GAP_MID, gap_unit=DEFAULT_GAP_UNIT
+            )
 
         # Safety Check: If we expect Real Data (ID set) but files are lost/empty, return None.
         # This prevents falling back to random Sample Data generation in load_data.
@@ -92,7 +106,7 @@ class SessionStore:
              return None
 
         # Call load_data. If inputs haven't changed, it hits cache.
-        return load_data(files, rows, cols)
+        return load_data(files, layout)
 
     # We don't implement a setter for layer_data anymore.
     # Logic should update the input params (files) or trigger a reload.

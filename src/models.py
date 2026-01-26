@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import uuid
 from typing import Dict, List, Optional
-from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT, INTER_UNIT_GAP
+from src.layout import LayoutParams
 
 @dataclass
 class BuildUpLayer:
@@ -18,12 +18,7 @@ class BuildUpLayer:
     layer_num: int
     side: str  # 'F' or 'B'
     raw_df: pd.DataFrame
-    panel_rows: int
-    panel_cols: int
-    panel_width: float = PANEL_WIDTH
-    panel_height: float = PANEL_HEIGHT
-    gap_x: float = GAP_SIZE
-    gap_y: float = GAP_SIZE
+    layout: LayoutParams
 
     def __post_init__(self):
         self._validate()
@@ -55,148 +50,119 @@ class BuildUpLayer:
 
     def _add_plotting_coordinates(self):
         """
-        Internal method to calculate and append 'plot_x', 'plot_y', and 'physical_plot_x'
-        to the internal DataFrame.
+        Calculates plot coordinates using LayoutParams.
         """
         if self.raw_df.empty:
             return
 
         df = self.raw_df
+        layout = self.layout
 
-        # Use Dynamic Dimensions
-        quad_width = self.panel_width / 2
-        quad_height = self.panel_height / 2
+        # --- 1. COORDINATE CALCULATION USING LAYOUT LOGIC ---
 
-        # Updated Logic: Subtract gaps first to get true unit size
-        # Change: (n + 1) gaps to account for gap before first and after last unit
-        cell_width = (quad_width - (self.panel_cols + 1) * INTER_UNIT_GAP) / self.panel_cols
-        cell_height = (quad_height - (self.panel_rows + 1) * INTER_UNIT_GAP) / self.panel_rows
-
-        # Stride includes the unit width plus the gap
-        stride_x = cell_width + INTER_UNIT_GAP
-        stride_y = cell_height + INTER_UNIT_GAP
-
-        # --- 1. RAW COORDINATES (Individual View - No Flip) ---
-        # Calculate Raw Quadrant
-        conditions_raw = [
-            (df['UNIT_INDEX_X'] < self.panel_cols) & (df['UNIT_INDEX_Y'] < self.panel_rows),
-            (df['UNIT_INDEX_X'] >= self.panel_cols) & (df['UNIT_INDEX_Y'] < self.panel_rows),
-            (df['UNIT_INDEX_X'] < self.panel_cols) & (df['UNIT_INDEX_Y'] >= self.panel_rows),
-            (df['UNIT_INDEX_X'] >= self.panel_cols) & (df['UNIT_INDEX_Y'] >= self.panel_rows)
+        # Determine Quadrant
+        # Note: Layout logic assumes cols 0..N-1 are Q1/Q3, N..2N-1 are Q2/Q4.
+        conditions = [
+            (df['UNIT_INDEX_X'] < layout.panel_cols) & (df['UNIT_INDEX_Y'] < layout.panel_rows), # Q1
+            (df['UNIT_INDEX_X'] >= layout.panel_cols) & (df['UNIT_INDEX_Y'] < layout.panel_rows), # Q2
+            (df['UNIT_INDEX_X'] < layout.panel_cols) & (df['UNIT_INDEX_Y'] >= layout.panel_rows), # Q3
+            (df['UNIT_INDEX_X'] >= layout.panel_cols) & (df['UNIT_INDEX_Y'] >= layout.panel_rows) # Q4
         ]
         choices = ['Q1', 'Q2', 'Q3', 'Q4']
-        df['QUADRANT'] = np.select(conditions_raw, choices, default='Other')
+        df['QUADRANT'] = np.select(conditions, choices, default='Other')
 
-        local_index_x_raw = df['UNIT_INDEX_X'] % self.panel_cols
-        local_index_y = df['UNIT_INDEX_Y'] % self.panel_rows
+        # Calculate Origin (Bottom-Left) for every unit
+        # Vectorized implementation of layout.get_unit_origin
 
-        # Start at INTER_UNIT_GAP (Gap before first unit)
-        plot_x_base_raw = INTER_UNIT_GAP + local_index_x_raw * stride_x
-        plot_y_base = INTER_UNIT_GAP + local_index_y * stride_y
+        # X Origin
+        # If col < panel_cols: start = margin_x
+        # Else: start = margin_x + quad_w + gap_mid
+        # final = start + (local_col * unit_w) + (local_col * gap_unit)
 
-        x_offset_raw = np.where(df['UNIT_INDEX_X'] >= self.panel_cols, quad_width + self.gap_x, 0)
-        y_offset = np.where(df['UNIT_INDEX_Y'] >= self.panel_rows, quad_height + self.gap_y, 0)
+        local_col = df['UNIT_INDEX_X'] % layout.panel_cols
+        x_start = np.where(df['UNIT_INDEX_X'] < layout.panel_cols,
+                           layout.margin_x,
+                           layout.margin_x + layout.quad_width + layout.gap_mid)
 
-        # --- SPATIAL LOGIC ---
-        # Use X/Y Coordinates for relative positioning if available (for both Front and Back).
-        # Otherwise, default to random jitter.
+        base_x = x_start + (local_col * layout.unit_width) + (local_col * layout.gap_unit)
 
+        # Y Origin
+        local_row = df['UNIT_INDEX_Y'] % layout.panel_rows
+        y_start = np.where(df['UNIT_INDEX_Y'] < layout.panel_rows,
+                           layout.margin_y,
+                           layout.margin_y + layout.quad_height + layout.gap_mid)
+
+        base_y = y_start + (local_row * layout.unit_height) + (local_row * layout.gap_unit)
+
+        # --- SPATIAL LOGIC (ABSOLUTE MAPPING) ---
         use_spatial_coords = False
-        abs_x_mm = None
-        abs_y_mm = None
+        offset_x = 0.0
+        offset_y = 0.0
 
         if 'X_COORDINATES' in df.columns and 'Y_COORDINATES' in df.columns:
             try:
-                # ABSOLUTE MAPPING: Convert Microns to Millimeters directly.
-                # Assumes X_COORDINATES are relative to the PANEL ORIGIN (Design Coordinates).
-                # Range 0-480 (approx).
-
                 # Convert um to mm
                 abs_x_mm = df['X_COORDINATES'] / 1000.0
                 abs_y_mm = df['Y_COORDINATES'] / 1000.0
 
-                # Ensure they are numeric
                 if pd.api.types.is_numeric_dtype(abs_x_mm) and pd.api.types.is_numeric_dtype(abs_y_mm):
                     use_spatial_coords = True
-                else:
-                    use_spatial_coords = False
-            except Exception as e:
-                print(f"Spatial mapping failed: {e}")
+                    # Treat raw coords as offset from Unit Origin
+                    offset_x = abs_x_mm
+                    offset_y = abs_y_mm
+            except Exception:
                 use_spatial_coords = False
 
-        if use_spatial_coords:
-            # Use absolute mm offsets
-            offset_x = abs_x_mm
-            offset_y = abs_y_mm
-        else:
-            # Use Random Jitter (10% to 90% of cell)
-            offset_x = np.random.rand(len(df)) * cell_width * 0.8 + (cell_width * 0.1)
-            offset_y = np.random.rand(len(df)) * cell_height * 0.8 + (cell_height * 0.1)
+        if not use_spatial_coords:
+            # Jitter: Random within Unit Size (0.1 to 0.9)
+            # Relative to Unit Origin (base_x/y)
+            jitter_x = np.random.rand(len(df)) * layout.unit_width * 0.8 + (layout.unit_width * 0.1)
+            jitter_y = np.random.rand(len(df)) * layout.unit_height * 0.8 + (layout.unit_height * 0.1)
 
-        # --- COORDINATE ASSIGNMENT ---
-        if use_spatial_coords:
-            # If using spatial coordinates, they are assumed to be Panel Coordinates.
-            # We use them directly. Plotting layer adds Frame Margin.
-            df['plot_x'] = offset_x
-            df['plot_y'] = offset_y
+            df['plot_x'] = base_x + jitter_x
+            df['plot_y'] = base_y + jitter_y
         else:
-            # Relative/Grid-based positioning
-            df['plot_x'] = plot_x_base_raw + x_offset_raw + offset_x
-            df['plot_y'] = plot_y_base + y_offset + offset_y
+            # Spatial Mode: Coordinates are GLOBAL (0 to Max Active Width).
+            # We must NOT add 'base_x' (Unit Origin).
+            # Instead, we apply global Margins and Gaps (Visual Layout).
+
+            # 1. Apply Margins (Offset from Canvas Origin)
+            abs_x = offset_x + layout.margin_x
+            abs_y = offset_y + layout.margin_y
+
+            # 2. Inject Gap
+            # If unit is in Right Quadrants (Q2/Q4), shift by Gap Size.
+            # We rely on UNIT_INDEX to determine quadrant consistently.
+            gap_shift_x = np.where(df['QUADRANT'].isin(['Q2', 'Q4']), layout.gap_mid, 0)
+            gap_shift_y = np.where(df['QUADRANT'].isin(['Q3', 'Q4']), layout.gap_mid, 0)
+
+            df['plot_x'] = abs_x + gap_shift_x
+            df['plot_y'] = abs_y + gap_shift_y
 
         # --- 2. PHYSICAL COORDINATES (Stacked View) ---
-        # We now support two modes: Flipped (Aligned) and Raw (Unaligned).
+        # For simplicity in this iteration, we map Flipped/Raw similarly but flip the index.
 
-        total_width_units = 2 * self.panel_cols
+        # Raw (No Flip)
+        df['PHYSICAL_X_RAW'] = df['UNIT_INDEX_X']
+        df['physical_plot_x_raw'] = df['plot_x'] # Same as main view
 
-        # A) FLIPPED MODE (Standard Alignment) - Index Calculation
+        # Flipped
         if self.is_back:
-            df['PHYSICAL_X_FLIPPED'] = (total_width_units - 1) - df['UNIT_INDEX_X']
+            total_cols = layout.panel_cols * 2
+            df['PHYSICAL_X_FLIPPED'] = (total_cols - 1) - df['UNIT_INDEX_X']
+
+            # Recalculate Base X for Flipped Index
+            local_col_flip = df['PHYSICAL_X_FLIPPED'] % layout.panel_cols
+            x_start_flip = np.where(df['PHYSICAL_X_FLIPPED'] < layout.panel_cols,
+                                    layout.margin_x,
+                                    layout.margin_x + layout.quad_width + layout.gap_mid)
+            base_x_flip = x_start_flip + (local_col_flip * layout.unit_width) + (local_col_flip * layout.gap_unit)
+
+            # Add Centering (Width/2) instead of specific spatial coord to avoid flipping errors
+            df['physical_plot_x_flipped'] = base_x_flip + (layout.unit_width / 2)
         else:
             df['PHYSICAL_X_FLIPPED'] = df['UNIT_INDEX_X']
-
-        # Alias PHYSICAL_X for backward compatibility
-        df['PHYSICAL_X'] = df['PHYSICAL_X_FLIPPED']
-
-        # B) RAW MODE (No Flip) - Index Calculation
-        df['PHYSICAL_X_RAW'] = df['UNIT_INDEX_X']
-
-        # --- PHYSICAL SPATIAL LOGIC ---
-
-        # Base Grid Calculation (Fallback if no spatial coords)
-        local_index_x_flipped = df['PHYSICAL_X_FLIPPED'] % self.panel_cols
-        plot_x_base_flipped = INTER_UNIT_GAP + local_index_x_flipped * stride_x
-        x_offset_flipped = np.where(df['PHYSICAL_X_FLIPPED'] >= self.panel_cols, quad_width + self.gap_x, 0)
-
-        local_index_x_raw_phys = df['PHYSICAL_X_RAW'] % self.panel_cols
-        plot_x_base_raw_phys = INTER_UNIT_GAP + local_index_x_raw_phys * stride_x
-        x_offset_raw_phys = np.where(df['PHYSICAL_X_RAW'] >= self.panel_cols, quad_width + self.gap_x, 0)
-
-        if use_spatial_coords:
-            # Use REAL COORDINATES for Multi-Layer View
-
-            # 1. Raw Physical (Simple)
-            # Same as plot_x (Panel Relative)
-            df['physical_plot_x_raw'] = abs_x_mm
-
-            # 2. Flipped Physical (Aligned)
-            # If Back Side, Flip around vertical center.
-            # Center of Panel = (Panel Width + Gap) / 2?
-            # Or simpler: Flipped X = Max Width - X
-            # Max Width = self.panel_width + self.gap_x
-
-            total_frame_width = self.panel_width + self.gap_x
-
-            # User explicitly requested NO mirroring for Back side data.
-            # We treat the provided coordinates as absolute and correct for the desired view.
-            df['physical_plot_x_flipped'] = abs_x_mm
-
-        else:
-            # Grid-based Jitter Logic
-            # Note: offset_x here is the Jitter value (0-cell_width) calculated above in 'else' block
-
-            df['physical_plot_x_flipped'] = plot_x_base_flipped + x_offset_flipped + offset_x
-            df['physical_plot_x_raw'] = plot_x_base_raw_phys + x_offset_raw_phys + offset_x
+            df['physical_plot_x_flipped'] = df['plot_x']
 
 
 class PanelData:
