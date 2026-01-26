@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y
+from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y, DEFAULT_PANEL_ROWS, DEFAULT_PANEL_COLS, DYNAMIC_GAP_X, DYNAMIC_GAP_Y, DEFAULT_THEME, PlotTheme
 from src.data_handler import load_data, get_true_defect_coordinates
 from src.reporting import generate_zip_package
 from src.enums import ViewMode, Quadrant
@@ -76,6 +76,17 @@ def main() -> None:
                     key="process_comment"
                 )
 
+                # --- NEW: Coordinate Origin Inputs (User Facing) ---
+                # These default to 0,0 and only affect visual plotting, not structural calculation.
+                st.markdown("---")
+                st.markdown("##### Plot Origin Configuration")
+                c_origin1, c_origin2 = st.columns(2)
+                with c_origin1:
+                    st.number_input("X Origin (mm)", value=0.0, step=1.0, key="plot_origin_x", help="Shift the visual coordinate system X origin.")
+                with c_origin2:
+                    st.number_input("Y Origin (mm)", value=0.0, step=1.0, key="plot_origin_y", help="Shift the visual coordinate system Y origin.")
+
+
             with st.expander("⚙️ Advanced Configuration", expanded=False):
                 # 1. Panel Dimensions (UI Removed - Hardcoded Defaults)
                 # Used to be: c_dim1, c_dim2 inputs for Panel Width/Height
@@ -88,7 +99,7 @@ def main() -> None:
                 with c_off2:
                     st.number_input("Y Origin (mm)", value=DEFAULT_OFFSET_Y, step=0.1, key="offset_y", help="Shift origin Y by this amount.")
 
-                # 3. Gaps
+                # 3. Dynamic Gaps
                 c_gap1, c_gap2 = st.columns(2)
                 with c_gap1:
                     st.number_input("Gap X (mm)", value=float(DEFAULT_GAP_X), step=0.1, min_value=0.0, key="gap_x", help="Horizontal gap between quadrants.")
@@ -107,19 +118,36 @@ def main() -> None:
                 comment = st.session_state.process_comment
 
                 # Retrieve Advanced Params
-                off_x = st.session_state.get("offset_x", DEFAULT_OFFSET_X)
-                off_y = st.session_state.get("offset_y", DEFAULT_OFFSET_Y)
-                gap_x = st.session_state.get("gap_x", DEFAULT_GAP_X)
-                gap_y = st.session_state.get("gap_y", DEFAULT_GAP_Y)
+                # Use Hardcoded Defaults for Structural Calculation
+                off_x_struct = DEFAULT_OFFSET_X # 13.5
+                off_y_struct = DEFAULT_OFFSET_Y # 15.0
+
+                # Retrieve User Visual Origins
+                visual_origin_x = st.session_state.get("plot_origin_x", 0.0)
+                visual_origin_y = st.session_state.get("plot_origin_y", 0.0)
+
+                # Hardcoded gaps are now used instead of UI inputs
+                gap_x_fixed = DEFAULT_GAP_X # 3.0
+                gap_y_fixed = DEFAULT_GAP_Y # 3.0
+                # Retrieve dynamic gaps from session state
+                dyn_gap_x = st.session_state.get("dyn_gap_x", DYNAMIC_GAP_X)
+                dyn_gap_y = st.session_state.get("dyn_gap_y", DYNAMIC_GAP_Y)
 
                 # DYNAMIC CALCULATION of Active Panel Dimensions
-                # Logic: Active_Dim = Total_Frame - (2 * Offset) - Gap
-                p_width = float(FRAME_WIDTH) - (2 * off_x) - gap_x
-                p_height = float(FRAME_HEIGHT) - (2 * off_y) - gap_y
+                # Updated Logic per User Request (Symmetrical):
+                # 4 Dynamic Gaps total (Left of Q1, Right of Q1, Left of Q2, Right of Q2)
+                # Active Width = Frame - 2*Offset - FixedGap - 4*DynGap
+                p_width = float(FRAME_WIDTH) - 2 * off_x_struct - gap_x_fixed - 4 * dyn_gap_x
+                p_height = float(FRAME_HEIGHT) - 2 * off_y_struct - gap_y_fixed - 4 * dyn_gap_y
+
+                # Calculate EFFECTIVE GAP for Plotting
+                # Symmetrical Logic: Gap between Q1 and Q2 = FixedGap + DynGap(Right Q1) + DynGap(Left Q2)
+                effective_gap_x = gap_x_fixed + 2 * dyn_gap_x
+                effective_gap_y = gap_y_fixed + 2 * dyn_gap_y
 
                 # Load Data (This will now hit the cache if arguments are same)
-                # Pass dynamically calculated width/height
-                data = load_data(files, rows, cols, p_width, p_height, gap_x, gap_y)
+                # Pass dynamically calculated width/height and EFFECTIVE GAPS
+                data = load_data(files, rows, cols, p_width, p_height, effective_gap_x, effective_gap_y)
                 if data:
                     # UPDATE: Store ID and Metadata, NOT the object
                     if not files:
@@ -157,18 +185,35 @@ def main() -> None:
                 else:
                     store.selected_layer = None
 
+                # Calculate TOTAL OFFSET for Plotting
+                # Symmetrical Logic: Start Position of Q1 = FixedOffset + DynGap (Left of Q1)
+                total_off_x_struct = off_x_struct + dyn_gap_x
+                total_off_y_struct = off_y_struct + dyn_gap_y
+
                 store.analysis_params = {
                     "panel_rows": rows,
                     "panel_cols": cols,
                     "panel_width": p_width,
                     "panel_height": p_height,
-                    "gap_x": gap_x,
-                    "gap_y": gap_y,
-                    "gap_size": gap_x, # Backwards compatibility
+                    "gap_x": effective_gap_x, # Use effective gap for plotting logic
+                    "gap_y": effective_gap_y,
+                    "gap_size": effective_gap_x, # Backwards compatibility
                     "lot_number": lot,
                     "process_comment": comment,
-                    "offset_x": off_x,
-                    "offset_y": off_y
+                    # IMPORTANT: Use Structural Offset for drawing the grid in the Frame
+                    "offset_x": total_off_x_struct,
+                    "offset_y": total_off_y_struct,
+
+                    # Store Visual Origins for Axis Correction
+                    "visual_origin_x": visual_origin_x,
+                    "visual_origin_y": visual_origin_y,
+
+                    "dyn_gap_x": dyn_gap_x,
+                    "dyn_gap_y": dyn_gap_y,
+
+                    # Store Structural Fixed Offsets for Inner Border Drawing
+                    "fixed_offset_x": off_x_struct,
+                    "fixed_offset_y": off_y_struct
                 }
                 store.report_bytes = None
 
@@ -195,6 +240,33 @@ def main() -> None:
                     # Rerun will happen automatically after callback
 
                 st.form_submit_button("🔄 Reset", on_click=on_reset, type="secondary")
+
+        # --- 2. Appearance & Style (Expander) ---
+        with st.expander("🎨 Appearance & Style", expanded=False):
+            # Create PlotTheme inputs and update session state immediately
+            bg_color = st.color_picker("Background Color", value=DEFAULT_THEME.background_color, key="style_bg")
+            plot_color = st.color_picker("Plot Area Color", value=DEFAULT_THEME.plot_area_color, key="style_plot")
+            panel_color = st.color_picker("Panel Color", value=DEFAULT_THEME.panel_background_color, key="style_panel")
+            axis_color = st.color_picker("Axis Color", value=DEFAULT_THEME.axis_color, key="style_axis")
+            text_color = st.color_picker("Text Color", value=DEFAULT_THEME.text_color, key="style_text")
+            unit_color = st.color_picker("Unit Color", value=DEFAULT_THEME.unit_face_color, key="style_unit")
+            gap_color = st.color_picker("Gap Color", value=DEFAULT_THEME.inner_gap_color, key="style_gap")
+
+            # Construct Theme Object
+            current_theme = PlotTheme(
+                background_color=bg_color,
+                plot_area_color=plot_color,
+                panel_background_color=panel_color,
+                axis_color=axis_color,
+                text_color=text_color,
+                # Use user selection
+                unit_face_color=unit_color,
+                unit_edge_color=axis_color, # Match axis for grid edges
+                inner_gap_color=gap_color
+            )
+
+            # Store in session state for Views to access
+            st.session_state['plot_theme'] = current_theme
 
     # --- Main Content Area ---
     # Header removed to save space

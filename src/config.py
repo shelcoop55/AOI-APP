@@ -4,6 +4,7 @@ Configuration and Styling Module.
 This module contains all configuration and styling variables for the application,
 including color themes and the method for loading defect-specific styles.
 """
+from dataclasses import dataclass
 
 # --- Physical Constants (in mm) ---
 # Hardcoded Total Frame Dimensions as per user request (Copper Grid Panel)
