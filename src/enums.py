@@ -10,8 +10,14 @@ from enum import Enum
 class ViewMode(Enum):
     """Enumeration for the different analysis views in the UI."""
     DEFECT = "Defect View"
+    HEATMAP = "Heatmap Analysis"
+    STRESS = "Stress Map Analysis"
     PARETO = "Pareto View"
     SUMMARY = "Summary View"
+    INSIGHTS = "Insights View"
+    ROOT_CAUSE = "Root Cause Analysis"
+    STILL_ALIVE = "Still Alive"
+    MULTI_LAYER = "Multi-Layer"
 
     @classmethod
     def values(cls) -> list[str]:
