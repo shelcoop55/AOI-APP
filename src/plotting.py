@@ -5,16 +5,12 @@ UPDATED: Sankey charts with Neon Palette, 3 types of Heatmaps, and polished styl
 """
 import plotly.graph_objects as go
 import pandas as pd
-from typing import List, Dict, Any, Set, Tuple, Optional
-import numpy as np
+from typing import List, Dict, Any
+import plotly.colors
 
 from src.config import (
-    PANEL_COLOR, GRID_COLOR, defect_style_map, TEXT_COLOR, BACKGROUND_COLOR, PLOT_AREA_COLOR,
-    PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE,
-    ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, FALLBACK_COLORS, SAFE_VERIFICATION_VALUES,
-    VERIFICATION_COLOR_SAFE, VERIFICATION_COLOR_DEFECT, NEON_PALETTE,
-    UNIT_FACE_COLOR, UNIT_EDGE_COLOR, AXIS_TEXT_COLOR, PANEL_BACKGROUND_COLOR, INTER_UNIT_GAP,
-    PlotTheme
+    PANEL_COLOR, GRID_COLOR, TEXT_COLOR,
+    PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE
 )
 from src.data_handler import StressMapData
 from src.documentation import VERIFICATION_DESCRIPTIONS
@@ -257,308 +253,100 @@ def create_grid_shapes(
     shapes.extend(_draw_quadrant_grids(origins_to_draw, panel_rows, panel_cols, fill=fill, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config))
     return shapes
 
-def create_defect_traces(
-    df: pd.DataFrame,
-    offset_x: float = 0.0,
-    offset_y: float = 0.0,
-    gap_x: float = GAP_SIZE,
-    gap_y: float = GAP_SIZE,
-    visual_origin_x: float = 0.0, # NEW
-    visual_origin_y: float = 0.0  # NEW
-) -> List[go.Scatter]:
+def get_color_map_for_defects(defect_types: List[str]) -> Dict[str, str]:
     """
-    Generates scatter plot traces.
-    APPLIES VISUAL ORIGIN SHIFT AS ADDITIVE OFFSET.
+    Creates a dynamic color map for a list of defect types.
+    It uses a high-contrast palette and cycles through it if there are more
+    defect types than available colors.
+    """
+    color_palette = plotly.colors.qualitative.Plotly
+    color_map = {}
+    for i, defect_type in enumerate(defect_types):
+        color_map[defect_type] = color_palette[i % len(color_palette)]
+    return color_map
+
+def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
+    """
+    Creates a list of scatter traces, one for each unique defect type in the dataframe.
+    This function is now fully dynamic and will plot any defect type found in the data.
     """
     traces = []
-    if df.empty: return traces
+    has_verification = 'Verification' in df.columns
 
-    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
-    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
-    unique_groups = df[group_col].unique()
+    # Get all unique defect types and generate the dynamic color map
+    unique_defect_types = df['DEFECT_TYPE'].unique()
+    color_map = get_color_map_for_defects(unique_defect_types)
 
-    local_style_map = {}
-    if group_col == 'DEFECT_TYPE':
-        local_style_map = defect_style_map.copy()
-        fallback_index = 0
-        for dtype in unique_groups:
-            if dtype not in local_style_map:
-                color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
-                local_style_map[dtype] = color
-                fallback_index += 1
-    else:
-        fallback_index = 0
-        for code in unique_groups:
-            color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
-            local_style_map[code] = color
-            fallback_index += 1
+    for dtype in unique_defect_types:
+        dff = df[df['DEFECT_TYPE'] == dtype]
+        color = color_map[dtype]
 
-    if 'Verification' in df.columns:
-        df = df.copy()
-        df['Description'] = df['Verification'].map(VERIFICATION_DESCRIPTIONS).fillna("Unknown Code")
-    else:
-        df = df.copy()
-        df['Description'] = "N/A"
+        # Base custom data and hover template
+        custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID']
+        hovertemplate = (
+            "<b>Type: %{customdata[2]}</b><br>"
+            "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
+            "Defect ID: %{customdata[3]}"
+        )
 
-    has_raw_coords = 'X_COORDINATES' in df.columns and 'Y_COORDINATES' in df.columns
-    coord_str = ""
-    if has_raw_coords:
-        df['RAW_COORD_STR'] = df.apply(lambda row: f"({row['X_COORDINATES']/1000:.2f}, {row['Y_COORDINATES']/1000:.2f}) mm", axis=1)
-        custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description', 'RAW_COORD_STR']
-        coord_str = "<br>Raw Coords: %{customdata[6]}"
-    else:
-        custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description']
+        # Add verification info only if the column exists
+        if has_verification:
+            custom_data_cols.append('Verification')
+            hovertemplate += "<br>Verification: %{customdata[4]}"
 
-    grouped = df.groupby(group_col, observed=True)
+        hovertemplate += "<extra></extra>"
 
-    for group_val, dff in grouped:
-        if group_val not in local_style_map: continue
-        color = local_style_map[group_val]
-
-        hovertemplate = ("<b>Status: %{customdata[4]}</b><br>"
-                            "Description : %{customdata[5]}<br>"
-                            "Type: %{customdata[2]}<br>"
-                            "Unit Index (X, Y): (%{customdata[0]}, %{customdata[1]})<br>"
-                            "Defect ID: %{customdata[3]}"
-                            + coord_str +
-                            "<extra></extra>")
-
-        # SHIFT LOGIC (Additive):
-        # 1. Structural Position: point + offset_x
-        # 2. Visual Offset: (point + offset_x) + visual_origin_x
-
-        if 'X_COORDINATES' in dff.columns:
-            # Absolute: already includes structure (if absolute frame coords) or needs shift.
-            # Assuming plot_x is absolute frame position.
-            x_vals = dff['plot_x'] + visual_origin_x
-            y_vals = dff['plot_y'] + visual_origin_y
-        else:
-            # Relative/Grid Jitter
-            x_vals = (dff['plot_x'] + offset_x) + visual_origin_x
-            y_vals = (dff['plot_y'] + offset_y) + visual_origin_y
-
-        traces.append(go.Scattergl(
-            x=x_vals, y=y_vals, mode='markers',
+        traces.append(go.Scatter(
+            x=dff['plot_x'], y=dff['plot_y'], mode='markers',
             marker=dict(color=color, size=8, line=dict(width=1, color='black')),
-            name=str(group_val),
+            name=dtype, # The legend will now show the actual defect type
             customdata=dff[custom_data_cols],
             hovertemplate=hovertemplate
         ))
 
     return traces
-
-def create_multi_layer_defect_map(
-    df: pd.DataFrame,
-    panel_rows: int,
-    panel_cols: int,
-    flip_back: bool = True,
-    offset_x: float = 0.0,
-    offset_y: float = 0.0,
-    gap_x: float = GAP_SIZE,
-    gap_y: float = GAP_SIZE,
-    panel_width: float = PANEL_WIDTH,
-    panel_height: float = PANEL_HEIGHT,
-    theme_config: Optional[PlotTheme] = None,
-    visual_origin_x: float = 0.0, # NEW
-    visual_origin_y: float = 0.0,  # NEW
-    fixed_offset_x: float = 0.0,
-    fixed_offset_y: float = 0.0
-) -> go.Figure:
+    
+def create_pareto_trace(df: pd.DataFrame, color_map: Dict[str, str]) -> go.Bar:
     """
-    Creates a defect map visualizing defects from ALL layers simultaneously.
-    Supports toggling Back Side alignment (Flip vs Raw).
+    Creates a single bar trace for a Pareto chart using a dynamic color map.
     """
-    fig = go.Figure()
+    if df.empty:
+        return go.Bar(name='Pareto')
+    pareto_data = df['DEFECT_TYPE'].value_counts().reset_index()
+    pareto_data.columns = ['Defect Type', 'Count']
 
-    if not df.empty:
-        if 'LAYER_NUM' not in df.columns: df['LAYER_NUM'] = 0
-        unique_layer_nums = sorted(df['LAYER_NUM'].unique())
-        layer_colors = {num: FALLBACK_COLORS[i % len(FALLBACK_COLORS)] for i, num in enumerate(unique_layer_nums)}
-        symbol_map = {'F': 'circle', 'B': 'diamond'}
+    # Apply the dynamic color map
+    bar_colors = [color_map.get(dtype, '#808080') for dtype in pareto_data['Defect Type']]
 
-        for layer_num in unique_layer_nums:
-            layer_color = layer_colors[layer_num]
-            layer_df = df[df['LAYER_NUM'] == layer_num]
-
-            for side in sorted(layer_df['SIDE'].unique()):
-                dff = layer_df[layer_df['SIDE'] == side]
-                symbol = symbol_map.get(side, 'circle')
-                side_name = "Front" if side == 'F' else "Back"
-                trace_name = f"Layer {layer_num} ({side_name})"
-
-                if 'Verification' in dff.columns:
-                     dff = dff.copy()
-                     dff['Description'] = dff['Verification'].map(VERIFICATION_DESCRIPTIONS).fillna("Unknown Code")
-                else:
-                     dff['Description'] = "N/A"
-
-                coord_str = ""
-                if 'X_COORDINATES' in dff.columns and 'Y_COORDINATES' in dff.columns:
-                    dff['RAW_COORD_STR'] = dff.apply(lambda row: f"({row['X_COORDINATES']/1000:.2f}, {row['Y_COORDINATES']/1000:.2f}) mm", axis=1)
-                    custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description', 'SOURCE_FILE', 'RAW_COORD_STR']
-                    coord_str = "<br>Raw Coords: %{customdata[7]}"
-                else:
-                    custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description', 'SOURCE_FILE']
-
-                hovertemplate = (f"<b>Layer: {layer_num}</b><br>"
-                                 "Side: " + side_name + "<br>"
-                                 "Status: %{customdata[4]}<br>"
-                                 "Type: %{customdata[2]}<br>"
-                                 "Unit Index: (%{customdata[0]}, %{customdata[1]})<br>"
-                                 "File: %{customdata[6]}"
-                                 + coord_str +
-                                 "<extra></extra>")
-
-                if flip_back:
-                    x_col_name = 'physical_plot_x_flipped'
-                else:
-                    x_col_name = 'physical_plot_x_raw'
-                x_coords = dff[x_col_name]
-
-                # SHIFT LOGIC (Additive)
-                if 'X_COORDINATES' in dff.columns:
-                     final_x = x_coords + visual_origin_x
-                     final_y = dff['plot_y'] + visual_origin_y
-                else:
-                     final_x = (x_coords + offset_x) + visual_origin_x
-                     final_y = (dff['plot_y'] + offset_y) + visual_origin_y
-
-                fig.add_trace(go.Scattergl(
-                    x=final_x, y=final_y, mode='markers',
-                    marker=dict(color=layer_color, symbol=symbol, size=9, line=dict(width=1, color='black')),
-                    name=trace_name, customdata=dff[custom_data_cols], hovertemplate=hovertemplate
-                ))
-
-    # Add Grid (FIXED - No Visual Shift)
-    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y))
-
-    quad_width = panel_width / 2
-    quad_height = panel_height / 2
-    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
-
-    # Calculate Axis Ticks (FIXED - No Visual Shift)
-    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
-    x_tick_vals_q2 = [(quad_width + gap_x) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
-    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
-    y_tick_vals_q3 = [(quad_height + gap_y) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
-    x_tick_text = list(range(panel_cols * 2))
-    y_tick_text = list(range(panel_rows * 2))
-
-    apply_panel_theme(fig, "Multi-Layer Combined Defect Map (True Defects Only)", theme_config=theme_config)
-
-    # FIXED AXIS RANGES (0-510)
-    x_range = [0, 510]
-    y_range = [0, 515]
-
-    fig.update_layout(
-        xaxis=dict(title="Unit Column Index", tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text, range=x_range, constrain='domain'),
-        yaxis=dict(title="Unit Row Index", tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text, range=y_range),
-        legend=dict(title=dict(text="Build-Up Layer"))
+    return go.Bar(
+        x=pareto_data['Defect Type'],
+        y=pareto_data['Count'],
+        name='Pareto',
+        marker_color=bar_colors
     )
 
-    return fig
-    
-def create_defect_map_figure(
-    df: pd.DataFrame,
-    panel_rows: int,
-    panel_cols: int,
-    quadrant_selection: str = Quadrant.ALL.value,
-    lot_number: Optional[str] = None,
-    title: Optional[str] = None,
-    offset_x: float = 0.0,
-    offset_y: float = 0.0,
-    gap_x: float = GAP_SIZE,
-    gap_y: float = GAP_SIZE,
-    panel_width: float = PANEL_WIDTH,
-    panel_height: float = PANEL_HEIGHT,
-    theme_config: Optional[PlotTheme] = None,
-    visual_origin_x: float = 0.0, # NEW
-    visual_origin_y: float = 0.0,  # NEW
-    fixed_offset_x: float = 0.0,
-    fixed_offset_y: float = 0.0
-) -> go.Figure:
+def create_grouped_pareto_trace(df: pd.DataFrame, color_map: Dict[str, str]) -> List[go.Bar]:
     """
     Creates the full Defect Map Figure (Traces + Grid + Layout).
     """
-    quad_width = panel_width / 2
-    quad_height = panel_height / 2
+    if df.empty:
+        return []
 
-    # Traces with Visual Shift (Additive)
-    fig = go.Figure(data=create_defect_traces(df, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y))
-    # Grid FIXED
-    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=0, visual_origin_y=0, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y))
-
-    # Ticks FIXED
-    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
-    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
-    x_tick_vals_q2 = [(quad_width + gap_x) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
-    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
-    y_tick_vals_q3 = [(quad_height + gap_y) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
-    x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
-
-    # Ranges FIXED
-    x_axis_range = [0, 510]
-    y_axis_range = [0, 515]
-    show_ticks = True
-
-    if quadrant_selection != Quadrant.ALL.value:
-        show_ticks = False
-        # Calculate unshifted quadrant boundaries
-        ranges = {
-            'Q1': ([0+offset_x, quad_width+offset_x], [0+offset_y, quad_height+offset_y]),
-            'Q2': ([quad_width + gap_x+offset_x, panel_width + gap_x+offset_x], [0+offset_y, quad_height+offset_y]),
-            'Q3': ([0+offset_x, quad_width+offset_x], [quad_height + gap_y+offset_y, panel_height + gap_y+offset_y]),
-            'Q4': ([quad_width + gap_x+offset_x, panel_width + gap_x+offset_x], [quad_height + gap_y+offset_y, panel_height + gap_y+offset_y])
-        }
-        x_axis_range, y_axis_range = ranges[quadrant_selection]
-
-    final_title = title if title else f"Panel Defect Map - Quadrant: {quadrant_selection}"
-
-    apply_panel_theme(fig, final_title, theme_config=theme_config)
-
-    fig.update_layout(
-        xaxis=dict(title="Unit Column Index", tickvals=x_tick_vals_q1 + x_tick_vals_q2 if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, constrain='domain'),
-        yaxis=dict(title="Unit Row Index", tickvals=y_tick_vals_q1 + y_tick_vals_q3 if show_ticks else [], ticktext=y_tick_text if show_ticks else [], range=y_axis_range)
-    )
-
-    if lot_number and quadrant_selection == Quadrant.ALL.value:
-        t_col = theme_config.text_color if theme_config else TEXT_COLOR
-        # Annotation fixed
-        fig.add_annotation(x=(panel_width + gap_x + offset_x), y=(panel_height + gap_y + offset_y), text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=t_col), align="right", xanchor="right", yanchor="bottom")
-
-    return fig
-
-def create_pareto_trace(df: pd.DataFrame) -> go.Bar:
-    if df.empty: return go.Bar(name='Pareto')
-
-    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
-    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
-
-    pareto_data = df[group_col].value_counts().reset_index()
-    pareto_data.columns = ['Label', 'Count']
-
-    return go.Bar(x=pareto_data['Label'], y=pareto_data['Count'], name='Pareto', marker_color='#4682B4')
-
-def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
-    if df.empty: return []
-
-    has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
-    group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
-
-    grouped_data = df.groupby(['QUADRANT', group_col], observed=True).size().reset_index(name='Count')
-    top_items = df[group_col].value_counts().index.tolist()
-
+    # We now iterate by defect type to assign colors correctly
+    top_defects = df['DEFECT_TYPE'].value_counts().index.tolist()
     traces = []
-    quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
-    # Explicit colors to prevent black bars in report exports
-    quadrant_colors = {'Q1': '#636EFA', 'Q2': '#EF553B', 'Q3': '#00CC96', 'Q4': '#AB63FA'}
 
-    for quadrant in quadrants:
-        quadrant_data = grouped_data[grouped_data['QUADRANT'] == quadrant]
-        pivot = quadrant_data.pivot(index=group_col, columns='QUADRANT', values='Count').reindex(top_items).fillna(0)
-        if not pivot.empty:
-            color = quadrant_colors.get(quadrant, '#4682B4')
-            traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant], marker_color=color))
+    for defect_type in top_defects:
+        defect_df = df[df['DEFECT_TYPE'] == defect_type]
+        quadrant_counts = defect_df.groupby('QUADRANT').size().reindex(['Q1', 'Q2', 'Q3', 'Q4'], fill_value=0)
+
+        traces.append(go.Bar(
+            name=defect_type,
+            x=['Q1', 'Q2', 'Q3', 'Q4'],
+            y=quadrant_counts.values,
+            marker_color=color_map.get(defect_type, '#808080')
+        ))
+
     return traces
 
 def create_pareto_figure(df: pd.DataFrame, quadrant_selection: str = Quadrant.ALL.value, theme_config: Optional[PlotTheme] = None) -> go.Figure:

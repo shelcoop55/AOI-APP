@@ -9,13 +9,9 @@ import plotly.graph_objects as go
 from src.plotting import (
     create_grid_shapes,
     create_defect_traces,
-    create_defect_map_figure,
-    create_pareto_figure,
-    create_still_alive_map,
-    create_still_alive_figure,
-    create_defect_sankey,
-    create_density_contour_map,
-    create_stress_heatmap
+    create_pareto_trace,
+    create_grouped_pareto_trace,
+    get_color_map_for_defects
 )
 from src.data_handler import StressMapData
 from src.enums import Quadrant
@@ -52,70 +48,32 @@ def test_create_defect_traces_smoke(sample_plot_df):
     # UPDATED: We now use Scattergl or Scatter
     assert all(isinstance(t, (go.Scatter, go.Scattergl)) for t in traces)
 
-def test_create_defect_map_figure_smoke(sample_plot_df):
-    """Test full figure creation."""
-    fig = create_defect_map_figure(sample_plot_df, 7, 7)
-    assert isinstance(fig, go.Figure)
-    assert len(fig.data) > 0
-    assert len(fig.layout.shapes) > 0
+def test_create_pareto_trace_smoke(sample_plot_df):
+    """Smoke test to ensure create_pareto_trace runs without errors."""
+    color_map = get_color_map_for_defects(sample_plot_df['DEFECT_TYPE'].unique())
+    trace = create_pareto_trace(sample_plot_df, color_map)
+    assert isinstance(trace, go.Bar)
 
-def test_create_pareto_figure_smoke(sample_plot_df):
-    """Test Pareto chart creation."""
-    fig = create_pareto_figure(sample_plot_df)
-    assert isinstance(fig, go.Figure)
-    # Check if bar trace exists
-    assert fig.data[0].type == 'bar'
+def test_create_grouped_pareto_trace_smoke(sample_plot_df):
+    """Smoke test to ensure create_grouped_pareto_trace runs without errors."""
+    color_map = get_color_map_for_defects(sample_plot_df['DEFECT_TYPE'].unique())
+    traces = create_grouped_pareto_trace(sample_plot_df, color_map)
+    assert isinstance(traces, list)
+    assert all(isinstance(t, go.Bar) for t in traces)
 
-def test_create_still_alive_map_logic():
-    """Test shape generation for Still Alive map."""
-    true_defects = {
-        (0, 0): {'first_killer_layer': 1, 'defect_summary': 'L1: 1'},
-        (1, 1): {'first_killer_layer': 2, 'defect_summary': 'L2: 1'}
-    }
-    shapes, traces = create_still_alive_map(2, 2, true_defects)
+def test_dynamic_color_assignment(sample_plot_df):
+    """
+    Tests that different defect types are assigned unique colors dynamically.
+    """
+    # 1. Generate traces from the sample data
+    traces = create_defect_traces(sample_plot_df)
 
-    assert len(shapes) > 0
-    # Should have shapes for cells + grid lines
-    # 2x2 = 4 cells. Grid lines extra.
+    # 2. Assert that the correct number of traces were created
+    unique_types_in_data = sample_plot_df['DEFECT_TYPE'].unique()
+    assert len(traces) == len(unique_types_in_data), "Should create one trace per unique defect type"
 
-    # Check if red color is used for defective
-    red_shapes = [s for s in shapes if s.get('fillcolor') == '#E74C3C'] # DEFECTIVE_CELL_COLOR constant check
-    # We might need to import constant if it changes, but hardcode check is fragile.
-    # Just check count
-    assert len(red_shapes) == 2
+    # 3. Extract the colors assigned to each trace
+    assigned_colors = [t.marker.color for t in traces]
 
-def test_create_density_contour_map_smoke(sample_plot_df):
-    """Test contour map generation."""
-    fig = create_density_contour_map(sample_plot_df, 7, 7)
-    assert isinstance(fig, go.Figure)
-    # Should contain Histogram2dContour or Contour
-    # UPDATED: We use go.Contour now with server-side aggregation
-    assert fig.data[0].type in ['histogram2dcontour', 'contour']
-
-def test_create_stress_heatmap_smoke():
-    """Test cumulative stress heatmap."""
-    # Create dummy data
-    grid = np.zeros((14, 14), dtype=int)
-    grid[0,0] = 5
-    hover = np.empty((14,14), dtype=object)
-    hover[:] = ""
-
-    data = StressMapData(grid_counts=grid, hover_text=hover, total_defects=5, max_count=5)
-
-    fig = create_stress_heatmap(data, 7, 7)
-    assert isinstance(fig, go.Figure)
-    assert fig.data[0].type == 'heatmap'
-
-def test_create_defect_sankey_smoke(sample_plot_df):
-    """Test Sankey diagram."""
-    fig = create_defect_sankey(sample_plot_df)
-    # Might return None if no verification data, but sample has mixed.
-    # Logic requires HAS_VERIFICATION_DATA flag true on first row
-    # Sample has false on first row.
-
-    # Let's fix sample for Sankey test
-    sample_plot_df['HAS_VERIFICATION_DATA'] = True
-    fig = create_defect_sankey(sample_plot_df)
-
-    assert isinstance(fig, go.Figure)
-    assert fig.data[0].type == 'sankey'
+    # 4. Assert that all assigned colors are unique
+    assert len(assigned_colors) == len(set(assigned_colors)), "Each unique defect type should have a unique color"
