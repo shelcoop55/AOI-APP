@@ -12,56 +12,118 @@ from src.config import (
     PANEL_COLOR, GRID_COLOR, defect_style_map, TEXT_COLOR, BACKGROUND_COLOR, PLOT_AREA_COLOR,
     PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE,
     ALIVE_CELL_COLOR, DEFECTIVE_CELL_COLOR, FALLBACK_COLORS, SAFE_VERIFICATION_VALUES,
-    VERIFICATION_COLOR_SAFE, VERIFICATION_COLOR_DEFECT, NEON_PALETTE
+    VERIFICATION_COLOR_SAFE, VERIFICATION_COLOR_DEFECT, NEON_PALETTE,
+    UNIT_FACE_COLOR, UNIT_EDGE_COLOR, AXIS_TEXT_COLOR, PANEL_BACKGROUND_COLOR, INTER_UNIT_GAP,
+    PlotTheme
 )
-from src.data_handler import QUADRANT_WIDTH, QUADRANT_HEIGHT, StressMapData
+from src.data_handler import StressMapData
 from src.documentation import VERIFICATION_DESCRIPTIONS
 from src.enums import Quadrant
+
 
 # ==============================================================================
 # --- Private Helper Functions for Grid Creation ---
 # ==============================================================================
 
-def _draw_border_and_gaps() -> List[Dict[str, Any]]:
+def _get_rounded_rect_path(x0: float, y0: float, x1: float, y1: float, r: float) -> str:
+    """Generates an SVG path string for a rounded rectangle."""
+    # Ensure radius doesn't exceed dimensions
+    width = x1 - x0
+    height = y1 - y0
+    r = min(r, width / 2, height / 2)
+
+    return (
+        f"M {x0+r} {y0} "
+        f"L {x1-r} {y0} "
+        f"Q {x1} {y0} {x1} {y0+r} "
+        f"L {x1} {y1-r} "
+        f"Q {x1} {y1} {x1-r} {y1} "
+        f"L {x0+r} {y1} "
+        f"Q {x0} {y1} {x0} {y1-r} "
+        f"L {x0} {y0+r} "
+        f"Q {x0} {y0} {x0+r} {y0} "
+        "Z"
+    )
+
+def _draw_border_and_gaps(ox: float = 0.0, oy: float = 0.0, gap_x: float = GAP_SIZE, gap_y: float = GAP_SIZE, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT, theme_config: Optional[PlotTheme] = None) -> List[Dict[str, Any]]:
     """Creates the shapes for the outer border and inner gaps of the panel."""
     shapes = []
-    gap_color = '#A8652A'
-    total_width_with_gap = PANEL_WIDTH + GAP_SIZE
-    total_height_with_gap = PANEL_HEIGHT + GAP_SIZE
+    # Main Panel Background (Copper) is used for outer border and major gaps
+    gap_color = theme_config.panel_background_color if theme_config else PANEL_BACKGROUND_COLOR
+    border_color = theme_config.axis_color if theme_config else GRID_COLOR
 
-    # Outer border frame
-    shapes.extend([
-        dict(type="rect", x0=0, y0=total_height_with_gap, x1=total_width_with_gap, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=0, y0=-GAP_SIZE, x1=total_width_with_gap, y1=0, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=-GAP_SIZE, y0=-GAP_SIZE, x1=0, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=total_width_with_gap, y0=-GAP_SIZE, x1=total_width_with_gap + GAP_SIZE, y1=total_height_with_gap + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below')
-    ])
+    # Note: ox, oy are structural offsets here usually.
+    # The Frame logic is handled in create_grid_shapes now for explicit layering.
+    # This function is kept for backward compatibility if needed, but create_grid_shapes handles the frame.
 
-    # Inner gaps
-    shapes.extend([
-        dict(type="rect", x0=QUADRANT_WIDTH, y0=0, x1=QUADRANT_WIDTH + GAP_SIZE, y1=total_height_with_gap, fillcolor=gap_color, line_width=0, layer='below'),
-        dict(type="rect", x0=0, y0=QUADRANT_HEIGHT, x1=total_width_with_gap, y1=QUADRANT_HEIGHT + GAP_SIZE, fillcolor=gap_color, line_width=0, layer='below')
-    ])
     return shapes
 
-def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int, fill: bool = True) -> List[Dict[str, Any]]:
-    """Creates the shapes for the quadrant outlines and their internal grid lines."""
+def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int, fill: bool = True, panel_width: float = PANEL_WIDTH, panel_height: float = PANEL_HEIGHT, theme_config: Optional[PlotTheme] = None) -> List[Dict[str, Any]]:
+    """Creates the shapes for the quadrant outlines and individual unit rectangles."""
     shapes = []
-    cell_width = QUADRANT_WIDTH / panel_cols
-    cell_height = QUADRANT_HEIGHT / panel_rows
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    # Determine colors
+    if theme_config:
+        bg_color = theme_config.panel_background_color
+        edge_color = theme_config.unit_edge_color
+        face_color = theme_config.unit_face_color
+        border_color = theme_config.axis_color
+    else:
+        bg_color = PANEL_BACKGROUND_COLOR
+        edge_color = UNIT_EDGE_COLOR
+        face_color = UNIT_FACE_COLOR
+        border_color = GRID_COLOR
+
+    # Calculate Unit Dimensions accounting for inter-unit gaps
+    # Formula: UnitWidth = (QuadWidth - (Cols + 1) * gap) / Cols (Gap before first and after last)
+    unit_width = (quad_width - (panel_cols + 1) * INTER_UNIT_GAP) / panel_cols
+    unit_height = (quad_height - (panel_rows + 1) * INTER_UNIT_GAP) / panel_rows
 
     for x_start, y_start in origins_to_draw.values():
         if fill:
+            # 1. Draw the Background Copper Rect for the whole quadrant (SQUARE per request)
             shapes.append(dict(
-                type="rect", x0=x_start, y0=y_start, x1=x_start + QUADRANT_WIDTH, y1=y_start + QUADRANT_HEIGHT,
-                line=dict(color=GRID_COLOR, width=2), fillcolor=PANEL_COLOR, layer='below'
+                type="rect",
+                x0=x_start,
+                y0=y_start,
+                x1=x_start + quad_width,
+                y1=y_start + quad_height,
+                fillcolor=bg_color,
+                line=dict(color=border_color, width=3),
+                layer='below'
             ))
-        for i in range(1, panel_cols):
-            line_x = x_start + (i * cell_width)
-            shapes.append(dict(type="line", x0=line_x, y0=y_start, x1=line_x, y1=y_start + QUADRANT_HEIGHT, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
-        for i in range(1, panel_rows):
-            line_y = y_start + (i * cell_height)
-            shapes.append(dict(type="line", x0=x_start, y0=line_y, x1=x_start + QUADRANT_WIDTH, y1=line_y, line=dict(color=GRID_COLOR, width=1, dash='solid'), opacity=0.5, layer='below'))
+
+            # 2. Draw individual Unit Rects (Peach)
+            for r in range(panel_rows):
+                for c in range(panel_cols):
+                    # Calculate position (Start at Gap)
+                    ux = x_start + INTER_UNIT_GAP + c * (unit_width + INTER_UNIT_GAP)
+                    uy = y_start + INTER_UNIT_GAP + r * (unit_height + INTER_UNIT_GAP)
+
+                    shapes.append(dict(
+                        type="rect",
+                        x0=ux, y0=uy,
+                        x1=ux + unit_width, y1=uy + unit_height,
+                        line=dict(color=edge_color, width=1),
+                        fillcolor=face_color,
+                        layer='below'
+                    ))
+        else:
+            # For overlay mode (e.g. heatmap), we might still want the grid structure visible
+             for r in range(panel_rows):
+                for c in range(panel_cols):
+                    ux = x_start + INTER_UNIT_GAP + c * (unit_width + INTER_UNIT_GAP)
+                    uy = y_start + INTER_UNIT_GAP + r * (unit_height + INTER_UNIT_GAP)
+                    shapes.append(dict(
+                        type="rect",
+                        x0=ux, y0=uy,
+                        x1=ux + unit_width, y1=uy + unit_height,
+                        line=dict(color=edge_color, width=1),
+                        fillcolor="rgba(0,0,0,0)", # Transparent
+                        layer='below'
+                    ))
             
     return shapes
 
@@ -69,73 +131,154 @@ def _draw_quadrant_grids(origins_to_draw: Dict, panel_rows: int, panel_cols: int
 # --- Public API Functions ---
 # ==============================================================================
 
-def apply_panel_theme(fig: go.Figure, title: str = "", height: int = 800) -> go.Figure:
+def apply_panel_theme(fig: go.Figure, title: str = "", height: int = 800, theme_config: Optional[PlotTheme] = None) -> go.Figure:
     """
     Applies the standard engineering styling to any figure.
     This centralized function replaces redundant layout code in specific plotting functions.
     """
+    # Use theme values if provided, else fall back to global constants
+    if theme_config:
+        bg_color = theme_config.background_color
+        plot_color = theme_config.plot_area_color
+        text_color = theme_config.text_color
+        axis_color = theme_config.axis_color
+    else:
+        bg_color = BACKGROUND_COLOR
+        plot_color = PLOT_AREA_COLOR
+        text_color = TEXT_COLOR
+        axis_color = GRID_COLOR # Default fallback
+
     fig.update_layout(
-        title=dict(text=title, font=dict(color=TEXT_COLOR, size=18), x=0.5, xanchor='center'),
-        plot_bgcolor=PLOT_AREA_COLOR,
-        paper_bgcolor=BACKGROUND_COLOR,
+        title=dict(text=title, font=dict(color=text_color, size=18), x=0.5, xanchor='center'),
+        plot_bgcolor=plot_color,
+        paper_bgcolor=bg_color,
         height=height,
-        font=dict(color=TEXT_COLOR),
+        font=dict(color=text_color),
         # Default Axis Styling (can be overridden)
         xaxis=dict(
             showgrid=False, zeroline=False, showline=True,
-            linewidth=2, linecolor=GRID_COLOR, mirror=True,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)
+            linewidth=2, linecolor=axis_color, mirror=True,
+            title_font=dict(color=text_color), tickfont=dict(color=text_color)
         ),
         yaxis=dict(
             showgrid=False, zeroline=False, showline=True,
-            linewidth=2, linecolor=GRID_COLOR, mirror=True,
-            title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR),
+            linewidth=2, linecolor=axis_color, mirror=True,
+            title_font=dict(color=text_color), tickfont=dict(color=text_color),
             scaleanchor="x", scaleratio=1
         ),
         legend=dict(
-            title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR),
-            bgcolor=BACKGROUND_COLOR, bordercolor=GRID_COLOR, borderwidth=1,
+            title_font=dict(color=text_color), font=dict(color=text_color),
+            bgcolor=bg_color, bordercolor=axis_color, borderwidth=1,
             x=1.02, y=1, xanchor='left', yanchor='top'
         ),
         hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif")
     )
     return fig
 
-def create_grid_shapes(panel_rows: int, panel_cols: int, quadrant: str = 'All', fill: bool = True) -> List[Dict[str, Any]]:
+def create_grid_shapes(
+    panel_rows: int,
+    panel_cols: int,
+    quadrant: str = 'All',
+    fill: bool = True,
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT,
+    theme_config: Optional[PlotTheme] = None,
+    visual_origin_x: float = 0.0,
+    visual_origin_y: float = 0.0,
+    fixed_offset_x: float = 0.0, # NEW: For drawing Inner Gap
+    fixed_offset_y: float = 0.0  # NEW: For drawing Inner Gap
+) -> List[Dict[str, Any]]:
     """
-    Creates the visual shapes for the panel grid in a fixed 510x510mm coordinate system.
+    Creates the visual shapes for the panel grid.
+    Visual Origin does NOT affect the grid (it is fixed).
+
+    Includes:
+    1. Outer Copper Frame (0-510)
+    2. Inner Black Gap (FixedOffset to 510-FixedOffset)
+    3. Quadrants (Offset to ...)
     """
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    # Visual Origin logic removed from GRID shape calculation to keep it fixed to frame.
+    # The grid is physically located at 0-510.
+
+    # 1. Outer Copper Frame
+    gap_color = theme_config.panel_background_color if theme_config else PANEL_BACKGROUND_COLOR
+    border_color = theme_config.axis_color if theme_config else GRID_COLOR
+
+    shapes = []
+
+    if quadrant == 'All':
+        # Draw BIG Copper Frame
+        path_frame = _get_rounded_rect_path(0, 0, 510, 515, 20.0)
+        shapes.append(dict(
+            type="path",
+            path=path_frame,
+            fillcolor=gap_color,
+            line=dict(color=border_color, width=3),
+            layer='below'
+        ))
+
+        # Draw INNER Black Rect (The Dynamic Gap)
+        # Only if we have valid fixed offsets
+        if fixed_offset_x > 0 and fixed_offset_y > 0:
+            x0_inner = fixed_offset_x
+            y0_inner = fixed_offset_y
+            x1_inner = 510 - fixed_offset_x
+            y1_inner = 515 - fixed_offset_y
+
+            # Get color from theme or default to black
+            fill_col = theme_config.inner_gap_color if theme_config and hasattr(theme_config, 'inner_gap_color') else "black"
+
+            # Using basic rect for inner gap
+            shapes.append(dict(
+                type="rect",
+                x0=x0_inner, y0=y0_inner,
+                x1=x1_inner, y1=y1_inner,
+                fillcolor=fill_col,
+                line=dict(width=0),
+                layer='below'
+            ))
+
+    # Grid uses fixed structural offsets (offset_x/y passed in are Start of Q1)
     all_origins = {
-        'Q1': (0, 0), 'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0),
-        'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE), 'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)
+        'Q1': (0+offset_x , 0+offset_y),
+        'Q2': (quad_width + gap_x + offset_x, 0+offset_y),
+        'Q3': (0+offset_x, quad_height + gap_y + offset_y),
+        'Q4': (quad_width + gap_x + offset_x, quad_height + gap_y + offset_y)
     }
     origins_to_draw = all_origins if quadrant == 'All' else {quadrant: all_origins[quadrant]}
-    shapes = []
-    if quadrant == 'All':
-        shapes.extend(_draw_border_and_gaps())
-    shapes.extend(_draw_quadrant_grids(origins_to_draw, panel_rows, panel_cols, fill=fill))
+
+    shapes.extend(_draw_quadrant_grids(origins_to_draw, panel_rows, panel_cols, fill=fill, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config))
     return shapes
 
-def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
+def create_defect_traces(
+    df: pd.DataFrame,
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    visual_origin_x: float = 0.0, # NEW
+    visual_origin_y: float = 0.0  # NEW
+) -> List[go.Scatter]:
     """
     Generates scatter plot traces.
+    APPLIES VISUAL ORIGIN SHIFT AS ADDITIVE OFFSET.
     """
     traces = []
     if df.empty: return traces
 
-    # Check the flag. If mixed (some rows T, some F), default to True if any are True
     has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
-
-    # Determine what column to group by
     group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
-
     unique_groups = df[group_col].unique()
 
-    # --- COLOR MAPPING ---
     local_style_map = {}
-
     if group_col == 'DEFECT_TYPE':
-        # Use the standard defect style map + fallback
         local_style_map = defect_style_map.copy()
         fallback_index = 0
         for dtype in unique_groups:
@@ -144,24 +287,19 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
                 local_style_map[dtype] = color
                 fallback_index += 1
     else:
-        # For Verification codes (CU22, N, etc.), generate a map on the fly
         fallback_index = 0
         for code in unique_groups:
             color = FALLBACK_COLORS[fallback_index % len(FALLBACK_COLORS)]
             local_style_map[code] = color
             fallback_index += 1
 
-    # Generate traces using GroupBy (Optimization #4)
-    # 1. Pre-calculate Descriptions globally
     if 'Verification' in df.columns:
-        # Avoid SettingWithCopyWarning if df is a slice
         df = df.copy()
         df['Description'] = df['Verification'].map(VERIFICATION_DESCRIPTIONS).fillna("Unknown Code")
     else:
         df = df.copy()
         df['Description'] = "N/A"
 
-    # 2. Pre-calculate Raw Coords globally
     has_raw_coords = 'X_COORDINATES' in df.columns and 'Y_COORDINATES' in df.columns
     coord_str = ""
     if has_raw_coords:
@@ -171,13 +309,10 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
     else:
         custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description']
 
-    # 3. GroupBy Loop
-    grouped = df.groupby(group_col)
+    grouped = df.groupby(group_col, observed=True)
 
     for group_val, dff in grouped:
-        if group_val not in local_style_map:
-            continue
-
+        if group_val not in local_style_map: continue
         color = local_style_map[group_val]
 
         hovertemplate = ("<b>Status: %{customdata[4]}</b><br>"
@@ -188,10 +323,22 @@ def create_defect_traces(df: pd.DataFrame) -> List[go.Scatter]:
                             + coord_str +
                             "<extra></extra>")
 
-        traces.append(go.Scatter(
-            x=dff['plot_x'],
-            y=dff['plot_y'],
-            mode='markers',
+        # SHIFT LOGIC (Additive):
+        # 1. Structural Position: point + offset_x
+        # 2. Visual Offset: (point + offset_x) + visual_origin_x
+
+        if 'X_COORDINATES' in dff.columns:
+            # Absolute: already includes structure (if absolute frame coords) or needs shift.
+            # Assuming plot_x is absolute frame position.
+            x_vals = dff['plot_x'] + visual_origin_x
+            y_vals = dff['plot_y'] + visual_origin_y
+        else:
+            # Relative/Grid Jitter
+            x_vals = (dff['plot_x'] + offset_x) + visual_origin_x
+            y_vals = (dff['plot_y'] + offset_y) + visual_origin_y
+
+        traces.append(go.Scattergl(
+            x=x_vals, y=y_vals, mode='markers',
             marker=dict(color=color, size=8, line=dict(width=1, color='black')),
             name=str(group_val),
             customdata=dff[custom_data_cols],
@@ -204,7 +351,18 @@ def create_multi_layer_defect_map(
     df: pd.DataFrame,
     panel_rows: int,
     panel_cols: int,
-    flip_back: bool = True
+    flip_back: bool = True,
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT,
+    theme_config: Optional[PlotTheme] = None,
+    visual_origin_x: float = 0.0, # NEW
+    visual_origin_y: float = 0.0,  # NEW
+    fixed_offset_x: float = 0.0,
+    fixed_offset_y: float = 0.0
 ) -> go.Figure:
     """
     Creates a defect map visualizing defects from ALL layers simultaneously.
@@ -213,17 +371,9 @@ def create_multi_layer_defect_map(
     fig = go.Figure()
 
     if not df.empty:
-        # Ensure LAYER_NUM exists
-        if 'LAYER_NUM' not in df.columns:
-            df['LAYER_NUM'] = 0
-
+        if 'LAYER_NUM' not in df.columns: df['LAYER_NUM'] = 0
         unique_layer_nums = sorted(df['LAYER_NUM'].unique())
-
-        # Generate colors
-        layer_colors = {}
-        for i, num in enumerate(unique_layer_nums):
-            layer_colors[num] = FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
-
+        layer_colors = {num: FALLBACK_COLORS[i % len(FALLBACK_COLORS)] for i, num in enumerate(unique_layer_nums)}
         symbol_map = {'F': 'circle', 'B': 'diamond'}
 
         for layer_num in unique_layer_nums:
@@ -242,7 +392,6 @@ def create_multi_layer_defect_map(
                 else:
                      dff['Description'] = "N/A"
 
-                # Prepare Custom Data (Include Raw Coords - Convert um to mm)
                 coord_str = ""
                 if 'X_COORDINATES' in dff.columns and 'Y_COORDINATES' in dff.columns:
                     dff['RAW_COORD_STR'] = dff.apply(lambda row: f"({row['X_COORDINATES']/1000:.2f}, {row['Y_COORDINATES']/1000:.2f}) mm", axis=1)
@@ -251,7 +400,6 @@ def create_multi_layer_defect_map(
                 else:
                     custom_data_cols = ['UNIT_INDEX_X', 'UNIT_INDEX_Y', 'DEFECT_TYPE', 'DEFECT_ID', 'Verification', 'Description', 'SOURCE_FILE']
 
-                # Fix Hover Template
                 hovertemplate = (f"<b>Layer: {layer_num}</b><br>"
                                  "Side: " + side_name + "<br>"
                                  "Status: %{customdata[4]}<br>"
@@ -261,89 +409,112 @@ def create_multi_layer_defect_map(
                                  + coord_str +
                                  "<extra></extra>")
 
-                # Determine X Coordinates based on Flip Toggle
-                # We use the pre-calculated columns from models.py
                 if flip_back:
-                    x_coords = dff['physical_plot_x_flipped']
+                    x_col_name = 'physical_plot_x_flipped'
                 else:
-                    x_coords = dff['physical_plot_x_raw']
+                    x_col_name = 'physical_plot_x_raw'
+                x_coords = dff[x_col_name]
 
-                fig.add_trace(go.Scatter(
-                    x=x_coords,
-                    y=dff['plot_y'],
-                    mode='markers',
-                    marker=dict(
-                        color=layer_color,
-                        symbol=symbol,
-                        size=9,
-                        line=dict(width=1, color='black')
-                    ),
-                    name=trace_name,
-                    customdata=dff[custom_data_cols],
-                    hovertemplate=hovertemplate
+                # SHIFT LOGIC (Additive)
+                if 'X_COORDINATES' in dff.columns:
+                     final_x = x_coords + visual_origin_x
+                     final_y = dff['plot_y'] + visual_origin_y
+                else:
+                     final_x = (x_coords + offset_x) + visual_origin_x
+                     final_y = (dff['plot_y'] + offset_y) + visual_origin_y
+
+                fig.add_trace(go.Scattergl(
+                    x=final_x, y=final_y, mode='markers',
+                    marker=dict(color=layer_color, symbol=symbol, size=9, line=dict(width=1, color='black')),
+                    name=trace_name, customdata=dff[custom_data_cols], hovertemplate=hovertemplate
                 ))
 
-    # Add Grid
-    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All'))
+    # Add Grid (FIXED - No Visual Shift)
+    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y))
 
-    # Calculate ticks (reused from standard map logic)
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
-    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
+
+    # Calculate Axis Ticks (FIXED - No Visual Shift)
+    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    x_tick_vals_q2 = [(quad_width + gap_x) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
+    y_tick_vals_q3 = [(quad_height + gap_y) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text = list(range(panel_cols * 2))
     y_tick_text = list(range(panel_rows * 2))
 
-    apply_panel_theme(fig, "Multi-Layer Combined Defect Map (True Defects Only)")
+    apply_panel_theme(fig, "Multi-Layer Combined Defect Map (True Defects Only)", theme_config=theme_config)
+
+    # FIXED AXIS RANGES (0-510)
+    x_range = [0, 510]
+    y_range = [0, 515]
 
     fig.update_layout(
-        xaxis=dict(
-            title="Unit Column Index",
-            tickvals=x_tick_vals_q1 + x_tick_vals_q2,
-            ticktext=x_tick_text,
-            range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], constrain='domain'
-        ),
-        yaxis=dict(
-            title="Unit Row Index",
-            tickvals=y_tick_vals_q1 + y_tick_vals_q3,
-            ticktext=y_tick_text,
-            range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)]
-        ),
+        xaxis=dict(title="Unit Column Index", tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text, range=x_range, constrain='domain'),
+        yaxis=dict(title="Unit Row Index", tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text, range=y_range),
         legend=dict(title=dict(text="Build-Up Layer"))
     )
 
     return fig
     
-def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int, quadrant_selection: str = Quadrant.ALL.value, lot_number: Optional[str] = None, title: Optional[str] = None) -> go.Figure:
+def create_defect_map_figure(
+    df: pd.DataFrame,
+    panel_rows: int,
+    panel_cols: int,
+    quadrant_selection: str = Quadrant.ALL.value,
+    lot_number: Optional[str] = None,
+    title: Optional[str] = None,
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT,
+    theme_config: Optional[PlotTheme] = None,
+    visual_origin_x: float = 0.0, # NEW
+    visual_origin_y: float = 0.0,  # NEW
+    fixed_offset_x: float = 0.0,
+    fixed_offset_y: float = 0.0
+) -> go.Figure:
     """
     Creates the full Defect Map Figure (Traces + Grid + Layout).
     """
-    fig = go.Figure(data=create_defect_traces(df))
-    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection))
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
 
-    # Calculate ticks and ranges
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
-    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    # Traces with Visual Shift (Additive)
+    fig = go.Figure(data=create_defect_traces(df, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y))
+    # Grid FIXED
+    fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant_selection, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=0, visual_origin_y=0, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y))
+
+    # Ticks FIXED
+    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
+    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    x_tick_vals_q2 = [(quad_width + gap_x) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
+    y_tick_vals_q3 = [(quad_height + gap_y) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text, y_tick_text = list(range(panel_cols * 2)), list(range(panel_rows * 2))
-    x_axis_range, y_axis_range, show_ticks = [-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], [-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)], True
+
+    # Ranges FIXED
+    x_axis_range = [0, 510]
+    y_axis_range = [0, 515]
+    show_ticks = True
 
     if quadrant_selection != Quadrant.ALL.value:
         show_ticks = False
+        # Calculate unshifted quadrant boundaries
         ranges = {
-            'Q1': ([0, QUADRANT_WIDTH], [0, QUADRANT_HEIGHT]),
-            'Q2': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [0, QUADRANT_HEIGHT]),
-            'Q3': ([0, QUADRANT_WIDTH], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]),
-            'Q4': ([QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE], [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE])
+            'Q1': ([0+offset_x, quad_width+offset_x], [0+offset_y, quad_height+offset_y]),
+            'Q2': ([quad_width + gap_x+offset_x, panel_width + gap_x+offset_x], [0+offset_y, quad_height+offset_y]),
+            'Q3': ([0+offset_x, quad_width+offset_x], [quad_height + gap_y+offset_y, panel_height + gap_y+offset_y]),
+            'Q4': ([quad_width + gap_x+offset_x, panel_width + gap_x+offset_x], [quad_height + gap_y+offset_y, panel_height + gap_y+offset_y])
         }
         x_axis_range, y_axis_range = ranges[quadrant_selection]
 
     final_title = title if title else f"Panel Defect Map - Quadrant: {quadrant_selection}"
 
-    apply_panel_theme(fig, final_title)
+    apply_panel_theme(fig, final_title, theme_config=theme_config)
 
     fig.update_layout(
         xaxis=dict(title="Unit Column Index", tickvals=x_tick_vals_q1 + x_tick_vals_q2 if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, constrain='domain'),
@@ -351,7 +522,9 @@ def create_defect_map_figure(df: pd.DataFrame, panel_rows: int, panel_cols: int,
     )
 
     if lot_number and quadrant_selection == Quadrant.ALL.value:
-        fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
+        t_col = theme_config.text_color if theme_config else TEXT_COLOR
+        # Annotation fixed
+        fig.add_annotation(x=(panel_width + gap_x + offset_x), y=(panel_height + gap_y + offset_y), text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=t_col), align="right", xanchor="right", yanchor="bottom")
 
     return fig
 
@@ -372,19 +545,23 @@ def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
     has_verification_data = df['HAS_VERIFICATION_DATA'].any() if 'HAS_VERIFICATION_DATA' in df.columns else False
     group_col = 'Verification' if has_verification_data else 'DEFECT_TYPE'
 
-    grouped_data = df.groupby(['QUADRANT', group_col]).size().reset_index(name='Count')
+    grouped_data = df.groupby(['QUADRANT', group_col], observed=True).size().reset_index(name='Count')
     top_items = df[group_col].value_counts().index.tolist()
 
     traces = []
     quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+    # Explicit colors to prevent black bars in report exports
+    quadrant_colors = {'Q1': '#636EFA', 'Q2': '#EF553B', 'Q3': '#00CC96', 'Q4': '#AB63FA'}
+
     for quadrant in quadrants:
         quadrant_data = grouped_data[grouped_data['QUADRANT'] == quadrant]
         pivot = quadrant_data.pivot(index=group_col, columns='QUADRANT', values='Count').reindex(top_items).fillna(0)
         if not pivot.empty:
-            traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant]))
+            color = quadrant_colors.get(quadrant, '#4682B4')
+            traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant], marker_color=color))
     return traces
 
-def create_pareto_figure(df: pd.DataFrame, quadrant_selection: str = Quadrant.ALL.value) -> go.Figure:
+def create_pareto_figure(df: pd.DataFrame, quadrant_selection: str = Quadrant.ALL.value, theme_config: Optional[PlotTheme] = None) -> go.Figure:
     """
     Creates the Pareto Figure (Traces + Layout).
     """
@@ -395,7 +572,7 @@ def create_pareto_figure(df: pd.DataFrame, quadrant_selection: str = Quadrant.AL
     else:
         fig.add_trace(create_pareto_trace(df))
 
-    apply_panel_theme(fig, f"Defect Pareto - Quadrant: {quadrant_selection}", height=600)
+    apply_panel_theme(fig, f"Defect Pareto - Quadrant: {quadrant_selection}", height=600, theme_config=theme_config)
 
     fig.update_layout(
         xaxis=dict(title="Defect Type", categoryorder='total descending'),
@@ -404,9 +581,8 @@ def create_pareto_figure(df: pd.DataFrame, quadrant_selection: str = Quadrant.AL
     return fig
 
 def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:
-    # ... (omitted for brevity, same as before)
     if df.empty: return []
-    grouped = df.groupby(['DEFECT_TYPE', 'QUADRANT', 'Verification']).size().unstack(fill_value=0)
+    grouped = df.groupby(['DEFECT_TYPE', 'QUADRANT', 'Verification'], observed=True).size().unstack(fill_value=0)
     all_defect_types = df['DEFECT_TYPE'].unique()
     all_quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
     all_combinations = pd.MultiIndex.from_product([all_defect_types, all_quadrants], names=['DEFECT_TYPE', 'QUADRANT'])
@@ -424,21 +600,41 @@ def create_verification_status_chart(df: pd.DataFrame) -> List[go.Bar]:
 def create_still_alive_map(
     panel_rows: int,
     panel_cols: int,
-    true_defect_data: Dict[Tuple[int, int], Dict[str, Any]]
+    true_defect_data: Dict[Tuple[int, int], Dict[str, Any]],
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT,
+    theme_config: Optional[PlotTheme] = None,
+    visual_origin_x: float = 0.0, # NEW
+    visual_origin_y: float = 0.0,  # NEW
+    fixed_offset_x: float = 0.0, # NEW
+    fixed_offset_y: float = 0.0  # NEW
 ) -> Tuple[List[Dict[str, Any]], List[go.Scatter]]:
     """
     Creates the shapes for the 'Still Alive' map AND invisible scatter points for tooltips.
-    Reverted to shape-based implementation for visual fidelity as requested.
-
-    Returns:
-        (shapes, traces)
+    APPLIES VISUAL ORIGIN SHIFT.
     """
     shapes = []
     traces = []
 
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    # Grid Fixed
     total_cols, total_rows = panel_cols * 2, panel_rows * 2
-    all_origins = {'Q1': (0, 0), 'Q2': (QUADRANT_WIDTH + GAP_SIZE, 0), 'Q3': (0, QUADRANT_HEIGHT + GAP_SIZE), 'Q4': (QUADRANT_WIDTH + GAP_SIZE, QUADRANT_HEIGHT + GAP_SIZE)}
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
+    all_origins = {
+        'Q1': (0 + offset_x, 0 + offset_y),
+        'Q2': (quad_width + gap_x + offset_x, 0 + offset_y),
+        'Q3': (0 + offset_x, quad_height + gap_y + offset_y),
+        'Q4': (quad_width + gap_x + offset_x, quad_height + gap_y + offset_y)
+    }
+
+    # Calculate Unit Dimensions with gaps (n+1)
+    unit_width = (quad_width - (panel_cols + 1) * INTER_UNIT_GAP) / panel_cols
+    unit_height = (quad_height - (panel_rows + 1) * INTER_UNIT_GAP) / panel_rows
 
     # Prepare lists for scatter trace (Tooltips)
     hover_x = []
@@ -446,14 +642,57 @@ def create_still_alive_map(
     hover_text = []
     hover_colors = []
 
-    # 1. Draw the colored cells first (without borders)
+    # 0a. Draw Outer Copper Frame (Standard)
+    border_color = theme_config.axis_color if theme_config else GRID_COLOR
+    bg_color = theme_config.panel_background_color if theme_config else PANEL_BACKGROUND_COLOR
+    path_frame = _get_rounded_rect_path(0, 0, 510, 515, 20.0)
+    shapes.append(dict(
+        type="path",
+        path=path_frame,
+        fillcolor=bg_color,
+        line=dict(color=border_color, width=3),
+        layer='below'
+    ))
+
+    # 0b. Draw Inner Black Rect (Dynamic Gap)
+    if fixed_offset_x > 0 and fixed_offset_y > 0:
+        x0_inner = fixed_offset_x
+        y0_inner = fixed_offset_y
+        x1_inner = 510 - fixed_offset_x
+        y1_inner = 515 - fixed_offset_y
+
+        # Get color from theme or default to black
+        fill_col = theme_config.inner_gap_color if theme_config and hasattr(theme_config, 'inner_gap_color') else "black"
+
+        shapes.append(dict(
+            type="rect",
+            x0=x0_inner, y0=y0_inner,
+            x1=x1_inner, y1=y1_inner,
+            fillcolor=fill_col,
+            line=dict(width=0),
+            layer='below'
+        ))
+
+    # 0c. Draw Quadrant Backgrounds (Copper)
+    edge_color = theme_config.unit_edge_color if theme_config else UNIT_EDGE_COLOR
+
+    for q_key, (qx, qy) in all_origins.items():
+         shapes.append(dict(
+            type="rect", x0=qx, y0=qy, x1=qx + quad_width, y1=qy + quad_height,
+            line=dict(width=0), fillcolor=bg_color, layer='below'
+        ))
+
+    # 1. Draw the colored cells (Units)
     for row in range(total_rows):
         for col in range(total_cols):
             quadrant_col, local_col = divmod(col, panel_cols)
             quadrant_row, local_row = divmod(row, panel_rows)
             quad_key = f"Q{quadrant_row * 2 + quadrant_col + 1}"
             x_origin, y_origin = all_origins[quad_key]
-            x0, y0 = x_origin + local_col * cell_width, y_origin + local_row * cell_height
+
+            # Position with Gaps (Start at Gap)
+            x0 = x_origin + INTER_UNIT_GAP + local_col * (unit_width + INTER_UNIT_GAP)
+            y0 = y_origin + INTER_UNIT_GAP + local_row * (unit_height + INTER_UNIT_GAP)
 
             # Determine status
             is_dead = (col, row) in true_defect_data
@@ -466,8 +705,8 @@ def create_still_alive_map(
                 fill_color = DEFECTIVE_CELL_COLOR
 
                 # Add to hover data (Keep Autopsy Tooltip)
-                center_x = x0 + cell_width/2
-                center_y = y0 + cell_height/2
+                center_x = x0 + unit_width/2
+                center_y = y0 + unit_height/2
                 hover_x.append(center_x)
                 hover_y.append(center_y)
 
@@ -483,10 +722,9 @@ def create_still_alive_map(
             else:
                 fill_color = ALIVE_CELL_COLOR
 
-            shapes.append({'type': 'rect', 'x0': x0, 'y0': y0, 'x1': x0 + cell_width, 'y1': y0 + cell_height, 'fillcolor': fill_color, 'line': {'width': 0}, 'layer': 'below'})
+            shapes.append({'type': 'rect', 'x0': x0, 'y0': y0, 'x1': x0 + unit_width, 'y1': y0 + unit_height, 'fillcolor': fill_color, 'line': {'width': 1, 'color': edge_color}, 'layer': 'below'})
 
-    # 2. Draw grid lines over the colored cells
-    shapes.extend(create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False))
+    # 2. No need to draw grid lines again, the cells themselves form the grid now.
 
     # 3. Create Scatter Trace for Hover
     if hover_x:
@@ -496,7 +734,8 @@ def create_still_alive_map(
             mode='markers',
             marker=dict(size=0, color=hover_colors, opacity=0), # Invisible markers
             text=hover_text,
-            hoverinfo='text'
+            hoverinfo='text',
+            showlegend=False
         ))
 
     return shapes, traces
@@ -504,36 +743,70 @@ def create_still_alive_map(
 def create_still_alive_figure(
     panel_rows: int,
     panel_cols: int,
-    true_defect_data: Dict[Tuple[int, int], Dict[str, Any]]
+    true_defect_data: Dict[Tuple[int, int], Dict[str, Any]],
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT,
+    theme_config: Optional[PlotTheme] = None,
+    visual_origin_x: float = 0.0, # NEW
+    visual_origin_y: float = 0.0,  # NEW
+    fixed_offset_x: float = 0.0,
+    fixed_offset_y: float = 0.0
 ) -> go.Figure:
     """
     Creates the Still Alive Map Figure (Shapes + Layout + Tooltips).
     """
-    map_shapes, hover_traces = create_still_alive_map(panel_rows, panel_cols, true_defect_data)
+    # Shapes are FIXED (Grid is fixed)
 
-    fig = go.Figure(data=hover_traces) # Add hover traces
+    map_shapes, hover_traces = create_still_alive_map(panel_rows, panel_cols, true_defect_data, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=0, visual_origin_y=0, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y)
 
-    cell_width, cell_height = QUADRANT_WIDTH / panel_cols, QUADRANT_HEIGHT / panel_rows
-    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-    y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
+    # Add Dummy Traces for Legend (Since shapes don't show in legend)
+    hover_traces.append(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(size=10, color=ALIVE_CELL_COLOR, symbol='square'),
+        name='Alive (Yield)'
+    ))
+    hover_traces.append(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(size=10, color=DEFECTIVE_CELL_COLOR, symbol='square'),
+        name='Defective (Kill)'
+    ))
+
+    fig = go.Figure(data=hover_traces) # Add hover traces + Legend items
+
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    cell_width, cell_height = quad_width / panel_cols, quad_height / panel_rows
+    x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    x_tick_vals_q2 = [(quad_width + gap_x) + (i * cell_width) + (cell_width / 2) + offset_x for i in range(panel_cols)]
+    y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
+    y_tick_vals_q3 = [(quad_height + gap_y) + (i * cell_height) + (cell_height / 2) + offset_y for i in range(panel_rows)]
     x_tick_text = list(range(panel_cols * 2))
     y_tick_text = list(range(panel_rows * 2))
 
-    apply_panel_theme(fig, f"Still Alive Map ({len(true_defect_data)} Defective Cells)")
+    apply_panel_theme(fig, f"Still Alive Map ({len(true_defect_data)} Defective Cells)", theme_config=theme_config)
+
+    # Fixed Ranges
+    x_range = [0, 510]
+    y_range = [0, 515]
 
     fig.update_layout(
         xaxis=dict(
-            title="Unit Column Index", range=[-GAP_SIZE, PANEL_WIDTH + (GAP_SIZE * 2)], constrain='domain',
+            title="Unit Column Index", range=x_range, constrain='domain',
             tickvals=x_tick_vals_q1 + x_tick_vals_q2, ticktext=x_tick_text
         ),
         yaxis=dict(
-            title="Unit Row Index", range=[-GAP_SIZE, PANEL_HEIGHT + (GAP_SIZE * 2)],
+            title="Unit Row Index", range=y_range,
             tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text
         ),
         shapes=map_shapes, margin=dict(l=20, r=20, t=80, b=20),
-        showlegend=False
+        # showlegend=False Removed to allow legend visibility in reports (Issue 1)
     )
     return fig
 
@@ -550,7 +823,7 @@ def hex_to_rgba(hex_color: str, opacity: float = 0.5) -> str:
     except ValueError:
         return f'rgba(128, 128, 128, {opacity})' # Fallback grey
 
-def create_defect_sankey(df: pd.DataFrame) -> go.Sankey:
+def create_defect_sankey(df: pd.DataFrame, theme_config: Optional[PlotTheme] = None) -> go.Sankey:
     """
     Creates a Sankey diagram mapping Defect Types (Left) to Verification Status (Right).
     IMPROVEMENTS:
@@ -568,12 +841,12 @@ def create_defect_sankey(df: pd.DataFrame) -> go.Sankey:
         return None
 
     # Data Prep: Group by [DEFECT_TYPE, Verification]
-    sankey_df = df.groupby(['DEFECT_TYPE', 'Verification']).size().reset_index(name='Count')
+    sankey_df = df.groupby(['DEFECT_TYPE', 'Verification'], observed=True).size().reset_index(name='Count')
 
     # Calculate Totals for Labels and Sorting
     total_defects = sankey_df['Count'].sum()
-    defect_counts = sankey_df.groupby('DEFECT_TYPE')['Count'].sum().sort_values(ascending=False)
-    verification_counts = sankey_df.groupby('Verification')['Count'].sum().sort_values(ascending=False)
+    defect_counts = sankey_df.groupby('DEFECT_TYPE', observed=True)['Count'].sum().sort_values(ascending=False)
+    verification_counts = sankey_df.groupby('Verification', observed=True)['Count'].sum().sort_values(ascending=False)
 
     # Unique Sorted Labels
     defect_types = defect_counts.index.tolist()
@@ -671,7 +944,7 @@ def create_defect_sankey(df: pd.DataFrame) -> go.Sankey:
         textfont=dict(size=14, color=TEXT_COLOR, family="Roboto")
     )])
 
-    apply_panel_theme(fig, "Defect Type → Verification Flow Analysis", height=700)
+    apply_panel_theme(fig, "Defect Type → Verification Flow Analysis", height=700, theme_config=theme_config)
 
     fig.update_layout(
         font=dict(size=12, color=TEXT_COLOR),
@@ -681,7 +954,704 @@ def create_defect_sankey(df: pd.DataFrame) -> go.Sankey:
     )
     return fig
 
-def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int) -> go.Figure:
+def create_defect_sunburst(df: pd.DataFrame, theme_config: Optional[PlotTheme] = None) -> go.Figure:
+    """
+    Creates a Sunburst chart: Defect Type -> Verification (if avail).
+    Hierarchy: Total -> Defect Type -> Verification Status
+    """
+    if df.empty:
+        return go.Figure()
+
+    has_verification = df['HAS_VERIFICATION_DATA'].iloc[0] if 'HAS_VERIFICATION_DATA' in df.columns else False
+
+    # 1. Aggregate
+    if has_verification:
+        grouped = df.groupby(['DEFECT_TYPE', 'Verification'], observed=True).size().reset_index(name='Count')
+    else:
+        grouped = df.groupby(['DEFECT_TYPE'], observed=True).size().reset_index(name='Count')
+
+    # Build lists
+    ids = []
+    labels = []
+    parents = []
+    values = []
+    node_colors = [] # Explicit colors to prevent black output in exports
+
+    # Root
+    total_count = grouped['Count'].sum()
+    ids.append("Total")
+    labels.append(f"Total<br>{total_count}")
+    parents.append("")
+    values.append(total_count)
+    node_colors.append("#D3D3D3") # Light Grey for Total
+
+    # Root needs hover text too (or defaults)
+
+    # Prepare detailed hover info
+    # Format: Type/Status | Count | % of Parent | % of Total
+    custom_data = [] # Stores [Label, Count, Pct Parent, Pct Total]
+
+    # Root custom data
+    custom_data.append(["Total", total_count, "100%", "100%"])
+
+    # Level 1: Defect Type
+    unique_dtypes = grouped['DEFECT_TYPE'].unique()
+    for i, dtype in enumerate(unique_dtypes):
+        dtype_count = grouped[grouped['DEFECT_TYPE'] == dtype]['Count'].sum()
+        ids.append(f"{dtype}")
+        labels.append(dtype)
+        parents.append("Total")
+        values.append(dtype_count)
+
+        # Explicit Color for Defect Type
+        color = NEON_PALETTE[i % len(NEON_PALETTE)]
+        node_colors.append(color)
+
+        pct_total = (dtype_count / total_count) * 100
+        custom_data.append([dtype, dtype_count, f"{pct_total:.1f}%", f"{pct_total:.1f}%"])
+
+        # Level 2: Verification (if exists)
+        if has_verification:
+            dtype_df = grouped[grouped['DEFECT_TYPE'] == dtype]
+            for ver in dtype_df['Verification'].unique():
+                ver_count = dtype_df[dtype_df['Verification'] == ver]['Count'].sum()
+                ids.append(f"{dtype}-{ver}")
+                labels.append(ver)
+                parents.append(f"{dtype}")
+                values.append(ver_count)
+
+                # Explicit Color for Verification Status
+                safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+                if ver.upper() in safe_values_upper:
+                    node_colors.append(VERIFICATION_COLOR_SAFE)
+                else:
+                    node_colors.append(VERIFICATION_COLOR_DEFECT)
+
+                pct_parent = (ver_count / dtype_count) * 100
+                pct_total_ver = (ver_count / total_count) * 100
+                custom_data.append([ver, ver_count, f"{pct_parent:.1f}%", f"{pct_total_ver:.1f}%"])
+
+    fig = go.Figure(go.Sunburst(
+        ids=ids,
+        labels=labels,
+        parents=parents,
+        values=values,
+        branchvalues="total",
+        customdata=custom_data,
+        marker=dict(colors=node_colors), # Apply explicit colors
+        hovertemplate="<b>%{customdata[0]}</b><br>Count: %{customdata[1]}<br>% of Layer: %{customdata[2]}<br>% of Total: %{customdata[3]}<extra></extra>"
+    ))
+
+    # Apply standard theme with title and larger square-like layout
+    apply_panel_theme(fig, "Defect Distribution", height=700, theme_config=theme_config)
+
+    fig.update_layout(
+        margin=dict(t=40, l=10, r=10, b=10), # Adjusted margins for title
+        xaxis=dict(visible=False), # Hide axes to remove any white lines
+        yaxis=dict(visible=False),
+        showlegend=False # Explicitly hide legend as requested
+    )
+
+    return fig
+
+def create_stress_heatmap(
+    data: StressMapData,
+    panel_rows: int,
+    panel_cols: int,
+    view_mode: str = "Continuous",
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_size: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    theme_config: Optional[PlotTheme] = None,
+    visual_origin_x: float = 0.0, # NEW
+    visual_origin_y: float = 0.0, # NEW
+    fixed_offset_x: float = 0.0,  # NEW
+    fixed_offset_y: float = 0.0   # NEW
+) -> go.Figure:
+    """
+    Creates the Cumulative Stress Heatmap with defect counts in cells.
+    Supports 'Quarterly' view mode by injecting NaNs or splitting.
+    """
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    # Determine colors from theme
+    if theme_config:
+        bg_color = theme_config.background_color
+        plot_color = theme_config.plot_area_color
+        text_color = theme_config.text_color
+    else:
+        bg_color = BACKGROUND_COLOR
+        plot_color = PLOT_AREA_COLOR
+        text_color = TEXT_COLOR
+
+    if data.total_defects == 0:
+        return go.Figure(layout=dict(
+            title=dict(text="No True Defects Found in Selection", font=dict(color=text_color)),
+            paper_bgcolor=bg_color, plot_bgcolor=plot_color
+        ))
+
+    z_data = data.grid_counts.astype(float)
+    text_data = data.grid_counts.astype(str)
+    hover_text = data.hover_text
+
+    # Process for View Mode
+    if view_mode == "Quarterly":
+        rows, cols = z_data.shape
+        cell_width = quad_width / panel_cols
+        cell_height = quad_height / panel_rows
+
+        col_indices = np.arange(cols)
+        row_indices = np.arange(rows)
+
+        # Apply Gaps
+        x_gaps = np.where(col_indices >= panel_cols, gap_x, 0)
+        y_gaps = np.where(row_indices >= panel_rows, gap_y, 0)
+
+        # 1D Coordinates
+        u_w = (quad_width - (panel_cols + 1) * INTER_UNIT_GAP) / panel_cols
+        u_h = (quad_height - (panel_rows + 1) * INTER_UNIT_GAP) / panel_rows
+
+        stride_x = u_w + INTER_UNIT_GAP
+        stride_y = u_h + INTER_UNIT_GAP
+
+        # Local Indices (0..n within quadrant)
+        l_cols = col_indices % panel_cols
+        l_rows = row_indices % panel_rows
+
+        # Calculate Base within Quadrant
+        x_base = INTER_UNIT_GAP + l_cols * stride_x + (u_w / 2)
+        y_base = INTER_UNIT_GAP + l_rows * stride_y + (u_h / 2)
+
+        quad_offset_x = np.where(col_indices >= panel_cols, quad_width + gap_x, 0)
+        quad_offset_y = np.where(row_indices >= panel_rows, quad_height + gap_y, 0)
+
+        # SHIFT LOGIC: Heatmap (Grid) is FIXED.
+        # If the heatmap is built from "Data Points", those points would shift.
+        # But this function receives `StressMapData` which is pre-aggregated into GRID COUNTS.
+        # So the Heatmap represents the GRID.
+        # The Grid is Fixed. So no shift here.
+
+        eff_offset_x = offset_x
+        eff_offset_y = offset_y
+
+        x_vals = eff_offset_x + quad_offset_x + x_base
+        y_vals = eff_offset_y + quad_offset_y + y_base
+
+        # Broadcast to 2D Grid
+        x_coords, y_coords = np.meshgrid(x_vals, y_vals)
+
+        # Now pass x and y to Heatmap. Plotly handles the spacing.
+        # Mask zeros
+        z_data[z_data == 0] = np.nan
+        text_data[data.grid_counts == 0] = ""
+
+        fig = go.Figure(data=go.Heatmap(
+            x=x_coords[0, :], # The X coordinates of the columns
+            y=y_coords[:, 0], # The Y coordinates of the rows
+            z=z_data,
+            text=text_data,
+            texttemplate="%{text}",
+            textfont={"color": "white"},
+            colorscale='Magma',
+            xgap=2, ygap=2,
+            hovertext=hover_text,
+            hoverinfo="text",
+            colorbar=dict(title='Defects', title_font=dict(color=text_color), tickfont=dict(color=text_color))
+        ))
+
+        # Add Grid Shapes for Quarterly view (FIXED)
+        fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=0, visual_origin_y=0, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y))
+
+        # Ranges (FIXED)
+        fig.update_layout(
+            xaxis=dict(title="Physical X", range=[0, 510], constrain='domain', showticklabels=False),
+            yaxis=dict(title="Physical Y", range=[0, 515], showticklabels=False)
+        )
+
+    else:
+        # Continuous Mode (Indices) - No physical shift needed as it is unit index based
+        z_data[z_data == 0] = np.nan
+        text_data[data.grid_counts == 0] = ""
+
+        fig = go.Figure(data=go.Heatmap(
+            z=z_data,
+            text=text_data,
+            texttemplate="%{text}",
+            textfont={"color": "white"}, # Or smart contrast if needed
+            colorscale='Magma',
+            xgap=2, ygap=2,
+            hovertext=data.hover_text,
+            hoverinfo="text",
+            colorbar=dict(title='Defects', title_font=dict(color=text_color), tickfont=dict(color=text_color))
+        ))
+
+        total_cols = panel_cols * 2
+        total_rows = panel_rows * 2
+
+        fig.update_layout(
+            xaxis=dict(
+                title="Unit Index X",
+                tickmode='linear', dtick=1,
+                range=[-0.5, total_cols - 0.5],
+                constrain='domain'
+            ),
+            yaxis=dict(
+                title="Unit Index Y",
+                tickmode='linear', dtick=1,
+                range=[-0.5, total_rows - 0.5]
+            )
+        )
+
+    apply_panel_theme(fig, "Cumulative Stress Map (Total Defects per Unit)", height=700, theme_config=theme_config)
+    return fig
+
+def create_delta_heatmap(
+    data_a: StressMapData,
+    data_b: StressMapData,
+    panel_rows: int,
+    panel_cols: int,
+    view_mode: str = "Continuous",
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_size: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    theme_config: Optional[PlotTheme] = None,
+    visual_origin_x: float = 0.0, # NEW
+    visual_origin_y: float = 0.0,  # NEW
+    fixed_offset_x: float = 0.0,
+    fixed_offset_y: float = 0.0
+) -> go.Figure:
+    """
+    Creates a Delta Heatmap (Group A - Group B).
+    """
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+
+    # Determine colors from theme
+    if theme_config:
+        text_color = theme_config.text_color
+    else:
+        text_color = TEXT_COLOR
+
+    diff_grid = data_a.grid_counts.astype(float) - data_b.grid_counts.astype(float)
+    # Text: Show signed difference
+    text_data = np.array([f"{int(x):+d}" if x != 0 else "" for x in diff_grid.flatten()]).reshape(diff_grid.shape)
+    diff_grid[diff_grid == 0] = np.nan
+
+    if view_mode == "Quarterly":
+        rows, cols = diff_grid.shape
+        cell_width = quad_width / panel_cols
+        cell_height = quad_height / panel_rows
+
+        col_indices = np.arange(cols)
+        row_indices = np.arange(rows)
+
+        # Robust Centers Calculation
+        u_w = (quad_width - (panel_cols + 1) * INTER_UNIT_GAP) / panel_cols
+        u_h = (quad_height - (panel_rows + 1) * INTER_UNIT_GAP) / panel_rows
+
+        stride_x = u_w + INTER_UNIT_GAP
+        stride_y = u_h + INTER_UNIT_GAP
+
+        l_cols = col_indices % panel_cols
+        l_rows = row_indices % panel_rows
+
+        x_base = INTER_UNIT_GAP + l_cols * stride_x + (u_w / 2)
+        y_base = INTER_UNIT_GAP + l_rows * stride_y + (u_h / 2)
+
+        quad_offset_x = np.where(col_indices >= panel_cols, quad_width + gap_x, 0)
+        quad_offset_y = np.where(row_indices >= panel_rows, quad_height + gap_y, 0)
+
+        # SHIFT LOGIC (Visual Origin): Heatmap represents GRID. Grid is fixed.
+        eff_offset_x = offset_x
+        eff_offset_y = offset_y
+
+        x_vals = eff_offset_x + quad_offset_x + x_base
+        y_vals = eff_offset_y + quad_offset_y + y_base
+
+        fig = go.Figure(data=go.Heatmap(
+            x=x_vals,
+            y=y_vals,
+            z=diff_grid,
+            text=text_data,
+            texttemplate="%{text}",
+            colorscale='RdBu_r',
+            zmid=0,
+            xgap=2, ygap=2,
+            colorbar=dict(title='Delta (A - B)', title_font=dict(color=text_color), tickfont=dict(color=text_color))
+        ))
+
+        fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=0, visual_origin_y=0, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y))
+
+        fig.update_layout(
+            xaxis=dict(title="Physical X", range=[0, 510], constrain='domain', showticklabels=False),
+            yaxis=dict(title="Physical Y", range=[0, 515], showticklabels=False)
+        )
+
+    else:
+        fig = go.Figure(data=go.Heatmap(
+            z=diff_grid,
+            text=text_data,
+            texttemplate="%{text}",
+            colorscale='RdBu_r', # Red for positive (more in A), Blue for negative (more in B)
+            zmid=0,
+            xgap=2, ygap=2,
+            colorbar=dict(title='Delta (A - B)', title_font=dict(color=text_color), tickfont=dict(color=text_color))
+        ))
+
+        total_cols = panel_cols * 2
+        total_rows = panel_rows * 2
+        fig.update_layout(
+            xaxis=dict(
+                title="Unit Index X",
+                tickmode='linear', dtick=1,
+                range=[-0.5, total_cols - 0.5],
+                constrain='domain'
+            ),
+            yaxis=dict(
+                title="Unit Index Y",
+                tickmode='linear', dtick=1,
+                range=[-0.5, total_rows - 0.5]
+            )
+        )
+
+    apply_panel_theme(fig, "Delta Stress Map (Group A - Group B)", height=700, theme_config=theme_config)
+    return fig
+
+def create_density_contour_map(
+    df: pd.DataFrame,
+    panel_rows: int,
+    panel_cols: int,
+    show_points: bool = False,
+    smoothing_factor: int = 30,
+    saturation_cap: int = 0,
+    show_grid: bool = True,
+    view_mode: str = "Continuous",
+    flip_back: bool = False,
+    quadrant_selection: str = 'All',
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT,
+    theme_config: Optional[PlotTheme] = None,
+    visual_origin_x: float = 0.0, # NEW
+    visual_origin_y: float = 0.0,  # NEW
+    fixed_offset_x: float = 0.0,
+    fixed_offset_y: float = 0.0
+) -> go.Figure:
+    """
+    2. Smoothed Density Contour Map (OPTIMIZED).
+    """
+    if df.empty:
+        return go.Figure()
+
+    # Filter for True Defects
+    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+    if 'Verification' in df.columns:
+        df_true = df[~df['Verification'].str.upper().isin(safe_values_upper)].copy()
+    else:
+        df_true = df.copy()
+
+    if df_true.empty:
+        return go.Figure(layout=dict(title="No True Defects Found"))
+
+    # Determine X Coordinates based on Toggle
+    if 'physical_plot_x_flipped' in df_true.columns:
+        x_col_name = 'physical_plot_x_flipped' if flip_back else 'physical_plot_x_raw'
+    else:
+        x_col_name = 'plot_x'
+
+    # Apply Dynamic Gap Correction
+    # Since models.py already applies gap_x to 'plot_x' etc, we might not need this.
+
+    df_true['plot_x_corrected'] = df_true[x_col_name]
+    df_true['plot_y_corrected'] = df_true['plot_y']
+
+    x_col = 'plot_x_corrected'
+
+    fig = go.Figure()
+
+    # --- SERVER-SIDE AGGREGATION CONFIG ---
+    scale_factor = 10.0 / max(1, smoothing_factor)
+
+    # Dynamic Binning
+    bins_x = max(10, int((panel_cols * 2) * 2 * scale_factor))
+    bins_y = max(10, int((panel_rows * 2) * 2 * scale_factor))
+
+    num_bins = [bins_y, bins_x]
+
+    # Boundary Definitions with Offsets
+    x_min, x_max = offset_x, panel_width + gap_x + offset_x
+    y_min, y_max = offset_y, panel_height + gap_y + offset_y
+
+    # --- QUADRANT-AWARE AGGREGATION ---
+    def aggregate_quadrant(q_df, x_range, y_range):
+        if q_df.empty:
+            return None, None, None, None, None
+
+        # Apply offsets to data before binning
+        # SHIFT LOGIC (Additive): Shift data points for aggregation
+
+        if 'X_COORDINATES' in q_df.columns:
+            x_c = q_df[x_col].values + visual_origin_x
+            y_c = q_df['plot_y_corrected'].values + visual_origin_y
+        else:
+            x_c = (q_df[x_col].values + offset_x) + visual_origin_x
+            y_c = (q_df['plot_y_corrected'].values + offset_y) + visual_origin_y
+
+        # 1. Density (Z)
+        H, x_edges, y_edges = np.histogram2d(x_c, y_c, bins=num_bins, range=[x_range, y_range])
+
+        # 2. Dominant Defect Driver (Mode)
+        if 'DEFECT_TYPE' in q_df.columns:
+            unique_types = q_df['DEFECT_TYPE'].unique()
+            if len(unique_types) > 10:
+                top_types = q_df['DEFECT_TYPE'].value_counts().nlargest(10).index.tolist()
+                unique_types = top_types
+
+            type_grids = []
+            type_labels = []
+
+            for dtype in unique_types:
+                sub_df = q_df[q_df['DEFECT_TYPE'] == dtype]
+                if not sub_df.empty:
+                    # Apply offsets here too
+                    if 'X_COORDINATES' in sub_df.columns:
+                        sub_x = sub_df[x_col] + visual_origin_x
+                        sub_y = sub_df['plot_y_corrected'] + visual_origin_y
+                    else:
+                        sub_x = (sub_df[x_col] + offset_x) + visual_origin_x
+                        sub_y = (sub_df['plot_y_corrected'] + offset_y) + visual_origin_y
+                    h_sub, _, _ = np.histogram2d(sub_x, sub_y, bins=num_bins, range=[x_range, y_range])
+                    type_grids.append(h_sub)
+                    type_labels.append(dtype)
+
+            if type_grids:
+                stack = np.stack(type_grids, axis=0) # Shape: (K, bins_x, bins_y)
+                # Find index of max along axis 0
+                max_indices = np.argmax(stack, axis=0) # Shape: (bins_x, bins_y)
+
+                # Map indices to labels
+                driver_map = np.empty(max_indices.shape, dtype=object)
+                for idx, label in enumerate(type_labels):
+                    driver_map[max_indices == idx] = label
+
+                driver_map[H == 0] = ""
+                driver_text = driver_map.T # Transpose for Plotly
+            else:
+                driver_text = None
+        else:
+            driver_text = None
+
+        # Create meshgrid for plotting
+        x_centers = (x_edges[:-1] + x_edges[1:]) / 2
+        y_centers = (y_edges[:-1] + y_edges[1:]) / 2
+
+        return H.T, x_centers, y_centers, driver_text
+
+    H, x_centers, y_centers, driver_text_t = aggregate_quadrant(
+        df_true,
+        [x_min, x_max],
+        [y_min, y_max]
+    )
+
+    if H is None: # Should not happen given check above
+        return go.Figure(layout=dict(title="Error in Aggregation"))
+
+    Z = H # Already transposed in helper
+
+    # REMOVED: Explicit masking of gaps.
+    # This caused visual artifacts ("cut pictures") where the density would drop to zero
+    # inside the gap, creating a white cross that looked like incomplete data.
+    # We now let the natural interpolation/smoothing handle the gap regions.
+
+    # No visual shift needed for grid centers, they are already in frame coords
+    # x_centers and y_centers are derived from histogram edges which were derived from shifted data?
+    # No, edges are derived from `range=[x_min, x_max]` which is fixed frame.
+    # But `x_c` (data) was shifted.
+    # So `H` (histogram) represents density *at the shifted location*.
+    # So we plot `H` against fixed `x_centers`. That works.
+
+    # Custom Hover Template
+    if driver_text_t is not None:
+        hovertemplate = 'X: %{x:.1f}mm<br>Y: %{y:.1f}mm<br>Density: %{z:.0f}<br>Top Cause: %{text}<extra></extra>'
+        text_arg = driver_text_t
+    else:
+        hovertemplate = 'X: %{x:.1f}mm<br>Y: %{y:.1f}mm<br>Density: %{z:.0f}<extra></extra>'
+        text_arg = None
+
+    fig.add_trace(go.Contour(
+        z=Z,
+        x=x_centers, # Fixed
+        y=y_centers, # Fixed
+        text=text_arg,
+        colorscale='Turbo',
+        contours=dict(
+            coloring='heatmap',
+            showlabels=True, # Show density values
+            labelfont=dict(color='white')
+        ),
+        zmin=0,
+        zmax=saturation_cap if saturation_cap > 0 else None,
+        hoverinfo='x+y+z+text' if text_arg is not None else 'x+y+z',
+        hovertemplate=hovertemplate
+    ))
+
+    # 2. Points Overlay (Scattergl)
+    if show_points:
+        if 'X_COORDINATES' in df_true.columns:
+            px = df_true[x_col] + visual_origin_x
+            py = df_true['plot_y_corrected'] + visual_origin_y
+        else:
+            px = (df_true[x_col] + offset_x) + visual_origin_x
+            py = (df_true['plot_y_corrected'] + offset_y) + visual_origin_y
+
+        fig.add_trace(go.Scattergl(
+            x=px,
+            y=py,
+            mode='markers',
+            marker=dict(color='white', size=3, opacity=0.5),
+            hoverinfo='skip',
+            name='Defects'
+        ))
+
+    # 3. Grid Overlay
+    shapes = []
+    if show_grid:
+        shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=0, visual_origin_y=0, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y)
+
+    # 4. Axis Labels
+    total_cols = panel_cols * 2
+    total_rows = panel_rows * 2
+    quad_width = panel_width / 2
+    quad_height = panel_height / 2
+    cell_width = quad_width / panel_cols
+    cell_height = quad_height / panel_rows
+
+    eff_offset_x = offset_x
+    eff_offset_y = offset_y
+
+    x_tick_vals = []
+    x_tick_text = []
+    for i in range(total_cols):
+        offset = gap_x if i >= panel_cols else 0
+        center_mm = (i * cell_width) + (cell_width / 2) + offset + eff_offset_x
+        x_tick_vals.append(center_mm)
+        x_tick_text.append(str(i))
+
+    y_tick_vals = []
+    y_tick_text = []
+    for i in range(total_rows):
+        offset = gap_y if i >= panel_rows else 0
+        center_mm = (i * cell_height) + (cell_height / 2) + offset + eff_offset_y
+        y_tick_vals.append(center_mm)
+        y_tick_text.append(str(i))
+
+    # Axis Ranges Full Frame FIXED
+    x_axis_range = [0, 510]
+    y_axis_range = [0, 515]
+
+    if quadrant_selection != 'All':
+        # Apply offsets to quadrant ranges
+        ranges = {
+            'Q1': ([offset_x, offset_x + quad_width], [offset_y, offset_y + quad_height]),
+            'Q2': ([offset_x + quad_width + gap_x, offset_x + panel_width + gap_x], [offset_y, offset_y + quad_height]),
+            'Q3': ([offset_x, offset_x + quad_width], [offset_y + quad_height + gap_y, offset_y + panel_height + gap_y]),
+            'Q4': ([offset_x + quad_width + gap_x, offset_x + panel_width + gap_x], [offset_y + quad_height + gap_y, offset_y + panel_height + gap_y])
+        }
+        x_axis_range, y_axis_range = ranges[quadrant_selection]
+
+    apply_panel_theme(fig, "Smooth Density Hotspot (Server-Side Aggregated)", height=700, theme_config=theme_config)
+
+    fig.update_layout(
+        xaxis=dict(
+            title="Unit Column Index (Approx)",
+            tickvals=x_tick_vals,
+            ticktext=x_tick_text,
+            range=x_axis_range, constrain='domain'
+        ),
+        yaxis=dict(
+            title="Unit Row Index (Approx)",
+            tickvals=y_tick_vals,
+            ticktext=y_tick_text,
+            range=y_axis_range
+        ),
+        shapes=shapes
+    )
+    return fig
+
+def create_cross_section_heatmap(
+    matrix: np.ndarray,
+    layer_labels: List[str],
+    axis_labels: List[str],
+    slice_desc: str,
+    theme_config: Optional[PlotTheme] = None
+) -> go.Figure:
+    """
+    Constructs the 2D cross-section matrix for Root Cause Analysis based on a single slice.
+
+    slice_axis: 'Y' (By Row) or 'X' (By Column)
+    slice_index: The index of the row or column to slice.
+    """
+    # Inverse Y-axis so Layer 1 is at top (if not already handled by input order)
+    # Actually, Heatmap Y-axis 0 is usually bottom. We need to flip visual range or data order.
+    # We'll just set 'autorange="reversed"' in layout for Y axis so top of list is top of chart.
+
+    # Determine colors from theme
+    if theme_config:
+        bg_color = theme_config.background_color
+        plot_color = theme_config.plot_area_color
+        text_color = theme_config.text_color
+    else:
+        bg_color = BACKGROUND_COLOR
+        plot_color = PLOT_AREA_COLOR
+        text_color = TEXT_COLOR
+
+    if matrix.size == 0:
+         return go.Figure(layout=dict(
+             title=dict(text="No Data for Cross-Section", font=dict(color=text_color)),
+             paper_bgcolor=bg_color, plot_bgcolor=plot_color
+         ))
+
+    # Mask zeros
+    z_data = matrix.astype(float)
+    z_data[z_data == 0] = np.nan
+
+    text_data = matrix.astype(str)
+    text_data[matrix == 0] = ""
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z_data,
+        x=axis_labels,
+        y=layer_labels,
+        text=text_data,
+        texttemplate="%{text}",
+        textfont={"color": "white"},
+        colorscale='Magma',
+        xgap=2, ygap=2,
+        colorbar=dict(title='Defects', title_font=dict(color=text_color), tickfont=dict(color=text_color))
+    ))
+
+    apply_panel_theme(fig, f"Virtual Cross-Section: {slice_desc}", height=600, theme_config=theme_config)
+
+    fig.update_layout(
+        xaxis=dict(title="Unit Index (Slice Position)", dtick=1), # Force integer ticks (0, 1, 2...)
+        yaxis=dict(title="Layer Stack", autorange="reversed") # Ensure Layer 1 is at top
+    )
+
+    return fig
+
+def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int, theme_config: Optional[PlotTheme] = None) -> go.Figure:
     """
     1. Grid Density Heatmap (Chessboard).
     Filters for TRUE DEFECTS only.
@@ -696,10 +1666,20 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
     else:
         df_true = df.copy()
 
+    # Determine colors from theme
+    if theme_config:
+        bg_color = theme_config.background_color
+        plot_color = theme_config.plot_area_color
+        text_color = theme_config.text_color
+    else:
+        bg_color = BACKGROUND_COLOR
+        plot_color = PLOT_AREA_COLOR
+        text_color = TEXT_COLOR
+
     if df_true.empty:
         return go.Figure(layout=dict(
-            title=dict(text="No True Defects Found for Heatmap", font=dict(color=TEXT_COLOR)),
-            paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=PLOT_AREA_COLOR
+            title=dict(text="No True Defects Found for Heatmap", font=dict(color=text_color)),
+            paper_bgcolor=bg_color, plot_bgcolor=plot_color
         ))
 
     # Map to Global Indices
@@ -725,7 +1705,7 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
         z=heatmap_data['Count'],
         colorscale='Magma', # Darker theme
         xgap=2, ygap=2,     # Clear separation
-        colorbar=dict(title='Defects', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
+        colorbar=dict(title='Defects', title_font=dict(color=text_color), tickfont=dict(color=text_color)),
         hovertemplate='Global Unit: (%{x}, %{y})<br>Defects: %{z}<extra></extra>'
     ))
 
@@ -733,7 +1713,7 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
     total_global_cols = panel_cols * 2
     total_global_rows = panel_rows * 2
 
-    apply_panel_theme(fig, "1. Unit Grid Density (Yield Loss Map)", height=700)
+    apply_panel_theme(fig, "1. Unit Grid Density (Yield Loss Map)", height=700, theme_config=theme_config)
 
     fig.update_layout(
         xaxis=dict(
@@ -747,491 +1727,6 @@ def create_unit_grid_heatmap(df: pd.DataFrame, panel_rows: int, panel_cols: int)
             tickmode='linear', dtick=1,
             range=[-0.5, total_global_rows - 0.5]
         )
-    )
-
-    return fig
-
-def create_density_contour_map(
-    df: pd.DataFrame,
-    panel_rows: int,
-    panel_cols: int,
-    show_points: bool = False,
-    smoothing_factor: int = 30,
-    saturation_cap: int = 0,
-    show_grid: bool = True,
-    view_mode: str = "Continuous",
-    flip_back: bool = True
-) -> go.Figure:
-    """
-    2. Smoothed Density Contour Map.
-    Supports toggling Back Side alignment (Flip vs Raw).
-    """
-    if df.empty:
-        return go.Figure()
-
-    # Filter for True Defects
-    safe_values_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
-    if 'Verification' in df.columns:
-        df_true = df[~df['Verification'].str.upper().isin(safe_values_upper)].copy()
-    else:
-        df_true = df.copy()
-
-    if df_true.empty:
-        return go.Figure(layout=dict(title="No True Defects Found"))
-
-    # Determine X Coordinates based on Toggle
-    # Use physical columns if available (from Multi-Layer context)
-    # If not available (single layer view), use plot_x (which is raw)
-    if 'physical_plot_x_flipped' in df_true.columns:
-        x_col = 'physical_plot_x_flipped' if flip_back else 'physical_plot_x_raw'
-        x_data = df_true[x_col]
-    else:
-        # Fallback to standard plot_x (Raw)
-        x_data = df_true['plot_x']
-
-    fig = go.Figure()
-
-    # 1. Contour Layer
-    zmax = saturation_cap if saturation_cap > 0 else None
-
-    # Logic for View Mode
-    if view_mode == "Quarterly":
-        if 'QUADRANT' in df_true.columns:
-            quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
-            for q in quadrants:
-                q_mask = df_true['QUADRANT'] == q
-                if q_mask.any():
-                     q_x = x_data[q_mask]
-                     q_y = df_true.loc[q_mask, 'plot_y']
-
-                     fig.add_trace(go.Histogram2dContour(
-                        x=q_x,
-                        y=q_y,
-                        colorscale='Turbo',
-                        reversescale=False,
-                        ncontours=30,
-                        nbinsx=max(5, smoothing_factor // 2),
-                        nbinsy=max(5, smoothing_factor // 2),
-                        zmax=zmax,
-                        contours=dict(coloring='heatmap', showlabels=False),
-                        hoverinfo='x+y+z',
-                        showscale=False
-                     ))
-
-            fig.update_traces(showscale=False)
-            if fig.data:
-                fig.data[-1].showscale = True
-
-        else:
-             fig.add_trace(go.Histogram2dContour(
-                x=x_data,
-                y=df_true['plot_y'],
-                colorscale='Turbo',
-                reversescale=False,
-                ncontours=30,
-                nbinsx=smoothing_factor,
-                nbinsy=smoothing_factor,
-                zmax=zmax,
-                contours=dict(coloring='heatmap', showlabels=True, labelfont=dict(color='white')),
-                hoverinfo='x+y+z'
-            ))
-
-    else:
-        # Continuous Mode
-        fig.add_trace(go.Histogram2dContour(
-            x=x_data,
-            y=df_true['plot_y'],
-            colorscale='Turbo',
-            reversescale=False,
-            ncontours=30,
-            nbinsx=smoothing_factor,
-            nbinsy=smoothing_factor,
-            zmax=zmax,
-            contours=dict(coloring='heatmap', showlabels=True, labelfont=dict(color='white')),
-            hoverinfo='x+y+z'
-        ))
-
-    # 2. Points Overlay
-    if show_points:
-        fig.add_trace(go.Scatter(
-            x=x_data,
-            y=df_true['plot_y'],
-            mode='markers',
-            marker=dict(color='white', size=3, opacity=0.5),
-            hoverinfo='skip',
-            name='Defects'
-        ))
-
-    # 3. Grid Overlay
-    shapes = []
-    if show_grid:
-        shapes = create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False)
-
-    # 4. Axis Labels (Mapped to Unit Index)
-    # Convert mm ticks to Unit Index
-    cell_width = QUADRANT_WIDTH / panel_cols
-    cell_height = QUADRANT_HEIGHT / panel_rows
-
-    total_cols = panel_cols * 2
-    total_rows = panel_rows * 2
-
-    # Generate ticks at the center of each unit
-    x_tick_vals = []
-    x_tick_text = []
-    for i in range(total_cols):
-        # Calculate center of unit i
-        # Handle Gap: If i >= panel_cols, add GAP_SIZE
-        offset = GAP_SIZE if i >= panel_cols else 0
-        center_mm = (i * cell_width) + (cell_width / 2) + offset
-        x_tick_vals.append(center_mm)
-        x_tick_text.append(str(i))
-
-    y_tick_vals = []
-    y_tick_text = []
-    for i in range(total_rows):
-        offset = GAP_SIZE if i >= panel_rows else 0
-        center_mm = (i * cell_height) + (cell_height / 2) + offset
-        y_tick_vals.append(center_mm)
-        y_tick_text.append(str(i))
-
-    apply_panel_theme(fig, "2. Smoothed Defect Density (Hotspots)", height=700)
-
-    fig.update_layout(
-        xaxis=dict(
-            title="Unit Column Index (Approx)",
-            tickvals=x_tick_vals,
-            ticktext=x_tick_text,
-            range=[-GAP_SIZE, PANEL_WIDTH + GAP_SIZE*2], constrain='domain'
-        ),
-        yaxis=dict(
-            title="Unit Row Index (Approx)",
-            tickvals=y_tick_vals,
-            ticktext=y_tick_text,
-            range=[-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE*2]
-        ),
-        shapes=shapes
-    )
-    return fig
-
-
-def create_defect_sunburst(df: pd.DataFrame) -> go.Figure:
-    """
-    Creates a Sunburst chart: Defect Type -> Verification (if avail).
-    Hierarchy: Total -> Defect Type -> Verification Status
-    """
-    if df.empty:
-        return go.Figure()
-
-    has_verification = df['HAS_VERIFICATION_DATA'].iloc[0] if 'HAS_VERIFICATION_DATA' in df.columns else False
-
-    # 1. Aggregate
-    if has_verification:
-        grouped = df.groupby(['DEFECT_TYPE', 'Verification']).size().reset_index(name='Count')
-    else:
-        grouped = df.groupby(['DEFECT_TYPE']).size().reset_index(name='Count')
-
-    # Build lists
-    ids = []
-    labels = []
-    parents = []
-    values = []
-
-    # Root
-    total_count = grouped['Count'].sum()
-    ids.append("Total")
-    labels.append(f"Total<br>{total_count}")
-    parents.append("")
-    values.append(total_count)
-    # Root needs hover text too (or defaults)
-
-    # Prepare detailed hover info
-    # Format: Type/Status | Count | % of Parent | % of Total
-    custom_data = [] # Stores [Label, Count, Pct Parent, Pct Total]
-
-    # Root custom data
-    custom_data.append(["Total", total_count, "100%", "100%"])
-
-    # Level 1: Defect Type
-    for dtype in grouped['DEFECT_TYPE'].unique():
-        dtype_count = grouped[grouped['DEFECT_TYPE'] == dtype]['Count'].sum()
-        ids.append(f"{dtype}")
-        labels.append(dtype)
-        parents.append("Total")
-        values.append(dtype_count)
-
-        pct_total = (dtype_count / total_count) * 100
-        custom_data.append([dtype, dtype_count, f"{pct_total:.1f}%", f"{pct_total:.1f}%"])
-
-        # Level 2: Verification (if exists)
-        if has_verification:
-            dtype_df = grouped[grouped['DEFECT_TYPE'] == dtype]
-            for ver in dtype_df['Verification'].unique():
-                ver_count = dtype_df[dtype_df['Verification'] == ver]['Count'].sum()
-                ids.append(f"{dtype}-{ver}")
-                labels.append(ver)
-                parents.append(f"{dtype}")
-                values.append(ver_count)
-
-                pct_parent = (ver_count / dtype_count) * 100
-                pct_total_ver = (ver_count / total_count) * 100
-                custom_data.append([ver, ver_count, f"{pct_parent:.1f}%", f"{pct_total_ver:.1f}%"])
-
-    fig = go.Figure(go.Sunburst(
-        ids=ids,
-        labels=labels,
-        parents=parents,
-        values=values,
-        branchvalues="total",
-        customdata=custom_data,
-        hovertemplate="<b>%{customdata[0]}</b><br>Count: %{customdata[1]}<br>% of Layer: %{customdata[2]}<br>% of Total: %{customdata[3]}<extra></extra>"
-    ))
-
-    # Apply standard theme with title and larger square-like layout
-    apply_panel_theme(fig, "Defect Distribution", height=700)
-
-    fig.update_layout(
-        margin=dict(t=40, l=10, r=10, b=10), # Adjusted margins for title
-        xaxis=dict(visible=False), # Hide axes to remove any white lines
-        yaxis=dict(visible=False),
-        showlegend=False # Explicitly hide legend as requested
-    )
-
-    return fig
-
-def create_stress_heatmap(data: StressMapData, panel_rows: int, panel_cols: int, view_mode: str = "Continuous") -> go.Figure:
-    """
-    Creates the Cumulative Stress Heatmap with defect counts in cells.
-    Supports 'Quarterly' view mode by injecting NaNs or splitting.
-    """
-    if data.total_defects == 0:
-        return go.Figure(layout=dict(
-            title=dict(text="No True Defects Found in Selection", font=dict(color=TEXT_COLOR)),
-            paper_bgcolor=BACKGROUND_COLOR, plot_bgcolor=PLOT_AREA_COLOR
-        ))
-
-    z_data = data.grid_counts.astype(float)
-    text_data = data.grid_counts.astype(str)
-    hover_text = data.hover_text
-
-    # Process for View Mode
-    if view_mode == "Quarterly":
-        # Insert Gaps by modifying z_data, text_data, and hover_text?
-        # A heatmap trace relies on x, y coords or implied grid.
-        # Implied grid: The array shape determines layout.
-        # If we insert rows/cols, we change the axes.
-        # Alternatively, we can use 4 traces, one for each quadrant, shifted by GAP_SIZE.
-
-        # But wait, StressMapData is aggregated on a global grid (0..total_cols-1).
-        # This grid assumes NO GAPS in indexing.
-        # If we want to show gaps visually using physical coordinates, we need to map indices to coordinates.
-
-        # Let's map grid indices (col, row) to physical coordinates (x, y) accounting for GAP.
-        # Generate X, Y arrays matching z_data shape
-
-        rows, cols = z_data.shape
-        # Expect rows = panel_rows*2, cols = panel_cols*2
-
-        # Vectorized Coordinate Calculation
-        cell_width = QUADRANT_WIDTH / panel_cols
-        cell_height = QUADRANT_HEIGHT / panel_rows
-
-        col_indices = np.arange(cols)
-        row_indices = np.arange(rows)
-
-        # Apply Gaps
-        x_gaps = np.where(col_indices >= panel_cols, GAP_SIZE, 0)
-        y_gaps = np.where(row_indices >= panel_rows, GAP_SIZE, 0)
-
-        # 1D Coordinates
-        x_vals = (col_indices * cell_width) + (cell_width / 2) + x_gaps
-        y_vals = (row_indices * cell_height) + (cell_height / 2) + y_gaps
-
-        # Broadcast to 2D Grid
-        x_coords, y_coords = np.meshgrid(x_vals, y_vals)
-
-        # Now pass x and y to Heatmap. Plotly handles the spacing.
-        # Mask zeros
-        z_data[z_data == 0] = np.nan
-        text_data[data.grid_counts == 0] = ""
-
-        fig = go.Figure(data=go.Heatmap(
-            x=x_coords[0, :], # The X coordinates of the columns
-            y=y_coords[:, 0], # The Y coordinates of the rows
-            z=z_data,
-            text=text_data,
-            texttemplate="%{text}",
-            textfont={"color": "white"},
-            colorscale='Magma',
-            xgap=2, ygap=2,
-            hovertext=hover_text,
-            hoverinfo="text",
-            colorbar=dict(title='Defects', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
-        ))
-
-        # Add Grid Shapes for Quarterly view
-        fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False))
-
-        # Ranges
-        max_x = PANEL_WIDTH + GAP_SIZE*2
-        max_y = PANEL_HEIGHT + GAP_SIZE*2
-
-        fig.update_layout(
-            xaxis=dict(title="Physical X", range=[-GAP_SIZE, max_x], constrain='domain', showticklabels=False),
-            yaxis=dict(title="Physical Y", range=[-GAP_SIZE, max_y], showticklabels=False)
-        )
-
-    else:
-        # Continuous Mode (Indices)
-        z_data[z_data == 0] = np.nan
-        text_data[data.grid_counts == 0] = ""
-
-        fig = go.Figure(data=go.Heatmap(
-            z=z_data,
-            text=text_data,
-            texttemplate="%{text}",
-            textfont={"color": "white"}, # Or smart contrast if needed
-            colorscale='Magma',
-            xgap=2, ygap=2,
-            hovertext=data.hover_text,
-            hoverinfo="text",
-            colorbar=dict(title='Defects', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
-        ))
-
-        total_cols = panel_cols * 2
-        total_rows = panel_rows * 2
-
-        fig.update_layout(
-            xaxis=dict(
-                title="Unit Index X",
-                tickmode='linear', dtick=1,
-                range=[-0.5, total_cols - 0.5],
-                constrain='domain'
-            ),
-            yaxis=dict(
-                title="Unit Index Y",
-                tickmode='linear', dtick=1,
-                range=[-0.5, total_rows - 0.5]
-            )
-        )
-
-    apply_panel_theme(fig, "Cumulative Stress Map (Total Defects per Unit)", height=700)
-    return fig
-
-def create_delta_heatmap(data_a: StressMapData, data_b: StressMapData, panel_rows: int, panel_cols: int, view_mode: str = "Continuous") -> go.Figure:
-    """
-    Creates a Delta Heatmap (Group A - Group B).
-    """
-    diff_grid = data_a.grid_counts.astype(float) - data_b.grid_counts.astype(float)
-    # Text: Show signed difference
-    text_data = np.array([f"{int(x):+d}" if x != 0 else "" for x in diff_grid.flatten()]).reshape(diff_grid.shape)
-    diff_grid[diff_grid == 0] = np.nan
-
-    if view_mode == "Quarterly":
-        rows, cols = diff_grid.shape
-        cell_width = QUADRANT_WIDTH / panel_cols
-        cell_height = QUADRANT_HEIGHT / panel_rows
-
-        # Vectorized Gaps
-        col_indices = np.arange(cols)
-        row_indices = np.arange(rows)
-
-        x_gaps = np.where(col_indices >= panel_cols, GAP_SIZE, 0)
-        y_gaps = np.where(row_indices >= panel_rows, GAP_SIZE, 0)
-
-        x_vals = (col_indices * cell_width) + (cell_width / 2) + x_gaps
-        y_vals = (row_indices * cell_height) + (cell_height / 2) + y_gaps
-
-        fig = go.Figure(data=go.Heatmap(
-            x=x_vals,
-            y=y_vals,
-            z=diff_grid,
-            text=text_data,
-            texttemplate="%{text}",
-            colorscale='RdBu_r',
-            zmid=0,
-            xgap=2, ygap=2,
-            colorbar=dict(title='Delta (A - B)', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
-        ))
-
-        fig.update_layout(shapes=create_grid_shapes(panel_rows, panel_cols, quadrant='All', fill=False))
-        max_x = PANEL_WIDTH + GAP_SIZE*2
-        max_y = PANEL_HEIGHT + GAP_SIZE*2
-
-        fig.update_layout(
-            xaxis=dict(title="Physical X", range=[-GAP_SIZE, max_x], constrain='domain', showticklabels=False),
-            yaxis=dict(title="Physical Y", range=[-GAP_SIZE, max_y], showticklabels=False)
-        )
-
-    else:
-        fig = go.Figure(data=go.Heatmap(
-            z=diff_grid,
-            text=text_data,
-            texttemplate="%{text}",
-            colorscale='RdBu_r', # Red for positive (more in A), Blue for negative (more in B)
-            zmid=0,
-            xgap=2, ygap=2,
-            colorbar=dict(title='Delta (A - B)', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
-        ))
-
-        total_cols = panel_cols * 2
-        total_rows = panel_rows * 2
-        fig.update_layout(
-            xaxis=dict(
-                title="Unit Index X",
-                tickmode='linear', dtick=1,
-                range=[-0.5, total_cols - 0.5],
-                constrain='domain'
-            ),
-            yaxis=dict(
-                title="Unit Index Y",
-                tickmode='linear', dtick=1,
-                range=[-0.5, total_rows - 0.5]
-            )
-        )
-
-    apply_panel_theme(fig, "Delta Stress Map (Group A - Group B)", height=700)
-    return fig
-
-def create_cross_section_heatmap(
-    matrix: np.ndarray,
-    layer_labels: List[str],
-    axis_labels: List[str],
-    slice_desc: str
-) -> go.Figure:
-    """
-    Creates the Z-Axis Cross Section Heatmap (Virtual Slice).
-    """
-    # Inverse Y-axis so Layer 1 is at top (if not already handled by input order)
-    # Actually, Heatmap Y-axis 0 is usually bottom. We need to flip visual range or data order.
-    # We'll just set 'autorange="reversed"' in layout for Y axis so top of list is top of chart.
-
-    if matrix.size == 0:
-         return go.Figure(layout=dict(title=dict(text="No Data for Cross-Section", font=dict(color=TEXT_COLOR))))
-
-    # Mask zeros
-    z_data = matrix.astype(float)
-    z_data[z_data == 0] = np.nan
-
-    text_data = matrix.astype(str)
-    text_data[matrix == 0] = ""
-
-    fig = go.Figure(data=go.Heatmap(
-        z=z_data,
-        x=axis_labels,
-        y=layer_labels,
-        text=text_data,
-        texttemplate="%{text}",
-        textfont={"color": "white"},
-        colorscale='Magma',
-        xgap=2, ygap=2,
-        colorbar=dict(title='Defects', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR))
-    ))
-
-    apply_panel_theme(fig, f"Virtual Cross-Section: {slice_desc}", height=600)
-
-    fig.update_layout(
-        xaxis=dict(title="Unit Index (Slice Position)", dtick=1), # Force integer ticks (0, 1, 2...)
-        yaxis=dict(title="Layer Stack", autorange="reversed") # Ensure Layer 1 is at top
     )
 
     return fig

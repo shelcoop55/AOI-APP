@@ -10,16 +10,18 @@ import pandas as pd
 import io
 import plotly.graph_objects as go
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 import zipfile
 import json
-from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR
+from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR, PlotTheme, LIGHT_THEME, GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
 from src.plotting import (
     create_defect_traces, create_defect_sankey, create_defect_sunburst,
     create_grid_shapes, create_still_alive_figure, create_defect_map_figure,
-    create_pareto_figure
+    create_pareto_figure, create_density_contour_map, create_cross_section_heatmap,
+    create_stress_heatmap
 )
-from src.data_handler import aggregate_stress_data_from_df
+from src.data_handler import aggregate_stress_data_from_df, get_cross_section_matrix, SAFE_VERIFICATION_VALUES
+from src.models import PanelData
 from src.enums import Quadrant
 
 # ==============================================================================
@@ -284,10 +286,23 @@ def generate_zip_package(
     include_pareto_png: bool = False,
     include_heatmap_png: bool = False,
     include_stress_png: bool = False,
-    include_root_cause_png: bool = False,
+    include_root_cause_html: bool = False, # Renamed from include_root_cause_png
     include_still_alive_png: bool = False,
-    layer_data: Optional[Dict] = None,
-    process_comment: str = ""
+    layer_data: Optional[Union[Dict, PanelData]] = None,
+    process_comment: str = "",
+    lot_number: str = "",
+    theme_config: Optional[PlotTheme] = None,
+    # New Layout Parameters matching App logic
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE,
+    visual_origin_x: float = 0.0,
+    visual_origin_y: float = 0.0,
+    fixed_offset_x: float = 0.0,
+    fixed_offset_y: float = 0.0,
+    panel_width: float = PANEL_WIDTH,
+    panel_height: float = PANEL_HEIGHT
 ) -> bytes:
     """
     Generates a ZIP file containing selected report components.
@@ -303,8 +318,9 @@ def generate_zip_package(
 
     log("Starting generate_zip_package")
     log(f"Options: PNG_Maps={include_png_all_layers}, PNG_Pareto={include_pareto_png}")
-    log(f"New Options: Heatmap={include_heatmap_png}, Stress={include_stress_png}, RCA={include_root_cause_png}, Alive={include_still_alive_png}")
+    log(f"New Options: Heatmap={include_heatmap_png}, Stress={include_stress_png}, RCA={include_root_cause_html}, Alive={include_still_alive_png}")
     log(f"Verification Selection: {verification_selection}")
+    log(f"Layout Params: Offset=({offset_x},{offset_y}), Gap=({gap_x},{gap_y}), FixedOffset=({fixed_offset_x},{fixed_offset_y})")
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
 
@@ -326,17 +342,23 @@ def generate_zip_package(
         if include_map:
             fig = create_defect_map_figure(
                 full_df, panel_rows, panel_cols, quadrant_selection,
-                title=f"Panel Defect Map - {quadrant_selection}"
+                title=f"Panel Defect Map - {quadrant_selection}",
+                theme_config=theme_config,
+                offset_x=offset_x, offset_y=offset_y,
+                gap_x=gap_x, gap_y=gap_y,
+                visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
+                fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                panel_width=panel_width, panel_height=panel_height
             )
             html_content = fig.to_html(full_html=True, include_plotlyjs='cdn')
             zip_file.writestr("Defect_Map.html", html_content)
 
         # 4. Insights Charts (Interactive HTML) - CURRENT VIEW
         if include_insights:
-            sunburst_fig = create_defect_sunburst(full_df)
+            sunburst_fig = create_defect_sunburst(full_df, theme_config=theme_config)
             zip_file.writestr("Insights_Sunburst.html", sunburst_fig.to_html(full_html=True, include_plotlyjs='cdn'))
 
-            sankey_fig = create_defect_sankey(full_df)
+            sankey_fig = create_defect_sankey(full_df, theme_config=theme_config)
             if sankey_fig:
                 zip_file.writestr("Insights_Sankey.html", sankey_fig.to_html(full_html=True, include_plotlyjs='cdn'))
 
@@ -372,17 +394,29 @@ def generate_zip_package(
                             continue
 
                         # Suffix for images
-                        img_suffix = f"_{process_comment}" if process_comment else ""
+                        parts = []
+                        if process_comment:
+                            parts.append(process_comment)
+                        if lot_number:
+                            parts.append(lot_number)
+
+                        img_suffix = "_" + "_".join(parts) if parts else ""
 
                         # Generate Defect Map PNG
                         if include_png_all_layers:
                             log("  Generating Defect Map PNG...")
                             fig_map = create_defect_map_figure(
                                 filtered_df, panel_rows, panel_cols, Quadrant.ALL.value,
-                                title=f"Layer {layer_num} - {side_name} - Defect Map"
+                                title=f"Layer {layer_num} - {side_name} - Defect Map",
+                                theme_config=theme_config,
+                                offset_x=offset_x, offset_y=offset_y,
+                                gap_x=gap_x, gap_y=gap_y,
+                                visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
+                                fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                                panel_width=panel_width, panel_height=panel_height
                             )
                             try:
-                                img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2)
+                                img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
                                 zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_DefectMap{img_suffix}.png", img_bytes)
                                 log("  Success.")
                             except Exception as e:
@@ -393,10 +427,12 @@ def generate_zip_package(
                         # Generate Pareto PNG
                         if include_pareto_png:
                             log("  Generating Pareto PNG...")
-                            fig_pareto = create_pareto_figure(filtered_df, Quadrant.ALL.value)
-                            fig_pareto.update_layout(title=f"Layer {layer_num} - {side_name} - Pareto")
+                            fig_pareto = create_pareto_figure(filtered_df, Quadrant.ALL.value, theme_config=theme_config)
+                            fig_pareto.update_layout(
+                                title=f"Layer {layer_num} - {side_name} - Pareto"
+                            )
                             try:
-                                img_bytes = fig_pareto.to_image(format="png", engine="kaleido", scale=2)
+                                img_bytes = fig_pareto.to_image(format="png", engine="kaleido", scale=2, width=1200, height=800)
                                 zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_Pareto{img_suffix}.png", img_bytes)
                                 log("  Success.")
                             except Exception as e:
@@ -406,13 +442,20 @@ def generate_zip_package(
             else:
                 log("WARNING: No layer_data provided!")
 
-        # 6. Still Alive Map PNG (Explicit Option or Legacy)
+        # 6. Still Alive Map PNG
         if include_still_alive_png or include_png_all_layers:
             if true_defect_coords:
                 log("Generating Still Alive Map PNG...")
-                fig_alive = create_still_alive_figure(panel_rows, panel_cols, true_defect_coords)
+                fig_alive = create_still_alive_figure(
+                    panel_rows, panel_cols, true_defect_coords, theme_config=theme_config,
+                    offset_x=offset_x, offset_y=offset_y,
+                    gap_x=gap_x, gap_y=gap_y,
+                    visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
+                    fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                    panel_width=panel_width, panel_height=panel_height
+                )
                 try:
-                    img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2)
+                    img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
                     zip_file.writestr("Images/Still_Alive_Map.png", img_bytes)
                     log("Success.")
                 except Exception as e:
@@ -422,26 +465,21 @@ def generate_zip_package(
             else:
                 log("Skipping Still Alive Map: No true defect coordinates found.")
 
-        # 7. Additional Analysis Charts (Heatmap, Stress, RCA)
-        # These operate on the COMBINED dataset (full_df) usually, or we can iterate layers.
-        # Ideally, these represent the "Analysis View" summaries.
-        # We will generate one global chart for each enabled option using 'full_df'.
+        # 7. Additional Analysis Charts
 
         if include_heatmap_png:
             log("Generating Heatmap PNG (Global)...")
-            from src.plotting import create_unit_grid_heatmap
             try:
-                # Filter full_df based on Verification Selection first?
-                # Heatmap usually shows True Defects.
-                # The function handles verification internally if present.
-                # But let's respect global filter if applied to 'full_df' passed in?
-                # Actually, 'full_df' passed in is usually RAW.
-                # create_unit_grid_heatmap filters internally for True Defects (excluding SAFE values).
-                # If user selected specific verification filter, we might want to respect that?
-                # But usually Heatmap is for Yield (True Defects).
-                # We will use full_df.
-                fig_heat = create_unit_grid_heatmap(full_df, panel_rows, panel_cols)
-                img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2)
+                # Issue 3: Use Smoothed Density Contour Map
+                fig_heat = create_density_contour_map(
+                    full_df, panel_rows, panel_cols, theme_config=theme_config,
+                    offset_x=offset_x, offset_y=offset_y,
+                    gap_x=gap_x, gap_y=gap_y,
+                    visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
+                    fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                    panel_width=panel_width, panel_height=panel_height
+                )
+                img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
                 zip_file.writestr("Images/Analysis_Heatmap.png", img_bytes)
                 log("Success.")
             except Exception as e:
@@ -451,33 +489,72 @@ def generate_zip_package(
             log("Generating Stress Map PNG (Cumulative)...")
             from src.plotting import create_stress_heatmap
             try:
-                # Need to aggregate first
-                # Default to Cumulative Mode
                 stress_data = aggregate_stress_data_from_df(full_df, panel_rows, panel_cols)
-                fig_stress = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode="Continuous")
-                img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2)
+                fig_stress = create_stress_heatmap(
+                    stress_data, panel_rows, panel_cols, view_mode="Continuous", theme_config=theme_config,
+                    offset_x=offset_x, offset_y=offset_y,
+                    gap_x=gap_x, gap_y=gap_y,
+                    visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
+                    fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                    panel_width=panel_width, panel_height=panel_height
+                )
+                img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
                 zip_file.writestr("Images/Analysis_StressMap_Cumulative.png", img_bytes)
                 log("Success.")
             except Exception as e:
                 log(f"ERROR Generating Stress Map: {e}")
 
-        if include_root_cause_png:
-            log("Generating Root Cause PNG (Top Killer Layer)...")
-            from src.analysis.root_cause import RootCauseTool
-            # Root Cause usually requires interactive slicing.
-            # For a static report, a reasonable default is the "Layer Stack" view (Cross Section)
-            # or the "Killer Layer Pareto".
-            # But we don't have easy access to the tool's internal state here.
-            # Let's generate a "Top Killer Layer" heatmap if possible, or just skip if too complex without state.
-            # Re-implementing simplified logic:
-            # We can use the logic from 'create_cross_section_heatmap' but we need a slice index.
-            # Without user input, maybe just a Pareto of Killer Layers?
-            # Or just skip RCA for static export if not defined.
-            # User asked for "Root Cause".
-            # Let's dump the "Layer Stack Distribution" (Pareto of layers) which is informative.
-            # Or better, a standard view: The layer with most defects?
-            # Let's skip RCA for now as it's highly interactive (X vs Y slice).
-            log("Skipping Root Cause PNG: Interactive slice required.")
+        if include_root_cause_html:
+            log("Generating Root Cause HTML (Top Killer Unit Slice)...")
+            try:
+                # 1. Identify Worst Unit (True Defects Only)
+                safe_upper = {v.upper() for v in SAFE_VERIFICATION_VALUES}
+
+                # Check if Verification column exists and normalize
+                if 'Verification' in full_df.columns:
+                    true_df = full_df[~full_df['Verification'].astype(str).str.upper().isin(safe_upper)]
+                else:
+                    true_df = full_df
+
+                if not true_df.empty:
+                    # Find worst unit
+                    worst_coords = true_df.groupby(['UNIT_INDEX_X', 'UNIT_INDEX_Y']).size().idxmax()
+                    worst_x, worst_y = worst_coords
+                    log(f"Worst Unit found at X:{worst_x}, Y:{worst_y}")
+
+                    # 2. Generate Cross Section Matrix
+                    # Requires PanelData object. Wrap layer_data if it's a dict.
+                    panel_obj = layer_data
+                    if isinstance(layer_data, dict):
+                        panel_obj = PanelData()
+                        panel_obj._layers = layer_data
+
+                    # We slice by Y (Row) at the worst Y, to show the row of that unit.
+                    # Or slice by X? Usually seeing a Row cross-section is good.
+                    slice_axis = 'Y'
+                    slice_index = int(worst_y)
+
+                    matrix, layer_labels, axis_labels = get_cross_section_matrix(
+                        panel_obj, slice_axis, slice_index, panel_rows, panel_cols
+                    )
+
+                    # 3. Create Figure
+                    fig_rca = create_cross_section_heatmap(
+                        matrix, layer_labels, axis_labels,
+                        f"Root Cause Slice: Row {slice_index} (Worst Unit)",
+                        theme_config=theme_config
+                    )
+
+                    html_content = fig_rca.to_html(full_html=True, include_plotlyjs='cdn')
+                    zip_file.writestr("Root_Cause_Analysis.html", html_content)
+                    log("Success.")
+                else:
+                    log("Skipped Root Cause: No true defects found.")
+
+            except Exception as e:
+                msg = f"Failed to generate Root Cause HTML: {e}"
+                print(msg)
+                log(f"ERROR: {msg}")
 
         # Write Debug Log to ZIP
         zip_file.writestr("Debug_Log.txt", "\n".join(debug_logs))

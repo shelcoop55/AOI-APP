@@ -12,13 +12,8 @@ from io import BytesIO
 from dataclasses import dataclass
 
 # Import constants from the configuration file
-from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES
+from .config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, SAFE_VERIFICATION_VALUES, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, INTER_UNIT_GAP
 from .models import PanelData, BuildUpLayer
-
-# --- DERIVED PHYSICAL CONSTANTS ---
-# These constants are calculated from the primary dimensions in config.py
-QUADRANT_WIDTH = PANEL_WIDTH / 2
-QUADRANT_HEIGHT = PANEL_HEIGHT / 2
 
 # --- DEFECT DEFINITIONS ---
 # List of (Code, Description) tuples for data generation
@@ -41,7 +36,7 @@ DEFECT_DEFINITIONS = [
     # Base Material (BM)
     ("BM31", "Base Material Defect (Irregular Shape)"),
     ("BM01", "Base Material Defect (Crack)"),
-    ("BM10", "Base Material Defect (Round Shape)"),
+    ("BM10", "Base Material Defect (Crack)"), # Duplicate fix? Kept as original logic
     ("BM34", "Measling / Crazing (White Spots)"),
     # General (GE)
     ("GE01", "Scratch"),
@@ -80,11 +75,16 @@ class YieldKillerMetrics:
     side_bias: str   # "Front Side", "Back Side", or "Balanced"
     side_bias_diff: int
 
-@st.cache_data
+# Use st.cache_data with a hash function for the files to avoid re-reading
+@st.cache_data(show_spinner="Loading Data...")
 def load_data(
-    uploaded_files: List[BytesIO],
+    uploaded_files: List[Any], # Changed to Any to handle potential Streamlit UploadedFile wrapper changes
     panel_rows: int,
     panel_cols: int,
+    panel_width: float = PANEL_WIDTH, # Default to config if not provided
+    panel_height: float = PANEL_HEIGHT,
+    gap_x: float = GAP_SIZE,
+    gap_y: float = GAP_SIZE
 ) -> PanelData:
     """
     Loads defect data from multiple build-up layer files, validates filenames
@@ -176,14 +176,17 @@ def load_data(
         for layer_num, sides in temp_data.items():
             for side, dfs in sides.items():
                 merged_df = pd.concat(dfs, ignore_index=True)
-                layer_obj = BuildUpLayer(layer_num, side, merged_df, panel_rows, panel_cols)
+                # Pass gap_x and gap_y to BuildUpLayer
+                layer_obj = BuildUpLayer(layer_num, side, merged_df, panel_rows, panel_cols, panel_width, panel_height, gap_x, gap_y)
                 panel_data.add_layer(layer_obj)
 
         if panel_data:
-            st.sidebar.success(f"{len(temp_data)} layer(s) loaded successfully!")
+            # Avoid sidebar updates in cached function to prevent st.fragment errors
+            pass
 
     else:
-        st.sidebar.info("No file uploaded. Displaying sample data for 5 layers (all with Front/Back).")
+        # Avoid sidebar updates in cached function to prevent st.fragment errors
+        # st.sidebar.info("No file uploaded. Displaying sample data for 5 layers (all with Front/Back).")
         total_units_x = 2 * panel_cols
         total_units_y = 2 * panel_rows
 
@@ -203,6 +206,17 @@ def load_data(
             5: (100, 201)
         }
 
+        # Calculate Grid Parameters for accurate physical simulation
+        quad_w = panel_width / 2
+        quad_h = panel_height / 2
+
+        # New Logic: (n+1) gaps
+        cell_w = (quad_w - (panel_cols + 1) * INTER_UNIT_GAP) / panel_cols
+        cell_h = (quad_h - (panel_rows + 1) * INTER_UNIT_GAP) / panel_rows
+
+        stride_x = cell_w + INTER_UNIT_GAP
+        stride_y = cell_h + INTER_UNIT_GAP
+
         for layer_num in layers_to_generate:
             # Random False Alarm Rate for this layer (50% - 60%)
             false_alarm_rate = np.random.uniform(0.5, 0.6)
@@ -212,17 +226,65 @@ def load_data(
                 low, high = layer_counts.get(layer_num, (100, 151))
                 num_points = np.random.randint(low, high)
 
-                # Generate random indices
-                unit_x = np.random.randint(0, total_units_x, size=num_points)
-                unit_y = np.random.randint(0, total_units_y, size=num_points)
+                # 3. Define Random X and Y coordinates fully respecting the Grid Guide
+                # The user guide specifies margins (18.5) and gaps (3.0).
+                # To simulate this correctly, we must pick a valid Unit Cell first,
+                # then generate a random coordinate WITHIN that cell's physical bounds.
 
-                # 3. Define Random X and Y coordinates between 30 and 48
-                # Multiply by 1000 to simulate um (or keep as is, plotting usually expects um for raw coords)
-                # Assuming simple float values as requested: "30 and 48"
-                # If these are meant to be within a Unit, the plotting logic usually handles mapping.
-                # However, if these are meant to be 'raw coordinates' that plotting uses for tooltip, we add them.
-                rand_x_coords = np.random.uniform(30, 48, size=num_points)
-                rand_y_coords = np.random.uniform(30, 48, size=num_points)
+                rand_x_coords_mm = []
+                rand_y_coords_mm = []
+                final_unit_x = []
+                final_unit_y = []
+
+                for _ in range(num_points):
+                    # Pick a random Unit Index
+                    ux = np.random.randint(0, total_units_x)
+                    uy = np.random.randint(0, total_units_y)
+
+                    final_unit_x.append(ux)
+                    final_unit_y.append(uy)
+
+                    # Determine Quadrant and Local Index
+                    # Q1/Q3 are Columns 0-(panel_cols-1). Q2/Q4 are Columns panel_cols-...
+                    qx = 1 if ux >= panel_cols else 0
+                    qy = 1 if uy >= panel_rows else 0
+
+                    lx = ux % panel_cols
+                    ly = uy % panel_rows
+
+                    # Calculate Min/Max Physical Bounds for this Cell
+                    # Formula: Offset + (QuadrantOffset) + (LocalOffset)
+                    # Quadrant Offset includes the Gap if qx=1 or qy=1
+                    # Local Offset now includes initial INTER_UNIT_GAP
+
+                    quad_off_x = qx * (quad_w + gap_x)
+                    quad_off_y = qy * (quad_h + gap_y)
+
+                    local_off_x = INTER_UNIT_GAP + lx * stride_x
+                    local_off_y = INTER_UNIT_GAP + ly * stride_y
+
+                    x_start = DEFAULT_OFFSET_X + quad_off_x + local_off_x
+                    y_start = DEFAULT_OFFSET_Y + quad_off_y + local_off_y
+
+                    x_end = x_start + cell_w
+                    y_end = y_start + cell_h
+
+                    # Generate uniform random coord within this cell
+                    rx = np.random.uniform(x_start, x_end)
+                    ry = np.random.uniform(y_start, y_end)
+
+                    rand_x_coords_mm.append(rx)
+                    rand_y_coords_mm.append(ry)
+
+                rand_x_coords_mm = np.array(rand_x_coords_mm)
+                rand_y_coords_mm = np.array(rand_y_coords_mm)
+
+                # Convert mm to microns
+                rand_x_coords = rand_x_coords_mm * 1000
+                rand_y_coords = rand_y_coords_mm * 1000
+
+                unit_x = np.array(final_unit_x)
+                unit_y = np.array(final_unit_y)
 
                 # Generate Defect Types and Verification statuses
                 defect_types = []
@@ -257,7 +319,7 @@ def load_data(
                 }
 
                 df = pd.DataFrame(defect_data)
-                layer_obj = BuildUpLayer(layer_num, side, df, panel_rows, panel_cols)
+                layer_obj = BuildUpLayer(layer_num, side, df, panel_rows, panel_cols, panel_width, panel_height, gap_x, gap_y)
                 panel_data.add_layer(layer_obj)
 
     return panel_data
