@@ -65,6 +65,16 @@ DEFAULT_THEME = PlotTheme(
     inner_gap_color='#000000'         # Default Black
 )
 
+# Light Theme (For Reporting/Printing)
+LIGHT_THEME = PlotTheme(
+    background_color='#FFFFFF',       # White
+    plot_area_color='#F0F2F6',        # Streamlit Light Grey
+    panel_background_color='#C87533', # Rich Copper (Keep Identity)
+    axis_color='#333333',             # Dark Grey for grid
+    text_color='#000000',             # Black
+    inner_gap_color='#E5E5E5'         # Light Grey
+)
+
 # --- Legacy Constants (Backward Compatibility) ---
 # These are used if no dynamic theme is passed
 PANEL_COLOR = DEFAULT_THEME.panel_background_color

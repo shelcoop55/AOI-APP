@@ -13,11 +13,11 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 import zipfile
 import json
-from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR, PlotTheme
+from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR, PlotTheme, LIGHT_THEME
 from src.plotting import (
     create_defect_traces, create_defect_sankey, create_defect_sunburst,
     create_grid_shapes, create_still_alive_figure, create_defect_map_figure,
-    create_pareto_figure
+    create_pareto_figure, create_density_contour_map
 )
 from src.data_handler import aggregate_stress_data_from_df
 from src.enums import Quadrant
@@ -308,6 +308,10 @@ def generate_zip_package(
     log(f"New Options: Heatmap={include_heatmap_png}, Stress={include_stress_png}, RCA={include_root_cause_png}, Alive={include_still_alive_png}")
     log(f"Verification Selection: {verification_selection}")
 
+    # FORCE LIGHT THEME for Report Generation to ensure clean, standard printing/viewing (Issue 2)
+    # This overrides any dark theme passed from the app session state.
+    theme_config = LIGHT_THEME
+
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
 
         # 1. Excel Report
@@ -394,7 +398,8 @@ def generate_zip_package(
                                 theme_config=theme_config
                             )
                             try:
-                                img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2)
+                                # Issue 1: Specify width/height to prevent cut pictures
+                                img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2, width=1000, height=1000)
                                 zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_DefectMap{img_suffix}.png", img_bytes)
                                 log("  Success.")
                             except Exception as e:
@@ -408,7 +413,8 @@ def generate_zip_package(
                             fig_pareto = create_pareto_figure(filtered_df, Quadrant.ALL.value, theme_config=theme_config)
                             fig_pareto.update_layout(title=f"Layer {layer_num} - {side_name} - Pareto")
                             try:
-                                img_bytes = fig_pareto.to_image(format="png", engine="kaleido", scale=2)
+                                # Issue 1: Specify width/height to prevent cut pictures
+                                img_bytes = fig_pareto.to_image(format="png", engine="kaleido", scale=2, width=1200, height=800)
                                 zip_file.writestr(f"Images/Layer_{layer_num}_{side_name}_Pareto{img_suffix}.png", img_bytes)
                                 log("  Success.")
                             except Exception as e:
@@ -424,7 +430,8 @@ def generate_zip_package(
                 log("Generating Still Alive Map PNG...")
                 fig_alive = create_still_alive_figure(panel_rows, panel_cols, true_defect_coords, theme_config=theme_config)
                 try:
-                    img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2)
+                    # Issue 1: Specify width/height
+                    img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2, width=1000, height=1000)
                     zip_file.writestr("Images/Still_Alive_Map.png", img_bytes)
                     log("Success.")
                 except Exception as e:
@@ -441,19 +448,12 @@ def generate_zip_package(
 
         if include_heatmap_png:
             log("Generating Heatmap PNG (Global)...")
-            from src.plotting import create_unit_grid_heatmap
+            # Issue 3: Use Smoothed Density Contour Map instead of Unit Grid
             try:
-                # Filter full_df based on Verification Selection first?
-                # Heatmap usually shows True Defects.
-                # The function handles verification internally if present.
-                # But let's respect global filter if applied to 'full_df' passed in?
-                # Actually, 'full_df' passed in is usually RAW.
-                # create_unit_grid_heatmap filters internally for True Defects (excluding SAFE values).
-                # If user selected specific verification filter, we might want to respect that?
-                # But usually Heatmap is for Yield (True Defects).
-                # We will use full_df.
-                fig_heat = create_unit_grid_heatmap(full_df, panel_rows, panel_cols, theme_config=theme_config)
-                img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2)
+                # Use create_density_contour_map
+                fig_heat = create_density_contour_map(full_df, panel_rows, panel_cols, theme_config=theme_config)
+                # Issue 1: Specify width/height
+                img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2, width=1000, height=1000)
                 zip_file.writestr("Images/Analysis_Heatmap.png", img_bytes)
                 log("Success.")
             except Exception as e:
@@ -467,7 +467,8 @@ def generate_zip_package(
                 # Default to Cumulative Mode
                 stress_data = aggregate_stress_data_from_df(full_df, panel_rows, panel_cols)
                 fig_stress = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode="Continuous", theme_config=theme_config)
-                img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2)
+                # Issue 1: Specify width/height
+                img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2, width=1000, height=1000)
                 zip_file.writestr("Images/Analysis_StressMap_Cumulative.png", img_bytes)
                 log("Success.")
             except Exception as e:
