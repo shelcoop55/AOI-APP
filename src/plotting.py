@@ -442,7 +442,7 @@ def create_multi_layer_defect_map(
     x_tick_text = list(range(panel_cols * 2))
     y_tick_text = list(range(panel_rows * 2))
 
-    apply_panel_theme(fig, "Multi-Layer Combined Defect Map (True Defects Only)", theme_config=theme_config)
+    apply_panel_theme(fig, "Multi-Layer Combined Defect Map (True Defects Only)", theme_config=theme_config,height = 700)
 
     # FIXED AXIS RANGES (0-510) -> Expanded to avoid clipping border lines
     x_range = [-5, 515]
@@ -512,7 +512,7 @@ def create_defect_map_figure(
 
     final_title = title if title else f"Panel Defect Map - Quadrant: {quadrant_selection}"
 
-    apply_panel_theme(fig, final_title, theme_config=theme_config)
+    apply_panel_theme(fig, final_title, theme_config=theme_config, height = 700)
 
     fig.update_layout(
         xaxis=dict(title="Unit Column Index", tickvals=x_tick_vals_q1 + x_tick_vals_q2 if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, constrain='domain'),
