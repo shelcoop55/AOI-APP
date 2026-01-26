@@ -548,11 +548,15 @@ def create_grouped_pareto_trace(df: pd.DataFrame) -> List[go.Bar]:
 
     traces = []
     quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
+    # Explicit colors to prevent black bars in report exports
+    quadrant_colors = {'Q1': '#636EFA', 'Q2': '#EF553B', 'Q3': '#00CC96', 'Q4': '#AB63FA'}
+
     for quadrant in quadrants:
         quadrant_data = grouped_data[grouped_data['QUADRANT'] == quadrant]
         pivot = quadrant_data.pivot(index=group_col, columns='QUADRANT', values='Count').reindex(top_items).fillna(0)
         if not pivot.empty:
-            traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant]))
+            color = quadrant_colors.get(quadrant, '#4682B4')
+            traces.append(go.Bar(name=quadrant, x=pivot.index, y=pivot[quadrant], marker_color=color))
     return traces
 
 def create_pareto_figure(df: pd.DataFrame, quadrant_selection: str = Quadrant.ALL.value, theme_config: Optional[PlotTheme] = None) -> go.Figure:
@@ -728,7 +732,8 @@ def create_still_alive_map(
             mode='markers',
             marker=dict(size=0, color=hover_colors, opacity=0), # Invisible markers
             text=hover_text,
-            hoverinfo='text'
+            hoverinfo='text',
+            showlegend=False
         ))
 
     return shapes, traces
@@ -756,7 +761,21 @@ def create_still_alive_figure(
 
     map_shapes, hover_traces = create_still_alive_map(panel_rows, panel_cols, true_defect_data, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=panel_width, panel_height=panel_height, theme_config=theme_config, visual_origin_x=0, visual_origin_y=0, fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y)
 
-    fig = go.Figure(data=hover_traces) # Add hover traces
+    # Add Dummy Traces for Legend (Since shapes don't show in legend)
+    hover_traces.append(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(size=10, color=ALIVE_CELL_COLOR, symbol='square'),
+        name='Alive (Yield)'
+    ))
+    hover_traces.append(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(size=10, color=DEFECTIVE_CELL_COLOR, symbol='square'),
+        name='Defective (Kill)'
+    ))
+
+    fig = go.Figure(data=hover_traces) # Add hover traces + Legend items
 
     quad_width = panel_width / 2
     quad_height = panel_height / 2
@@ -785,7 +804,7 @@ def create_still_alive_figure(
             tickvals=y_tick_vals_q1 + y_tick_vals_q3, ticktext=y_tick_text
         ),
         shapes=map_shapes, margin=dict(l=20, r=20, t=80, b=20),
-        showlegend=False
+        # showlegend=False Removed to allow legend visibility in reports (Issue 1)
     )
     return fig
 
