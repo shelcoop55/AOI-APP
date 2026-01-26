@@ -1,368 +1,283 @@
-"""
-Main Application File for the Defect Analysis Streamlit Dashboard.
-This version implements a true-to-scale simulation of a 510x510mm physical panel.
-It includes the Defect Map, Pareto Chart, and a Summary View.
-CORRECTED: Re-implements the zoom-to-quadrant functionality.
-"""
 import streamlit as st
-import plotly.graph_objects as go
 import pandas as pd
-import matplotlib.colors as mcolors
-
-# Import our modularized functions
-from src.config import BACKGROUND_COLOR, PLOT_AREA_COLOR, GRID_COLOR, TEXT_COLOR, PANEL_COLOR, GAP_SIZE
-from src.data_handler import load_data, QUADRANT_WIDTH, QUADRANT_HEIGHT, PANEL_WIDTH, PANEL_HEIGHT
-from src.plotting import (
-    create_grid_shapes, create_defect_traces,
-    create_pareto_trace, create_grouped_pareto_trace
-)
-from src.reporting import generate_excel_report
+from src.config import GAP_SIZE, BACKGROUND_COLOR, TEXT_COLOR, PANEL_COLOR, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y, DEFAULT_GAP_X, DEFAULT_GAP_Y, DEFAULT_PANEL_ROWS, DEFAULT_PANEL_COLS, DYNAMIC_GAP_X, DYNAMIC_GAP_Y, DEFAULT_THEME, PlotTheme
+from src.data_handler import load_data, get_true_defect_coordinates
+from src.reporting import generate_zip_package
 from src.enums import ViewMode, Quadrant
+from src.state import SessionStore
+from src.views.manager import ViewManager
+from src.analysis import get_analysis_tool
 
 def load_css(file_path: str) -> None:
     """Loads a CSS file and injects it into the Streamlit app."""
-    with open(file_path) as f:
-        css = f.read()
-        # Define CSS variables from Python config
-        css_variables = f"""
-        <style>
-            :root {{
-                --background-color: {BACKGROUND_COLOR};
-                --text-color: {TEXT_COLOR};
-                --panel-color: {PANEL_COLOR};
-                --panel-hover-color: #d48c46;
-            }}
-            {css}
-        </style>
-        """
-        st.markdown(css_variables, unsafe_allow_html=True)
-
-# ==============================================================================
-# --- STREAMLIT APP MAIN LOGIC ---
-# ==============================================================================
+    try:
+        with open(file_path) as f:
+            css = f.read()
+            css_variables = f'''
+            <style>
+                :root {{
+                    --background-color: {BACKGROUND_COLOR};
+                    --text-color: {TEXT_COLOR};
+                    --panel-color: {PANEL_COLOR};
+                    --panel-hover-color: #d48c46;
+                }}
+                {css}
+            </style>
+            '''
+            st.markdown(css_variables, unsafe_allow_html=True)
+    except FileNotFoundError:
+        pass # Handle missing CSS safely
 
 def main() -> None:
-    """
-    Main function to configure and run the Streamlit application.
-    """
-    # --- App Configuration ---
-    st.set_page_config(layout="wide", page_title="Panel Defect Analysis")
-
-    # --- Apply Custom CSS for a Professional UI ---
+    """Main function to configure and run the Streamlit application."""
+    st.set_page_config(layout="wide", page_title="Panel Defect Analysis", initial_sidebar_state="expanded")
     load_css("assets/styles.css")
 
-    # --- Initialize Session State ---
-    if 'report_bytes' not in st.session_state: st.session_state.report_bytes = None
-    if 'full_df' not in st.session_state: st.session_state.full_df = None
-    if 'analysis_params' not in st.session_state: st.session_state.analysis_params = {}
+    # --- Initialize Session State & View Manager ---
+    store = SessionStore()
+    view_manager = ViewManager(store)
+
+    if "uploader_key" not in st.session_state:
+        st.session_state["uploader_key"] = 0
 
     # --- Sidebar Control Panel ---
     with st.sidebar:
         st.title("🎛️ Control Panel")
+
+        # --- 1. Analysis Configuration Form ---
         with st.form(key="analysis_form"):
             with st.expander("📁 Data Source & Configuration", expanded=True):
-                uploaded_files = st.file_uploader("Upload Your Defect Data (Excel)", type=["xlsx", "xls"], accept_multiple_files=True)
-                panel_rows = st.number_input("Panel Rows", min_value=1, value=7, help="Number of vertical units in a single quadrant.")
-                panel_cols = st.number_input("Panel Columns", min_value=1, value=7, help="Number of horizontal units in a single quadrant.")
-                lot_number = st.text_input("Lot Number (Optional)", help="Enter the Lot Number to display it on the defect map.")
-            submitted = st.form_submit_button("🚀 Run Analysis")
-
-        st.divider()
-        with st.expander("📊 Analysis Controls", expanded=True):
-            view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.", disabled=st.session_state.get('full_df') is None)
-            quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant of the panel.", disabled=st.session_state.get('full_df') is None)
-
-            # Defer the creation of this filter until the main app body
-            verification_selection = []
-
-        st.divider()
-        with st.expander("📥 Reporting", expanded=True):
-            report_disabled = st.session_state.get('full_df') is None or st.session_state.full_df.empty
-
-            if st.button("Generate Report for Download", disabled=report_disabled):
-                with st.spinner("Generating Excel report..."):
-                    # Re-apply filters here to get the correct df for the report
-                    full_df = st.session_state.full_df
-
-                    # 1. Apply Verification Status Filter
-                    report_df = full_df[full_df['Verification'].isin(verification_selection)]
-
-                    # 2. Apply Quadrant Filter
-                    report_df = report_df[report_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else report_df
-
-                    params = st.session_state.analysis_params
-                    source_filenames = report_df['SOURCE_FILE'].unique().tolist()
-
-                    excel_bytes = generate_excel_report(
-                        full_df=report_df,
-                        panel_rows=params.get("panel_rows", 7),
-                        panel_cols=params.get("panel_cols", 7),
-                        source_filename=", ".join(source_filenames)
-                    )
-                    st.session_state.report_bytes = excel_bytes
-                    st.rerun()
-
-            st.download_button(
-                label="Download Full Report",
-                data=st.session_state.report_bytes if st.session_state.report_bytes is not None else b"",
-                file_name="full_defect_report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                disabled=st.session_state.report_bytes is None,
-                help="Click 'Generate Report' first to enable download."
-            )
-
-    st.title("📊 Panel Defect Analysis Tool")
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    if submitted:
-        with st.spinner("Loading and analyzing data..."):
-            full_df = load_data(uploaded_files, panel_rows, panel_cols)
-            st.session_state.full_df = full_df
-            st.session_state.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
-            # Reset report bytes on new analysis
-            st.session_state.report_bytes = None
-            st.rerun()
-
-    if st.session_state.full_df is not None:
-        full_df = st.session_state.full_df
-        params = st.session_state.analysis_params
-        panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
-        lot_number = params.get("lot_number", "")
-
-        if full_df.empty:
-            st.error("The loaded data is empty or invalid. Please check the source file and try again.")
-            return
-
-        # --- NEW: Create and apply filters now that we know data is loaded ---
-        with st.sidebar.expander("📊 Analysis Controls", expanded=True):
-            # Re-create the verification filter here, inside the data-loaded block
-            verification_options = ['All'] + sorted(full_df['Verification'].unique().tolist())
-            verification_selection = st.radio(
-                "Filter by Verification Status",
-                options=verification_options,
-                index=0,
-                help="Select a single verification status to filter by, or 'All' to clear."
-            )
-
-        # --- Apply Filters ---
-        # 1. Apply Verification Status Filter first on the full dataset
-        if verification_selection != 'All':
-            filtered_df = full_df[full_df['Verification'] == verification_selection]
-        else:
-            filtered_df = full_df # No filter applied
-
-        # 2. Apply Quadrant Filter on the already-filtered data
-        display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
-
-        # --- VIEW 1: DEFECT MAP ---
-        if view_mode == ViewMode.DEFECT.value:
-            fig = go.Figure()
-            defect_traces = create_defect_traces(display_df)
-            for trace in defect_traces: fig.add_trace(trace)
-
-            plot_shapes = create_grid_shapes(panel_rows, panel_cols, quadrant_selection)
-
-            # --- *** FIX STARTS HERE: Define ranges for all quadrants and conditionally set them *** ---
-            
-            # 1. Define the physical axis ranges for each quadrant
-            q1_x_range = [0, QUADRANT_WIDTH]
-            q1_y_range = [0, QUADRANT_HEIGHT]
-            q2_x_range = [QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE]
-            q2_y_range = [0, QUADRANT_HEIGHT]
-            q3_x_range = [0, QUADRANT_WIDTH]
-            q3_y_range = [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]
-            q4_x_range = [QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE]
-            q4_y_range = [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]
-
-            # 2. Set the plot's axis range and tick visibility based on the user's selection
-            if quadrant_selection == Quadrant.ALL.value:
-                x_axis_range = [-GAP_SIZE, PANEL_WIDTH + GAP_SIZE]
-                y_axis_range = [-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]
-                show_ticks = True
-            else:
-                show_ticks = False # Hide tick labels in zoom view for clarity
-                if quadrant_selection == Quadrant.Q1.value:
-                    x_axis_range, y_axis_range = q1_x_range, q1_y_range
-                elif quadrant_selection == Quadrant.Q2.value:
-                    x_axis_range, y_axis_range = q2_x_range, q2_y_range
-                elif quadrant_selection == Quadrant.Q3.value:
-                    x_axis_range, y_axis_range = q3_x_range, q3_y_range
-                else: # Q4
-                    x_axis_range, y_axis_range = q4_x_range, q4_y_range
-
-            # --- *** FIX ENDS HERE *** ---
-
-            cell_width = QUADRANT_WIDTH / panel_cols
-            cell_height = QUADRANT_HEIGHT / panel_rows
-            x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-            x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-            x_tick_vals = x_tick_vals_q1 + x_tick_vals_q2
-            y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-            y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-            y_tick_vals = y_tick_vals_q1 + y_tick_vals_q3
-            x_tick_text = list(range(panel_cols * 2))
-            y_tick_text = list(range(panel_rows * 2))
-
-            fig.update_layout(
-                title=dict(text=f"Panel Defect Map - Quadrant: {quadrant_selection} ({len(display_df)} Defects)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
-                xaxis=dict(title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=x_tick_vals if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-                yaxis=dict(title="Unit Row Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=y_tick_vals if show_ticks else [], ticktext=y_tick_text if show_ticks else [], range=y_axis_range, scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-                plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=plot_shapes,
-                legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
-                hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"),
-                height=800
-            )
-
-            if lot_number and quadrant_selection == Quadrant.ALL.value:
-                fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
-
-            # Add verification summary annotation
-            if not display_df.empty:
-                verification_counts = display_df['Verification'].value_counts()
-                true_count = int(verification_counts.get('T', 0))
-                false_count = int(verification_counts.get('F', 0))
-                ta_count = int(verification_counts.get('TA', 0))
-
-                annotation_text = (
-                    f"<b>Verification Summary</b><br>"
-                    f"True (T): {true_count}<br>"
-                    f"False (F): {false_count}<br>"
-                    f"Acceptable (TA): {ta_count}"
+                # Use dynamic key to allow resetting the widget
+                uploader_key = f"uploaded_files_{st.session_state['uploader_key']}"
+                st.file_uploader(
+                    "Upload Build-Up Layers (e.g., BU-01-...)",
+                    type=["xlsx", "xls"],
+                    accept_multiple_files=True,
+                    key=uploader_key
+                )
+                st.number_input(
+                    "Panel Rows", min_value=1, value=DEFAULT_PANEL_ROWS,
+                    help="Number of vertical units in a single quadrant.",
+                    key="panel_rows"
+                )
+                st.number_input(
+                    "Panel Columns", min_value=1, value=DEFAULT_PANEL_COLS,
+                    help="Number of horizontal units in a single quadrant.",
+                    key="panel_cols"
+                )
+                st.text_input(
+                    "Lot Number (Optional)",
+                    help="Enter the Lot Number to display it on the defect map.",
+                    key="lot_number"
+                )
+                st.text_input(
+                    "Process Step / Comment",
+                    help="Enter a comment (e.g., Post Etching) to tag these layers.",
+                    key="process_comment"
                 )
 
-                fig.add_annotation(
-                    text=annotation_text,
-                    align='left',
-                    showarrow=False,
-                    xref='paper',
-                    yref='paper',
-                    x=1.02, # Position slightly to the right of the plot
-                    y=0.8,
-                    xanchor='left',
-                    yanchor='top',
-                    bordercolor=TEXT_COLOR,
-                    borderwidth=1,
-                    bgcolor='rgba(40,40,40,0.8)',
-                    font=dict(color=TEXT_COLOR, size=12)
-                )
+                # --- NEW: Coordinate Origin Inputs (User Facing) ---
+                # These default to 0,0 and only affect visual plotting, not structural calculation.
+                st.markdown("---")
+                st.markdown("##### Plot Origin Configuration")
+                c_origin1, c_origin2 = st.columns(2)
+                with c_origin1:
+                    st.number_input("X Origin (mm)", value=0.0, step=1.0, key="plot_origin_x", help="Shift the visual coordinate system X origin.")
+                with c_origin2:
+                    st.number_input("Y Origin (mm)", value=0.0, step=1.0, key="plot_origin_y", help="Shift the visual coordinate system Y origin.")
 
-            st.plotly_chart(fig, use_container_width=True)
 
-        # --- VIEW 2: PARETO CHART ---
-        elif view_mode == ViewMode.PARETO.value:
-            st.subheader(f"Defect Pareto - Quadrant: {quadrant_selection}")
-            fig = go.Figure()
-            
-            if quadrant_selection == Quadrant.ALL.value:
-                # Show grouped pareto for the full panel view
-                pareto_traces = create_grouped_pareto_trace(display_df)
-                for trace in pareto_traces:
-                    fig.add_trace(trace)
-                fig.update_layout(barmode='stack')
-            else:
-                # Show a simple pareto for a single quadrant
-                pareto_trace = create_pareto_trace(display_df)
-                fig.add_trace(pareto_trace)
+            with st.expander("⚙️ Advanced Configuration", expanded=False):
+                # 1. Panel Dimensions (UI Removed - Hardcoded Defaults)
+                # Used to be: c_dim1, c_dim2 inputs for Panel Width/Height
+                # Now using Frame Width/Height (510/515) internally for calculation.
 
-            fig.update_layout(
-                xaxis=dict(title="Defect Type", categoryorder='total descending', title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-                yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-                plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR,
-                legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR)),
-                height=600
+                # 2. Origins (Structrual Margins) - REMOVED FROM UI
+                # We now use DEFAULT_OFFSET_X (13.5) and DEFAULT_OFFSET_Y (15.0) hardcoded in config.py
+                # This ensures the panel structure is fixed.
+
+                # 3. Dynamic Gaps
+                c_gap1, c_gap2 = st.columns(2)
+                with c_gap1:
+                    st.number_input("Dynamic Gap X (mm)", value=float(DYNAMIC_GAP_X), step=1.0, min_value=0.0, key="dyn_gap_x", help="Dynamic Horizontal Gap.")
+                with c_gap2:
+                    st.number_input("Dynamic Gap Y (mm)", value=float(DYNAMIC_GAP_Y), step=1.0, min_value=0.0, key="dyn_gap_y", help="Dynamic Vertical Gap.")
+
+            # Callback for Analysis
+            def on_run_analysis():
+                # Read from dynamic key
+                current_uploader_key = f"uploaded_files_{st.session_state['uploader_key']}"
+                files = st.session_state.get(current_uploader_key, [])
+
+                rows = st.session_state.panel_rows
+                cols = st.session_state.panel_cols
+                lot = st.session_state.lot_number
+                comment = st.session_state.process_comment
+
+                # Retrieve Advanced Params
+                # Use Hardcoded Defaults for Structural Calculation
+                off_x_struct = DEFAULT_OFFSET_X # 13.5
+                off_y_struct = DEFAULT_OFFSET_Y # 15.0
+
+                # Retrieve User Visual Origins
+                visual_origin_x = st.session_state.get("plot_origin_x", 0.0)
+                visual_origin_y = st.session_state.get("plot_origin_y", 0.0)
+
+                # Hardcoded gaps are now used instead of UI inputs
+                gap_x_fixed = DEFAULT_GAP_X # 3.0
+                gap_y_fixed = DEFAULT_GAP_Y # 3.0
+                # Retrieve dynamic gaps from session state
+                dyn_gap_x = st.session_state.get("dyn_gap_x", DYNAMIC_GAP_X)
+                dyn_gap_y = st.session_state.get("dyn_gap_y", DYNAMIC_GAP_Y)
+
+                # DYNAMIC CALCULATION of Active Panel Dimensions
+                # Updated Logic per User Request (Symmetrical):
+                # 4 Dynamic Gaps total (Left of Q1, Right of Q1, Left of Q2, Right of Q2)
+                # Active Width = Frame - 2*Offset - FixedGap - 4*DynGap
+                p_width = float(FRAME_WIDTH) - 2 * off_x_struct - gap_x_fixed - 4 * dyn_gap_x
+                p_height = float(FRAME_HEIGHT) - 2 * off_y_struct - gap_y_fixed - 4 * dyn_gap_y
+
+                # Calculate EFFECTIVE GAP for Plotting
+                # Symmetrical Logic: Gap between Q1 and Q2 = FixedGap + DynGap(Right Q1) + DynGap(Left Q2)
+                effective_gap_x = gap_x_fixed + 2 * dyn_gap_x
+                effective_gap_y = gap_y_fixed + 2 * dyn_gap_y
+
+                # Load Data (This will now hit the cache if arguments are same)
+                # Pass dynamically calculated width/height and EFFECTIVE GAPS
+                data = load_data(files, rows, cols, p_width, p_height, effective_gap_x, effective_gap_y)
+                if data:
+                    # UPDATE: Store ID and Metadata, NOT the object
+                    if not files:
+                        store.dataset_id = "sample_data"
+                    else:
+                        # Simple ID generation based on filenames for tracking
+                        store.dataset_id = str(hash(tuple(f.name for f in files)))
+
+                    # Store lightweight metadata for UI logic (keys only)
+                    # We need a serializable dict structure: {layer_num: {side: True}}
+                    meta = {}
+                    for l_num, sides in data.items():
+                        meta[l_num] = list(sides.keys())
+                    store.layer_data_keys = meta
+
+                    # Logic using the data object (which is local var here, safe)
+                    store.selected_layer = max(data.keys())
+                    store.active_view = 'layer'
+
+                    # Auto-select side
+                    layer_info = data.get(store.selected_layer, {})
+                    if 'F' in layer_info:
+                        store.selected_side = 'F'
+                    elif 'B' in layer_info:
+                        store.selected_side = 'B'
+                    elif layer_info:
+                        store.selected_side = next(iter(layer_info.keys()))
+
+                    # Initialize Multi-Layer Selection defaults
+                    store.multi_layer_selection = sorted(data.keys())
+                    all_sides = set()
+                    for l_data in data.values():
+                        all_sides.update(l_data.keys())
+                    store.multi_side_selection = sorted(list(all_sides))
+                else:
+                    store.selected_layer = None
+
+                # Calculate TOTAL OFFSET for Plotting
+                # Symmetrical Logic: Start Position of Q1 = FixedOffset + DynGap (Left of Q1)
+                total_off_x_struct = off_x_struct + dyn_gap_x
+                total_off_y_struct = off_y_struct + dyn_gap_y
+
+                store.analysis_params = {
+                    "panel_rows": rows,
+                    "panel_cols": cols,
+                    "panel_width": p_width,
+                    "panel_height": p_height,
+                    "gap_x": effective_gap_x, # Use effective gap for plotting logic
+                    "gap_y": effective_gap_y,
+                    "gap_size": effective_gap_x, # Backwards compatibility
+                    "lot_number": lot,
+                    "process_comment": comment,
+                    # IMPORTANT: Use Structural Offset for drawing the grid in the Frame
+                    "offset_x": total_off_x_struct,
+                    "offset_y": total_off_y_struct,
+
+                    # Store Visual Origins for Axis Correction
+                    "visual_origin_x": visual_origin_x,
+                    "visual_origin_y": visual_origin_y,
+
+                    "dyn_gap_x": dyn_gap_x,
+                    "dyn_gap_y": dyn_gap_y,
+
+                    # Store Structural Fixed Offsets for Inner Border Drawing
+                    "fixed_offset_x": off_x_struct,
+                    "fixed_offset_y": off_y_struct
+                }
+                store.report_bytes = None
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.form_submit_button("🚀 Run", on_click=on_run_analysis)
+
+            with c2:
+                # Reset Button logic integrated into the form area (but form_submit_button is primary action)
+                # Since we cannot put a standard button inside a form that triggers a rerun cleanly without submitting the form,
+                # we will use another form_submit_button or place it outside if strictly required.
+                # However, user asked "inside Data Source & Configuration".
+                # Standard st.button inside a form behaves as a submit button.
+
+                def on_reset():
+                    store.clear_all()
+                    # Re-initialize uploader_key immediately after clearing state
+                    # to prevent KeyError on rerun or subsequent access
+                    if "uploader_key" not in st.session_state:
+                        st.session_state["uploader_key"] = 0
+
+                    # Increment key to recreate file uploader widget (effectively clearing it)
+                    st.session_state["uploader_key"] += 1
+                    # Rerun will happen automatically after callback
+
+                st.form_submit_button("🔄 Reset", on_click=on_reset, type="secondary")
+
+        # --- 2. Appearance & Style (Expander) ---
+        with st.expander("🎨 Appearance & Style", expanded=False):
+            # Create PlotTheme inputs and update session state immediately
+            bg_color = st.color_picker("Background Color", value=DEFAULT_THEME.background_color, key="style_bg")
+            plot_color = st.color_picker("Plot Area Color", value=DEFAULT_THEME.plot_area_color, key="style_plot")
+            panel_color = st.color_picker("Panel Color", value=DEFAULT_THEME.panel_background_color, key="style_panel")
+            axis_color = st.color_picker("Axis Color", value=DEFAULT_THEME.axis_color, key="style_axis")
+            text_color = st.color_picker("Text Color", value=DEFAULT_THEME.text_color, key="style_text")
+            unit_color = st.color_picker("Unit Color", value=DEFAULT_THEME.unit_face_color, key="style_unit")
+            gap_color = st.color_picker("Gap Color", value=DEFAULT_THEME.inner_gap_color, key="style_gap")
+
+            # Construct Theme Object
+            current_theme = PlotTheme(
+                background_color=bg_color,
+                plot_area_color=plot_color,
+                panel_background_color=panel_color,
+                axis_color=axis_color,
+                text_color=text_color,
+                # Use user selection
+                unit_face_color=unit_color,
+                unit_edge_color=axis_color, # Match axis for grid edges
+                inner_gap_color=gap_color
             )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # --- VIEW 3: SUMMARY ---
-        elif view_mode == ViewMode.SUMMARY.value:
-            # Replaced with the provided Summary View block (clean)
-            st.header(f"Statistical Summary for Quadrant: {quadrant_selection}")
 
-            if display_df.empty:
-                st.info("No defects to summarize in the selected quadrant.")
-                return
+            # Store in session state for Views to access
+            st.session_state['plot_theme'] = current_theme
 
-            if quadrant_selection != Quadrant.ALL.value:
-                total_defects = len(display_df)
-                total_cells = panel_rows * panel_cols
-                defective_cells = len(display_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
-                defect_density = total_defects / total_cells if total_cells > 0 else 0
-                yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
+    # --- Main Content Area ---
+    # Header removed to save space
+    # st.title("📊 Panel Defect Analysis Tool")
 
-                st.markdown("### Key Performance Indicators (KPIs)")
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Total Defect Count", f"{total_defects:,}")
-                col2.metric("Defect Density", f"{defect_density:.2f} defects/cell")
-                col3.metric("Yield Estimate", f"{yield_estimate:.2%}")
+    # Render Navigation (Triggers full rerun to update Sidebar context)
+    view_manager.render_navigation()
 
-                st.divider()
-                st.markdown("### Top Defect Types")
-                top_offenders = display_df['DEFECT_TYPE'].value_counts().reset_index()
-                top_offenders.columns = ['Defect Type', 'Count']
-                top_offenders['Percentage'] = (top_offenders['Count'] / total_defects) * 100
+    @st.fragment
+    def render_chart_area():
+        # Render Main View (Chart Area) - Isolated updates
+        view_manager.render_main_view()
 
-                theme_cmap = mcolors.LinearSegmentedColormap.from_list("theme_cmap", [PLOT_AREA_COLOR, PANEL_COLOR])
-
-                st.dataframe(
-                    top_offenders.style.format({'Percentage': '{:.2f}%'}).background_gradient(cmap=theme_cmap, subset=['Count']),
-                    width='stretch'
-                )
-
-            else:
-                # --- NEW: Panel-Wide KPIs ---
-                st.markdown("### Panel-Wide KPIs (Filtered)")
-                total_defects = len(display_df)
-                # Total cells for the entire 2x2 panel
-                total_cells = (panel_rows * panel_cols) * 4
-                defective_cells = len(display_df[['UNIT_INDEX_X', 'UNIT_INDEX_Y']].drop_duplicates())
-                defect_density = total_defects / total_cells if total_cells > 0 else 0
-                yield_estimate = (total_cells - defective_cells) / total_cells if total_cells > 0 else 0
-
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Filtered Defect Count", f"{total_defects:,}")
-                col2.metric("Filtered Defect Density", f"{defect_density:.2f} defects/cell")
-                col3.metric("Filtered Yield Estimate", f"{yield_estimate:.2%}")
-                st.divider()
-                # --- END NEW ---
-
-                st.markdown("### Quarterly KPI Breakdown")
-
-                kpi_data = []
-                quadrants = ['Q1', 'Q2', 'Q3', 'Q4']
-                # Note: For the breakdown, we use the 'filtered_df' which is only filtered by
-                # verification, not by quadrant, to get accurate per-quadrant counts.
-                for quad in quadrants:
-                    quad_df = filtered_df[filtered_df['QUADRANT'] == quad]
-                    total_quad_defects = len(quad_df)
-                    quad_density = total_quad_defects / (panel_rows * panel_cols) if (panel_rows * panel_cols) > 0 else 0
-                    kpi_data.append({"Quadrant": quad, "Total Defects": total_quad_defects, "Defect Density": f"{quad_density:.2f}"})
-
-                kpi_df = pd.DataFrame(kpi_data)
-                st.dataframe(kpi_df, width='stretch')
-
-                st.divider()
-                st.markdown("### Defect Distribution by Quadrant")
-                fig = go.Figure()
-                grouped_traces = create_grouped_pareto_trace(full_df)
-                for trace in grouped_traces: 
-                    fig.add_trace(trace)
-
-                fig.update_layout(
-                    title=dict(text="Defect Count by Type and Quadrant", font=dict(color=TEXT_COLOR)),
-                    barmode='group',
-                    xaxis=dict(title="Defect Type", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-                    yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-                    plot_bgcolor=PLOT_AREA_COLOR,
-                    paper_bgcolor=BACKGROUND_COLOR,
-                    legend=dict(font=dict(color=TEXT_COLOR)),
-                    height=600
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-
-    else:
-        st.header("Welcome to the Panel Defect Analysis Tool!")
-        st.info("To get started, upload an Excel file or use the default sample data, then click 'Run Analysis'.")
+    render_chart_area()
 
 if __name__ == '__main__':
     main()
