@@ -13,14 +13,15 @@ FRAME_HEIGHT = 515
 
 # Default Configuration Values (Copper Grid Panel Spec)
 # Updated to align with specific user guide:
-# Margins 18.5mm, Gaps 3.0mm, Quadrants 235x235mm.
-DEFAULT_OFFSET_X = 18.5
-DEFAULT_OFFSET_Y = 18.5
+# Margins 13.5mm (X) and 15.0mm (Y), Gaps 3.0mm, Quadrants 235x235mm.
+DEFAULT_OFFSET_X = 13.5
+DEFAULT_OFFSET_Y = 15.0
 DEFAULT_GAP_X = 3.0
 DEFAULT_GAP_Y = 3.0
 
-DYNAMIC_GAP_X = 0
-DYNAMIC_GAP_Y = 0
+# Default Dynamic Gaps (Updated per user request)
+DYNAMIC_GAP_X = 5.0
+DYNAMIC_GAP_Y = 3.5
 
 DEFAULT_PANEL_ROWS = 6
 DEFAULT_PANEL_COLS = 6
@@ -51,13 +52,27 @@ class PlotTheme:
     unit_face_color: str = '#F4B486' # Light Copper/Peach
     unit_edge_color: str = '#8B4513' # Saddle Brown
 
+    # Inner Border/Gap Color
+    inner_gap_color: str = '#000000'
+
 # Default Theme (Dark Mode / Copper)
 DEFAULT_THEME = PlotTheme(
     background_color='#2C3E50',       # Dark Blue-Grey
     plot_area_color='#333333',        # Dark Grey
     panel_background_color='#C87533', # Rich Copper
     axis_color='#8B4513',             # Saddle Brown
-    text_color='#FFFFFF'              # White
+    text_color='#FFFFFF',             # White
+    inner_gap_color='#000000'         # Default Black
+)
+
+# Light Theme (For Reporting/Printing)
+LIGHT_THEME = PlotTheme(
+    background_color='#FFFFFF',       # White
+    plot_area_color='#F0F2F6',        # Streamlit Light Grey
+    panel_background_color='#C87533', # Rich Copper (Keep Identity)
+    axis_color='#333333',             # Dark Grey for grid
+    text_color='#000000',             # Black
+    inner_gap_color='#E5E5E5'         # Light Grey
 )
 
 # --- Legacy Constants (Backward Compatibility) ---
