@@ -1,5 +1,10 @@
+"""
+Tests for the plotting module.
+Checks if Plotly figure generation logic runs without errors and produces expected structures.
+"""
 import pytest
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from src.plotting import (
     create_grid_shapes,
@@ -8,32 +13,40 @@ from src.plotting import (
     create_grouped_pareto_trace,
     get_color_map_for_defects
 )
+from src.data_handler import StressMapData
+from src.enums import Quadrant
+from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE
 
 @pytest.fixture
-def sample_plot_df() -> pd.DataFrame:
-    """A fixture to create a sample DataFrame for plotting tests."""
-    data = {
+def sample_plot_df():
+    """Creates a sample DataFrame formatted for plotting (with plot_x/y)."""
+    return pd.DataFrame({
         'DEFECT_ID': [101, 102, 103, 104],
-        'DEFECT_TYPE': ['Nick', 'Short', 'Cut', 'Nick'],
-        'UNIT_INDEX_X': [0, 1, 0, 1],
-        'UNIT_INDEX_Y': [0, 0, 1, 1],
+        'DEFECT_TYPE': ['Nick', 'Short', 'Open', 'Nick'],
+        'Verification': ['Under Verification', 'CU10', 'N', 'Under Verification'],
+        'HAS_VERIFICATION_DATA': [False, True, True, False],
+        'UNIT_INDEX_X': [1, 2, 3, 4],
+        'UNIT_INDEX_Y': [1, 2, 3, 4],
         'QUADRANT': ['Q1', 'Q2', 'Q3', 'Q4'],
-        'plot_x': [10, 20, 10, 20],
-        'plot_y': [10, 10, 20, 20],
-    }
-    return pd.DataFrame(data)
+        'plot_x': [10, 100, 10, 20],
+        'plot_y': [10, 10, 20, 20]
+    })
 
-def test_create_grid_shapes_smoke():
-    """Smoke test to ensure create_grid_shapes runs without errors."""
-    shapes = create_grid_shapes(panel_rows=7, panel_cols=7, quadrant='All')
+def test_create_grid_shapes():
+    """Test grid shape generation."""
+    shapes = create_grid_shapes(7, 7, Quadrant.ALL.value)
     assert isinstance(shapes, list)
-    assert all(isinstance(s, dict) for s in shapes)
+    assert len(shapes) > 0
+    # Check if shapes are dicts (Plotly shape spec)
+    assert isinstance(shapes[0], dict)
+    assert 'type' in shapes[0]
 
 def test_create_defect_traces_smoke(sample_plot_df):
     """Smoke test to ensure create_defect_traces runs without errors."""
     traces = create_defect_traces(sample_plot_df)
     assert isinstance(traces, list)
-    assert all(isinstance(t, go.Scatter) for t in traces)
+    # UPDATED: We now use Scattergl or Scatter
+    assert all(isinstance(t, (go.Scatter, go.Scattergl)) for t in traces)
 
 def test_create_pareto_trace_smoke(sample_plot_df):
     """Smoke test to ensure create_pareto_trace runs without errors."""

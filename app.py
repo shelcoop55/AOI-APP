@@ -1,11 +1,4 @@
-"""
-Main Application File for the Defect Analysis Streamlit Dashboard.
-This version implements a true-to-scale simulation of a 510x510mm physical panel.
-It includes the Defect Map, Pareto Chart, and a Summary View.
-CORRECTED: Re-implements the zoom-to-quadrant functionality.
-"""
 import streamlit as st
-import plotly.graph_objects as go
 import pandas as pd
 import matplotlib.colors as mcolors
 
@@ -18,6 +11,9 @@ from src.plotting import (
 )
 from src.reporting import generate_excel_report
 from src.enums import ViewMode, Quadrant
+from src.state import SessionStore
+from src.views.manager import ViewManager
+from src.analysis import get_analysis_tool
 
 @st.cache_data
 def load_css(file_path: str) -> str:
@@ -53,192 +49,37 @@ def main() -> None:
     custom_css = load_css("assets/styles.css")
     st.markdown(custom_css, unsafe_allow_html=True)
 
-    # --- Initialize Session State ---
-    if 'report_bytes' not in st.session_state: st.session_state.report_bytes = None
-    if 'full_df' not in st.session_state: st.session_state.full_df = None
-    if 'analysis_params' not in st.session_state: st.session_state.analysis_params = {}
+    # --- Initialize Session State & View Manager ---
+    store = SessionStore()
+    view_manager = ViewManager(store)
+
+    if "uploader_key" not in st.session_state:
+        st.session_state["uploader_key"] = 0
 
     # --- Sidebar Control Panel ---
     with st.sidebar:
         st.title("🎛️ Control Panel")
+
+        # --- 1. Analysis Configuration Form ---
         with st.form(key="analysis_form"):
             with st.expander("📁 Data Source & Configuration", expanded=True):
-                uploaded_files = st.file_uploader("Upload Your Defect Data (Excel)", type=["xlsx", "xls"], accept_multiple_files=True)
-                panel_rows = st.number_input("Panel Rows", min_value=1, value=7, help="Number of vertical units in a single quadrant.")
-                panel_cols = st.number_input("Panel Columns", min_value=1, value=7, help="Number of horizontal units in a single quadrant.")
-                lot_number = st.text_input("Lot Number (Optional)", help="Enter the Lot Number to display it on the defect map.")
-            submitted = st.form_submit_button("🚀 Run Analysis")
-
-        st.divider()
-
-        # --- Analysis and Reporting (only shown if data is loaded) ---
-        if st.session_state.get('full_df') is not None and not st.session_state.full_df.empty:
-            full_df_for_controls = st.session_state.full_df
-            with st.expander("📊 Analysis Controls", expanded=True):
-                view_mode = st.radio("Select View", ViewMode.values(), help="Choose the primary analysis view.")
-                quadrant_selection = st.selectbox("Select Quadrant", Quadrant.values(), help="Filter data to a specific quadrant of the panel.")
-                verification_options = ['All'] + sorted(full_df_for_controls['Verification'].unique().tolist())
-                verification_selection = st.radio(
-                    "Filter by Verification Status",
-                    options=verification_options,
-                    index=0,
-                    help="Select a single verification status to filter by, or 'All' to clear."
+                # Use dynamic key to allow resetting the widget
+                uploader_key = f"uploaded_files_{st.session_state['uploader_key']}"
+                st.file_uploader(
+                    "Upload Build-Up Layers (e.g., BU-01-...)",
+                    type=["xlsx", "xls"],
+                    accept_multiple_files=True,
+                    key=uploader_key
                 )
-
-            st.divider()
-
-            with st.expander("📥 Reporting", expanded=True):
-                if st.button("Generate Report for Download"):
-                    with st.spinner("Generating Excel report..."):
-                        # Base data for the report is the full dataset
-                        report_df = st.session_state.full_df
-
-                        # 1. Apply Verification Status Filter
-                        if verification_selection != 'All':
-                            report_df = report_df[report_df['Verification'] == verification_selection]
-
-                        # 2. Apply Quadrant Filter
-                        if quadrant_selection != Quadrant.ALL.value:
-                            report_df = report_df[report_df['QUADRANT'] == quadrant_selection]
-
-                        params = st.session_state.analysis_params
-                        source_filenames = report_df['SOURCE_FILE'].unique().tolist()
-
-                        excel_bytes = generate_excel_report(
-                            full_df=report_df,
-                            panel_rows=params.get("panel_rows", 7),
-                            panel_cols=params.get("panel_cols", 7),
-                            source_filename=", ".join(source_filenames)
-                        )
-                        st.session_state.report_bytes = excel_bytes
-                        st.rerun()
-
-                st.download_button(
-                    label="Download Full Report",
-                    data=st.session_state.report_bytes if st.session_state.report_bytes is not None else b"",
-                    file_name="full_defect_report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    disabled=st.session_state.report_bytes is None,
-                    help="Click 'Generate Report' first to enable download."
+                st.number_input(
+                    "Panel Rows", min_value=1, value=DEFAULT_PANEL_ROWS,
+                    help="Number of vertical units in a single quadrant.",
+                    key="panel_rows"
                 )
-        else:
-            # Show disabled controls if no data is loaded
-            with st.expander("📊 Analysis Controls", expanded=True):
-                st.radio("Select View", ViewMode.values(), disabled=True)
-                st.selectbox("Select Quadrant", Quadrant.values(), disabled=True)
-                st.radio("Filter by Verification Status", ["All"], disabled=True)
-            st.divider()
-            with st.expander("📥 Reporting", expanded=True):
-                st.button("Generate Report for Download", disabled=True)
-                st.download_button("Download Full Report", b"", disabled=True)
-
-
-    st.title("📊 Panel Defect Analysis Tool")
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    if submitted:
-        with st.spinner("Loading and analyzing data..."):
-            full_df = load_data(uploaded_files, panel_rows, panel_cols)
-            st.session_state.full_df = full_df
-            st.session_state.analysis_params = {"panel_rows": panel_rows, "panel_cols": panel_cols, "gap_size": GAP_SIZE, "lot_number": lot_number}
-            st.session_state.report_bytes = None
-            st.rerun()
-
-    if st.session_state.get('full_df') is not None:
-        full_df = st.session_state.full_df
-        params = st.session_state.analysis_params
-        panel_rows, panel_cols = params.get("panel_rows", 7), params.get("panel_cols", 7)
-        lot_number = params.get("lot_number", "")
-
-        if full_df.empty:
-            st.error("The loaded data is empty or invalid. Please check the source file and try again.")
-            return
-
-        # --- Apply Filters ---
-        # The verification_selection is now defined directly in the sidebar
-        # and is available here for immediate use.
-        if verification_selection != 'All':
-            filtered_df = full_df[full_df['Verification'] == verification_selection]
-        else:
-            filtered_df = full_df # No filter applied
-
-        # 2. Apply Quadrant Filter on the already-filtered data
-        display_df = filtered_df[filtered_df['QUADRANT'] == quadrant_selection] if quadrant_selection != Quadrant.ALL.value else filtered_df
-
-        # --- VIEW 1: DEFECT MAP ---
-        if view_mode == ViewMode.DEFECT.value:
-            fig = go.Figure()
-            defect_traces = create_defect_traces(display_df)
-            for trace in defect_traces: fig.add_trace(trace)
-
-            plot_shapes = create_grid_shapes(panel_rows, panel_cols, quadrant_selection)
-
-            # --- *** FIX STARTS HERE: Define ranges for all quadrants and conditionally set them *** ---
-            
-            # 1. Define the physical axis ranges for each quadrant
-            q1_x_range = [0, QUADRANT_WIDTH]
-            q1_y_range = [0, QUADRANT_HEIGHT]
-            q2_x_range = [QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE]
-            q2_y_range = [0, QUADRANT_HEIGHT]
-            q3_x_range = [0, QUADRANT_WIDTH]
-            q3_y_range = [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]
-            q4_x_range = [QUADRANT_WIDTH + GAP_SIZE, PANEL_WIDTH + GAP_SIZE]
-            q4_y_range = [QUADRANT_HEIGHT + GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]
-
-            # 2. Set the plot's axis range and tick visibility based on the user's selection
-            if quadrant_selection == Quadrant.ALL.value:
-                x_axis_range = [-GAP_SIZE, PANEL_WIDTH + GAP_SIZE]
-                y_axis_range = [-GAP_SIZE, PANEL_HEIGHT + GAP_SIZE]
-                show_ticks = True
-            else:
-                show_ticks = False # Hide tick labels in zoom view for clarity
-                if quadrant_selection == Quadrant.Q1.value:
-                    x_axis_range, y_axis_range = q1_x_range, q1_y_range
-                elif quadrant_selection == Quadrant.Q2.value:
-                    x_axis_range, y_axis_range = q2_x_range, q2_y_range
-                elif quadrant_selection == Quadrant.Q3.value:
-                    x_axis_range, y_axis_range = q3_x_range, q3_y_range
-                else: # Q4
-                    x_axis_range, y_axis_range = q4_x_range, q4_y_range
-
-            # --- *** FIX ENDS HERE *** ---
-
-            cell_width = QUADRANT_WIDTH / panel_cols
-            cell_height = QUADRANT_HEIGHT / panel_rows
-            x_tick_vals_q1 = [(i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-            x_tick_vals_q2 = [(QUADRANT_WIDTH + GAP_SIZE) + (i * cell_width) + (cell_width / 2) for i in range(panel_cols)]
-            x_tick_vals = x_tick_vals_q1 + x_tick_vals_q2
-            y_tick_vals_q1 = [(i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-            y_tick_vals_q3 = [(QUADRANT_HEIGHT + GAP_SIZE) + (i * cell_height) + (cell_height / 2) for i in range(panel_rows)]
-            y_tick_vals = y_tick_vals_q1 + y_tick_vals_q3
-            x_tick_text = list(range(panel_cols * 2))
-            y_tick_text = list(range(panel_rows * 2))
-
-            fig.update_layout(
-                title=dict(text=f"Panel Defect Map - Quadrant: {quadrant_selection} ({len(display_df)} Defects)", font=dict(color=TEXT_COLOR), x=0.5, xanchor='center'),
-                xaxis=dict(title="Unit Column Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=x_tick_vals if show_ticks else [], ticktext=x_tick_text if show_ticks else [], range=x_axis_range, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-                yaxis=dict(title="Unit Row Index", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR), tickvals=y_tick_vals if show_ticks else [], ticktext=y_tick_text if show_ticks else [], range=y_axis_range, scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False, showline=True, linewidth=3, linecolor=GRID_COLOR, mirror=True),
-                plot_bgcolor=PLOT_AREA_COLOR, paper_bgcolor=BACKGROUND_COLOR, shapes=plot_shapes,
-                legend=dict(title_font=dict(color=TEXT_COLOR), font=dict(color=TEXT_COLOR), x=1.02, y=1, xanchor='left', yanchor='top'),
-                hoverlabel=dict(bgcolor="#4A4A4A", font_size=14, font_family="sans-serif"),
-                height=800
-            )
-
-            if lot_number and quadrant_selection == Quadrant.ALL.value:
-                fig.add_annotation(x=PANEL_WIDTH + GAP_SIZE, y=PANEL_HEIGHT + GAP_SIZE, text=f"<b>Lot #: {lot_number}</b>", showarrow=False, font=dict(size=14, color=TEXT_COLOR), align="right", xanchor="right", yanchor="bottom")
-
-            # Add verification summary annotation
-            if not display_df.empty:
-                verification_counts = display_df['Verification'].value_counts()
-                true_count = int(verification_counts.get('T', 0))
-                false_count = int(verification_counts.get('F', 0))
-                ta_count = int(verification_counts.get('TA', 0))
-
-                annotation_text = (
-                    f"<b>Verification Summary</b><br>"
-                    f"True (T): {true_count}<br>"
-                    f"False (F): {false_count}<br>"
-                    f"Acceptable (TA): {ta_count}"
+                st.number_input(
+                    "Panel Columns", min_value=1, value=DEFAULT_PANEL_COLS,
+                    help="Number of horizontal units in a single quadrant.",
+                    key="panel_cols"
                 )
 
                 fig.add_annotation(
@@ -389,41 +230,104 @@ def main() -> None:
                     kpi_df = kpi_df[['Quadrant', 'Total Defects', 'True (T)', 'False (F)', 'Acceptable (TA)', 'True Defective Cells', 'Yield']]
                     st.dataframe(kpi_df, width='stretch')
                 else:
-                    st.info("No data to display for the quarterly breakdown based on current filters.")
+                    store.selected_layer = None
 
-                st.divider()
-                st.markdown("### Defect Verification Status by Quadrant")
+                # Calculate TOTAL OFFSET for Plotting
+                # Symmetrical Logic: Start Position of Q1 = FixedOffset + DynGap (Left of Q1)
+                total_off_x_struct = off_x_struct + dyn_gap_x
+                total_off_y_struct = off_y_struct + dyn_gap_y
 
-                # The chart should be based on the data as it is filtered by the controls
-                if not display_df.empty:
-                    fig = go.Figure()
-                    verification_traces = create_verification_status_chart(display_df)
-                    for trace in verification_traces:
-                        fig.add_trace(trace)
+                store.analysis_params = {
+                    "panel_rows": rows,
+                    "panel_cols": cols,
+                    "panel_width": p_width,
+                    "panel_height": p_height,
+                    "gap_x": effective_gap_x, # Use effective gap for plotting logic
+                    "gap_y": effective_gap_y,
+                    "gap_size": effective_gap_x, # Backwards compatibility
+                    "lot_number": lot,
+                    "process_comment": comment,
+                    # IMPORTANT: Use Structural Offset for drawing the grid in the Frame
+                    "offset_x": total_off_x_struct,
+                    "offset_y": total_off_y_struct,
 
-                    fig.update_layout(
-                        title=dict(text="Verification Status by Defect Type and Quadrant", font=dict(color=TEXT_COLOR), x=0.5),
-                        barmode='stack',  # This creates the stacked effect for T/F/TA
-                        xaxis=dict(
-                            title="Defect Type & Quadrant",
-                            title_font=dict(color=TEXT_COLOR),
-                            tickfont=dict(color=TEXT_COLOR)
-                            # The multi-level category is handled by the data structure
-                        ),
-                        yaxis=dict(title="Count", title_font=dict(color=TEXT_COLOR), tickfont=dict(color=TEXT_COLOR)),
-                        plot_bgcolor=PLOT_AREA_COLOR,
-                        paper_bgcolor=BACKGROUND_COLOR,
-                        legend=dict(title="Verification Status", font=dict(color=TEXT_COLOR)),
-                        height=600
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No data to display for the verification status chart based on current filters.")
+                    # Store Visual Origins for Axis Correction
+                    "visual_origin_x": visual_origin_x,
+                    "visual_origin_y": visual_origin_y,
 
+                    "dyn_gap_x": dyn_gap_x,
+                    "dyn_gap_y": dyn_gap_y,
 
-    else:
-        st.header("Welcome to the Panel Defect Analysis Tool!")
-        st.info("To get started, upload an Excel file or use the default sample data, then click 'Run Analysis'.")
+                    # Store Structural Fixed Offsets for Inner Border Drawing
+                    "fixed_offset_x": off_x_struct,
+                    "fixed_offset_y": off_y_struct
+                }
+                store.report_bytes = None
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.form_submit_button("🚀 Run", on_click=on_run_analysis)
+
+            with c2:
+                # Reset Button logic integrated into the form area (but form_submit_button is primary action)
+                # Since we cannot put a standard button inside a form that triggers a rerun cleanly without submitting the form,
+                # we will use another form_submit_button or place it outside if strictly required.
+                # However, user asked "inside Data Source & Configuration".
+                # Standard st.button inside a form behaves as a submit button.
+
+                def on_reset():
+                    store.clear_all()
+                    # Re-initialize uploader_key immediately after clearing state
+                    # to prevent KeyError on rerun or subsequent access
+                    if "uploader_key" not in st.session_state:
+                        st.session_state["uploader_key"] = 0
+
+                    # Increment key to recreate file uploader widget (effectively clearing it)
+                    st.session_state["uploader_key"] += 1
+                    # Rerun will happen automatically after callback
+
+                st.form_submit_button("🔄 Reset", on_click=on_reset, type="secondary")
+
+        # --- 2. Appearance & Style (Expander) ---
+        with st.expander("🎨 Appearance & Style", expanded=False):
+            # Create PlotTheme inputs and update session state immediately
+            bg_color = st.color_picker("Background Color", value=DEFAULT_THEME.background_color, key="style_bg")
+            plot_color = st.color_picker("Plot Area Color", value=DEFAULT_THEME.plot_area_color, key="style_plot")
+            panel_color = st.color_picker("Panel Color", value=DEFAULT_THEME.panel_background_color, key="style_panel")
+            axis_color = st.color_picker("Axis Color", value=DEFAULT_THEME.axis_color, key="style_axis")
+            text_color = st.color_picker("Text Color", value=DEFAULT_THEME.text_color, key="style_text")
+            unit_color = st.color_picker("Unit Color", value=DEFAULT_THEME.unit_face_color, key="style_unit")
+            gap_color = st.color_picker("Gap Color", value=DEFAULT_THEME.inner_gap_color, key="style_gap")
+
+            # Construct Theme Object
+            current_theme = PlotTheme(
+                background_color=bg_color,
+                plot_area_color=plot_color,
+                panel_background_color=panel_color,
+                axis_color=axis_color,
+                text_color=text_color,
+                # Use user selection
+                unit_face_color=unit_color,
+                unit_edge_color=axis_color, # Match axis for grid edges
+                inner_gap_color=gap_color
+            )
+
+            # Store in session state for Views to access
+            st.session_state['plot_theme'] = current_theme
+
+    # --- Main Content Area ---
+    # Header removed to save space
+    # st.title("📊 Panel Defect Analysis Tool")
+
+    # Render Navigation (Triggers full rerun to update Sidebar context)
+    view_manager.render_navigation()
+
+    @st.fragment
+    def render_chart_area():
+        # Render Main View (Chart Area) - Isolated updates
+        view_manager.render_main_view()
+
+    render_chart_area()
 
 if __name__ == '__main__':
     main()
