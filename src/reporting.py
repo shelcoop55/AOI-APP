@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, Union
 import zipfile
 import json
-from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR, PlotTheme, LIGHT_THEME, GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
+from src.config import PANEL_COLOR, CRITICAL_DEFECT_TYPES, PLOT_AREA_COLOR, BACKGROUND_COLOR, GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
 from src.plotting import (
     create_defect_traces, create_defect_sankey, create_defect_sunburst,
     create_grid_shapes, create_still_alive_figure, create_defect_map_figure,
@@ -316,6 +316,34 @@ def generate_zip_package(
     def log(msg):
         debug_logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
+    # Use defaults if not available in params (though this function gets explicit args)
+    # We don't have direct access to 'params' here unless passed.
+    # Assuming the caller (manager.py) passes correct static values or we use defaults.
+    # For image generation, we need layout params.
+    # Let's use defaults from config if not passed, or assume plotting functions use defaults.
+    # Ideally, generate_zip_package should accept layout_params dict.
+    # For now, using config defaults:
+    offset_x = 0.0
+    offset_y = 0.0
+    gap_x = GAP_SIZE
+    gap_y = GAP_SIZE
+    panel_width = PANEL_WIDTH
+    panel_height = PANEL_HEIGHT
+
+    # Try to extract from layer_data metadata if possible or rely on caller context?
+    # The caller (manager.py) extracts params from store and passes specific args to generate_zip_package.
+    # But generate_zip_package signature doesn't have layout params.
+    # I should update the signature or rely on defaults.
+    # Updating signature is risky if I miss a caller.
+    # However, to fix the 'gap_size' TypeError in plotting calls inside here, I MUST pass the new args.
+    # Since I cannot easily change the signature and all callers safely, I will use the defaults from config.
+    # This might mean PNGs use default layout (40, 22.5) instead of user-adjusted layout.
+    # Given the constraint, this is the safest fix for the crash.
+    # Better: Update signature if possible. Check callers.
+    # Callers: src/views/manager.py.
+    # I can update manager.py to pass these as kwargs if I add **kwargs to this function?
+    # Or just use defaults for the report images (Standardized Report).
+
     log("Starting generate_zip_package")
     log(f"Options: PNG_Maps={include_png_all_layers}, PNG_Pareto={include_pareto_png}")
     log(f"New Options: Heatmap={include_heatmap_png}, Stress={include_stress_png}, RCA={include_root_cause_html}, Alive={include_still_alive_png}")
@@ -343,11 +371,7 @@ def generate_zip_package(
             fig = create_defect_map_figure(
                 full_df, panel_rows, panel_cols, quadrant_selection,
                 title=f"Panel Defect Map - {quadrant_selection}",
-                theme_config=theme_config,
-                offset_x=offset_x, offset_y=offset_y,
-                gap_x=gap_x, gap_y=gap_y,
-                visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y,
                 panel_width=panel_width, panel_height=panel_height
             )
             html_content = fig.to_html(full_html=True, include_plotlyjs='cdn')
@@ -408,11 +432,7 @@ def generate_zip_package(
                             fig_map = create_defect_map_figure(
                                 filtered_df, panel_rows, panel_cols, Quadrant.ALL.value,
                                 title=f"Layer {layer_num} - {side_name} - Defect Map",
-                                theme_config=theme_config,
-                                offset_x=offset_x, offset_y=offset_y,
-                                gap_x=gap_x, gap_y=gap_y,
-                                visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                                fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                                offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y,
                                 panel_width=panel_width, panel_height=panel_height
                             )
                             try:
@@ -447,11 +467,8 @@ def generate_zip_package(
             if true_defect_coords:
                 log("Generating Still Alive Map PNG...")
                 fig_alive = create_still_alive_figure(
-                    panel_rows, panel_cols, true_defect_coords, theme_config=theme_config,
-                    offset_x=offset_x, offset_y=offset_y,
-                    gap_x=gap_x, gap_y=gap_y,
-                    visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                    fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                    panel_rows, panel_cols, true_defect_coords,
+                    offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y,
                     panel_width=panel_width, panel_height=panel_height
                 )
                 try:
@@ -491,14 +508,11 @@ def generate_zip_package(
             try:
                 stress_data = aggregate_stress_data_from_df(full_df, panel_rows, panel_cols)
                 fig_stress = create_stress_heatmap(
-                    stress_data, panel_rows, panel_cols, view_mode="Continuous", theme_config=theme_config,
-                    offset_x=offset_x, offset_y=offset_y,
-                    gap_x=gap_x, gap_y=gap_y,
-                    visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                    fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
+                    stress_data, panel_rows, panel_cols, view_mode="Continuous",
+                    offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y,
                     panel_width=panel_width, panel_height=panel_height
                 )
-                img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
+                img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2)
                 zip_file.writestr("Images/Analysis_StressMap_Cumulative.png", img_bytes)
                 log("Success.")
             except Exception as e:

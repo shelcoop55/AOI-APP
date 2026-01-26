@@ -7,30 +7,23 @@ including color themes and the method for loading defect-specific styles.
 from dataclasses import dataclass
 
 # --- Physical Constants (in mm) ---
-# Hardcoded Total Frame Dimensions as per user request
+# Hardcoded Total Frame Dimensions as per user request (Copper Grid Panel)
 FRAME_WIDTH = 510
 FRAME_HEIGHT = 515
 
-# Default Configuration Values (Copper Grid Panel Spec)
-# Updated to align with specific user guide:
-# Margins 13.5mm (X) and 15.0mm (Y), Gaps 3.0mm, Quadrants 235x235mm.
+# Default Configuration Values (Copper Spec)
 DEFAULT_OFFSET_X = 13.5
 DEFAULT_OFFSET_Y = 15.0
 DEFAULT_GAP_X = 3.0
 DEFAULT_GAP_Y = 3.0
 
-# Default Dynamic Gaps (Updated per user request)
-DYNAMIC_GAP_X = 5.0
-DYNAMIC_GAP_Y = 3.5
-
-DEFAULT_PANEL_ROWS = 6
-DEFAULT_PANEL_COLS = 6
+# Inter-Unit Gap (Gap between small units inside a quadrant)
 INTER_UNIT_GAP = 0.25
 
 # Active Panel Dimensions (Calculated Defaults)
-# Derived from Quadrant Width 235mm * 2 = 470mm
-PANEL_WIDTH = 470
-PANEL_HEIGHT = 470
+# Logic: Active = Total - (2 * Offset) - Gap
+PANEL_WIDTH = FRAME_WIDTH - (2 * DEFAULT_OFFSET_X) - DEFAULT_GAP_X  # 480
+PANEL_HEIGHT = FRAME_HEIGHT - (2 * DEFAULT_OFFSET_Y) - DEFAULT_GAP_Y # 482
 
 # Legacy Gap Constant (for backward compatibility)
 GAP_SIZE = DEFAULT_GAP_X
@@ -39,53 +32,17 @@ GAP_SIZE = DEFAULT_GAP_X
 QUADRANT_WIDTH = PANEL_WIDTH / 2
 QUADRANT_HEIGHT = PANEL_HEIGHT / 2
 
-# --- Theme Configuration ---
-@dataclass
-class PlotTheme:
-    background_color: str
-    plot_area_color: str
-    panel_background_color: str
-    axis_color: str
-    text_color: str
+# --- Style Theme: 12x12 Copper Grid Panel ---
+# This palette is designed to look like a copper-clad panel from the PCB/IC Substrate industry.
 
-    # Grid colors derived from panel/axis usually
-    unit_face_color: str = '#F4B486' # Light Copper/Peach
-    unit_edge_color: str = '#8B4513' # Saddle Brown
+PANEL_COLOR = '#C87533'      # Rich Copper (Background/Outer/Gaps)
+UNIT_FACE_COLOR = '#F4B486'  # Light Copper/Peach (Unit Faces)
+UNIT_EDGE_COLOR = '#8B4513'  # Saddle Brown (Unit Edge/Stroke)
+TEXT_COLOR = '#5A2D0C'       # Dark Bronze (Text)
 
-    # Inner Border/Gap Color
-    inner_gap_color: str = '#000000'
-
-# Default Theme (Dark Mode / Copper)
-DEFAULT_THEME = PlotTheme(
-    background_color='#2C3E50',       # Dark Blue-Grey
-    plot_area_color='#333333',        # Dark Grey
-    panel_background_color='#C87533', # Rich Copper
-    axis_color='#8B4513',             # Saddle Brown
-    text_color='#FFFFFF',             # White
-    inner_gap_color='#000000'         # Default Black
-)
-
-# Light Theme (For Reporting/Printing)
-LIGHT_THEME = PlotTheme(
-    background_color='#FFFFFF',       # White
-    plot_area_color='#F0F2F6',        # Streamlit Light Grey
-    panel_background_color='#C87533', # Rich Copper (Keep Identity)
-    axis_color='#333333',             # Dark Grey for grid
-    text_color='#000000',             # Black
-    inner_gap_color='#E5E5E5'         # Light Grey
-)
-
-# --- Legacy Constants (Backward Compatibility) ---
-# These are used if no dynamic theme is passed
-PANEL_COLOR = DEFAULT_THEME.panel_background_color
-PANEL_BACKGROUND_COLOR = DEFAULT_THEME.panel_background_color
-UNIT_FACE_COLOR = DEFAULT_THEME.unit_face_color
-UNIT_EDGE_COLOR = DEFAULT_THEME.unit_edge_color
-GRID_COLOR = DEFAULT_THEME.axis_color # Often same as axis
-AXIS_TEXT_COLOR = DEFAULT_THEME.text_color # Often same as text
-BACKGROUND_COLOR = DEFAULT_THEME.background_color
-PLOT_AREA_COLOR = DEFAULT_THEME.plot_area_color
-TEXT_COLOR = DEFAULT_THEME.text_color
+GRID_COLOR = UNIT_EDGE_COLOR # Map legacy grid color to unit edge
+BACKGROUND_COLOR = '#FFFFFF' # White background as requested
+PLOT_AREA_COLOR = '#FFFFFF'  # White plot area to match background
 
 # Colors for the "Still Alive" yield map
 ALIVE_CELL_COLOR = '#2ECC71' # A vibrant green for cells without "True" defects.

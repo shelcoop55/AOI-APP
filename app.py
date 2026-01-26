@@ -56,12 +56,12 @@ def main() -> None:
                     key=uploader_key
                 )
                 st.number_input(
-                    "Panel Rows", min_value=1, value=DEFAULT_PANEL_ROWS,
+                    "Panel Rows", min_value=1, value=6, # Default 6x6 per user spec
                     help="Number of vertical units in a single quadrant.",
                     key="panel_rows"
                 )
                 st.number_input(
-                    "Panel Columns", min_value=1, value=DEFAULT_PANEL_COLS,
+                    "Panel Columns", min_value=1, value=6, # Default 6x6 per user spec
                     help="Number of horizontal units in a single quadrant.",
                     key="panel_cols"
                 )
@@ -92,16 +92,19 @@ def main() -> None:
                 # Used to be: c_dim1, c_dim2 inputs for Panel Width/Height
                 # Now using Frame Width/Height (510/515) internally for calculation.
 
-                # 2. Origins (Structrual Margins) - REMOVED FROM UI
-                # We now use DEFAULT_OFFSET_X (13.5) and DEFAULT_OFFSET_Y (15.0) hardcoded in config.py
-                # This ensures the panel structure is fixed.
+                # 2. Origins (Renamed from Offsets)
+                c_off1, c_off2 = st.columns(2)
+                with c_off1:
+                    st.number_input("X Origin (mm)", value=DEFAULT_OFFSET_X, step=0.1, key="offset_x", help="Shift origin X by this amount.")
+                with c_off2:
+                    st.number_input("Y Origin (mm)", value=DEFAULT_OFFSET_Y, step=0.1, key="offset_y", help="Shift origin Y by this amount.")
 
                 # 3. Dynamic Gaps
                 c_gap1, c_gap2 = st.columns(2)
                 with c_gap1:
-                    st.number_input("Dynamic Gap X (mm)", value=float(DYNAMIC_GAP_X), step=1.0, min_value=0.0, key="dyn_gap_x", help="Dynamic Horizontal Gap.")
+                    st.number_input("Gap X (mm)", value=float(DEFAULT_GAP_X), step=0.1, min_value=0.0, key="gap_x", help="Horizontal gap between quadrants.")
                 with c_gap2:
-                    st.number_input("Dynamic Gap Y (mm)", value=float(DYNAMIC_GAP_Y), step=1.0, min_value=0.0, key="dyn_gap_y", help="Dynamic Vertical Gap.")
+                    st.number_input("Gap Y (mm)", value=float(DEFAULT_GAP_Y), step=0.1, min_value=0.0, key="gap_y", help="Vertical gap between quadrants.")
 
             # Callback for Analysis
             def on_run_analysis():

@@ -3,7 +3,7 @@ import pandas as pd
 from src.state import SessionStore
 from src.data_handler import prepare_multi_layer_data
 from src.plotting import create_multi_layer_defect_map
-from src.config import GAP_SIZE
+from src.config import GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT
 
 def render_multi_layer_view(store: SessionStore, selected_layers: list, selected_sides: list, theme_config=None):
     # Header removed to save space
@@ -62,24 +62,16 @@ def render_multi_layer_view(store: SessionStore, selected_layers: list, selected
         offset_y = params.get("offset_y", 0.0)
         gap_x = params.get("gap_x", GAP_SIZE)
         gap_y = params.get("gap_y", GAP_SIZE)
-        panel_width = params.get("panel_width", 410)
-        panel_height = params.get("panel_height", 452)
-        visual_origin_x = params.get("visual_origin_x", 0.0)
-        visual_origin_y = params.get("visual_origin_y", 0.0)
-        fixed_offset_x = params.get("fixed_offset_x", 0.0)
-        fixed_offset_y = params.get("fixed_offset_y", 0.0)
+
+        # Use dynamic panel dimensions if available
+        panel_width = params.get("panel_width", PANEL_WIDTH)
+        panel_height = params.get("panel_height", PANEL_HEIGHT)
 
         fig = create_multi_layer_defect_map(
             combined_df, panel_rows, panel_cols,
-            flip_back=flip_back,
-            offset_x=offset_x, offset_y=offset_y,
+            flip_back=flip_back, offset_x=offset_x, offset_y=offset_y,
             gap_x=gap_x, gap_y=gap_y,
-            panel_width=panel_width, panel_height=panel_height,
-            theme_config=theme_config,
-            visual_origin_x=visual_origin_x,
-            visual_origin_y=visual_origin_y,
-            fixed_offset_x=fixed_offset_x,
-            fixed_offset_y=fixed_offset_y
+            panel_width=panel_width, panel_height=panel_height
         )
         st.plotly_chart(fig, use_container_width=True)
     else:

@@ -100,13 +100,6 @@ class HeatmapTool(AnalysisTool):
         offset_y = params.get("offset_y", 0.0)
         gap_x = params.get("gap_x", GAP_SIZE)
         gap_y = params.get("gap_y", GAP_SIZE)
-        gap_size = gap_x # Local alias for compatibility with click logic
-
-        # New Params for Visual Shift & Inner Border
-        visual_origin_x = params.get("visual_origin_x", 0.0)
-        visual_origin_y = params.get("visual_origin_y", 0.0)
-        fixed_offset_x = params.get("fixed_offset_x", 0.0)
-        fixed_offset_y = params.get("fixed_offset_y", 0.0)
 
         # Dynamic Panel Size
         panel_width = params.get("panel_width", PANEL_WIDTH)
@@ -185,10 +178,10 @@ class HeatmapTool(AnalysisTool):
 
                         # Correct logic:
                         is_left = (click_x >= offset_x) and (click_x < offset_x + quad_width)
-                        is_right = (click_x > offset_x + quad_width + gap_size)
+                        is_right = (click_x > offset_x + quad_width + gap_x)
 
                         is_bottom = (click_y >= offset_y) and (click_y < offset_y + quad_height)
-                        is_top = (click_y > offset_y + quad_height + gap_size)
+                        is_top = (click_y > offset_y + quad_height + gap_y)
 
                         if is_left and is_bottom: clicked_quad = "Q1"
                         elif is_right and is_bottom: clicked_quad = "Q2"
