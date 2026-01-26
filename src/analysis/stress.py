@@ -61,6 +61,10 @@ class StressMapTool(AnalysisTool):
         # Use panel dimensions from params
         p_width = params.get("panel_width", PANEL_WIDTH)
         p_height = params.get("panel_height", PANEL_HEIGHT)
+        visual_origin_x = params.get("visual_origin_x", 0.0)
+        visual_origin_y = params.get("visual_origin_y", 0.0)
+        fixed_offset_x = params.get("fixed_offset_x", 0.0)
+        fixed_offset_y = params.get("fixed_offset_y", 0.0)
 
         fig = None
 
@@ -70,7 +74,13 @@ class StressMapTool(AnalysisTool):
                 verification_filter=selected_verifs,
                 quadrant_filter=selected_quadrant
             )
-             fig = create_stress_heatmap(stress_data, panel_rows, panel_cols, view_mode=view_mode, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=p_width, panel_height=p_height)
+             fig = create_stress_heatmap(
+                 stress_data, panel_rows, panel_cols, view_mode=view_mode,
+                 offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y,
+                 panel_width=p_width, panel_height=p_height,
+                 visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
+                 fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y
+             )
 
         elif mode_new == "Delta Difference":
             # Delta Difference logic: "Front vs Back" for selected layers
@@ -89,7 +99,13 @@ class StressMapTool(AnalysisTool):
             )
 
             st.info("Delta Difference Mode: Calculating (Front Side - Back Side) for selected layers.")
-            fig = create_delta_heatmap(stress_data_a, stress_data_b, panel_rows, panel_cols, view_mode=view_mode, offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y, panel_width=p_width, panel_height=p_height)
+            fig = create_delta_heatmap(
+                stress_data_a, stress_data_b, panel_rows, panel_cols, view_mode=view_mode,
+                offset_x=offset_x, offset_y=offset_y, gap_x=gap_x, gap_y=gap_y,
+                panel_width=p_width, panel_height=p_height,
+                visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
+                fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y
+            )
 
         if fig:
             st.plotly_chart(fig, use_container_width=True)
