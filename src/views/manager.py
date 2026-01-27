@@ -532,8 +532,10 @@ class ViewManager:
                 params = self.store.analysis_params
 
                 # Construct Geometry Context
-                dyn_gap_x = params.get("gap_x", 3.0)
-                dyn_gap_y = params.get("gap_y", 3.0)
+                # NOTE: "gap_x" in params is the EFFECTIVE gap (Fixed + 2*Dyn).
+                # We need "dyn_gap_x" which is the actual dynamic component.
+                dyn_gap_x = params.get("dyn_gap_x", 3.0)
+                dyn_gap_y = params.get("dyn_gap_y", 3.0)
                 fixed_offset_x = params.get("fixed_offset_x", DEFAULT_OFFSET_X)
                 fixed_offset_y = params.get("fixed_offset_y", DEFAULT_OFFSET_Y)
 
