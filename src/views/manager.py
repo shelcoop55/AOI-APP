@@ -518,9 +518,10 @@ class ViewManager:
             with st.spinner("Generating Package..."):
                 full_df = self.store.layer_data.get_combined_dataframe()
 
-                # Get True Defect Coords (returns dict, convert keys to set)
+                # Get True Defect Coords (returns dict)
                 td_result = get_true_defect_coordinates(self.store.layer_data)
-                true_defect_coords = set(td_result.keys()) if td_result else set()
+                # Pass the full dictionary to the package generator so it can access metadata
+                true_defect_data = td_result if td_result else {}
 
                 # Fetch Theme for Reporting (Optional - for now using defaults/user choice in app state)
                 # Reporting might need to pass theme if PNGs are generated with it.
@@ -549,7 +550,7 @@ class ViewManager:
                     quadrant_selection=self.store.quadrant_selection,
                     verification_selection=self.store.verification_selection,
                     source_filename="Multiple Files",
-                    true_defect_coords=true_defect_coords,
+                    true_defect_data=true_defect_data,
                     ctx=ctx,
                     include_excel=include_excel,
                     include_coords=include_coords,
