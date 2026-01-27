@@ -5,10 +5,10 @@ Handles the generation of the downloadable ZIP package containing reports and im
 import io
 import zipfile
 import json
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, Union, List, Tuple
 from datetime import datetime
 
-from src.core.config import GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT, SAFE_VERIFICATION_VALUES, PlotTheme
+from src.core.config import GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, SAFE_VERIFICATION_VALUES, PlotTheme
 from src.core.models import PanelData
 from src.enums import Quadrant
 from src.io.exporters.excel import generate_excel_report, generate_coordinate_list_report
@@ -29,7 +29,8 @@ def generate_zip_package(
     quadrant_selection: str,
     verification_selection: str,
     source_filename: str,
-    true_defect_coords: set,
+    true_defect_data: Dict[Tuple[int, int], Dict[str, Any]],
+    ctx: Any = None, # Added ctx argument to match call signature
     include_excel: bool = True,
     include_coords: bool = True,
     include_map: bool = True,
@@ -71,7 +72,51 @@ def generate_zip_package(
     log(f"Options: PNG_Maps={include_png_all_layers}, PNG_Pareto={include_pareto_png}")
     log(f"New Options: Heatmap={include_heatmap_png}, Stress={include_stress_png}, RCA={include_root_cause_html}, Alive={include_still_alive_png}")
     log(f"Verification Selection: {verification_selection}")
-    log(f"Layout Params: Offset=({offset_x},{offset_y}), Gap=({gap_x},{gap_y}), FixedOffset=({fixed_offset_x},{fixed_offset_y})")
+    if ctx:
+        offset_x, offset_y = ctx.offset_x, ctx.offset_y
+        gap_x, gap_y = ctx.effective_gap_x, ctx.effective_gap_y
+        visual_origin_x, visual_origin_y = ctx.visual_origin_x, ctx.visual_origin_y
+        panel_width, panel_height = ctx.panel_width, ctx.panel_height
+
+    # --- Detailed Geometry Logging ---
+    if ctx:
+        log("\n--- DETAILED GEOMETRY BREAKDOWN ---")
+
+        # Horizontal
+        q1_start_x = ctx.offset_x
+        q1_width = ctx.quad_width
+        inter_gap_x = ctx.effective_gap_x
+        q2_start_x = q1_start_x + q1_width + inter_gap_x
+        q2_width = ctx.quad_width
+        right_margin = FRAME_WIDTH - (q2_start_x + q2_width)
+
+        log(f"Horizontal (X): Left Margin: {q1_start_x:.2f} mm")
+        log(f"Horizontal (X): Q1 Width: {q1_width:.2f} mm")
+        log(f"Horizontal (X): Inter-Quadrant Gap: {inter_gap_x:.2f} mm")
+        log(f"Horizontal (X): Q2 Width: {q2_width:.2f} mm")
+        log(f"Horizontal (X): Right Margin: {right_margin:.2f} mm")
+
+        # Vertical
+        q1_start_y = ctx.offset_y
+        q1_height = ctx.quad_height
+        inter_gap_y = ctx.effective_gap_y
+        q3_start_y = q1_start_y + q1_height + inter_gap_y
+        q3_height = ctx.quad_height
+        bottom_margin = FRAME_HEIGHT - (q3_start_y + q3_height)
+
+        log(f"Vertical (Y): Top Margin: {q1_start_y:.2f} mm")
+        log(f"Vertical (Y): Q1 Height: {q1_height:.2f} mm")
+        log(f"Vertical (Y): Inter-Quadrant Gap: {inter_gap_y:.2f} mm")
+        log(f"Vertical (Y): Q3 Height: {q3_height:.2f} mm")
+        log(f"Vertical (Y): Bottom Margin: {bottom_margin:.2f} mm")
+
+        # Unit
+        log(f"Unit Dimensions: {ctx.cell_width:.4f} x {ctx.cell_height:.4f} mm")
+
+        log(f"Context Dump: {ctx}")
+        log("-----------------------------------\n")
+    else:
+        log(f"Layout Params: Offset=({offset_x},{offset_y}), Gap=({gap_x},{gap_y}), FixedOffset=({fixed_offset_x},{fixed_offset_y})")
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
 
@@ -85,21 +130,19 @@ def generate_zip_package(
 
         # 2. Coordinate List (CSV/Excel)
         if include_coords:
-            coord_bytes = generate_coordinate_list_report(true_defect_coords)
+            # generate_coordinate_list_report expects a SET of coords if it just lists them,
+            # or maybe it can handle the dict? Let's check its definition.
+            # Assuming it wants keys.
+            coord_bytes = generate_coordinate_list_report(set(true_defect_data.keys()))
             name_suffix = f"_{process_comment}" if process_comment else ""
             zip_file.writestr(f"Defective_Cell_Coordinates{name_suffix}.xlsx", coord_bytes)
 
         # 3. Defect Map (Interactive HTML) - CURRENT VIEW
         if include_map:
             fig = create_defect_map_figure(
-                full_df, panel_rows, panel_cols, quadrant_selection,
+                full_df, panel_rows, panel_cols, ctx, quadrant_selection,
                 title=f"Panel Defect Map - {quadrant_selection}",
-                theme_config=theme_config,
-                offset_x=offset_x, offset_y=offset_y,
-                gap_x=gap_x, gap_y=gap_y,
-                visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
-                panel_width=panel_width, panel_height=panel_height
+                theme_config=theme_config
             )
             html_content = fig.to_html(full_html=True, include_plotlyjs='cdn')
             zip_file.writestr("Defect_Map.html", html_content)
@@ -155,14 +198,9 @@ def generate_zip_package(
                         if include_png_all_layers:
                             log("  Generating Defect Map PNG...")
                             fig_map = create_defect_map_figure(
-                                filtered_df, panel_rows, panel_cols, Quadrant.ALL.value,
+                                filtered_df, panel_rows, panel_cols, ctx, Quadrant.ALL.value,
                                 title=f"Layer {layer_num} - {side_name} - Defect Map",
-                                theme_config=theme_config,
-                                offset_x=offset_x, offset_y=offset_y,
-                                gap_x=gap_x, gap_y=gap_y,
-                                visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                                fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
-                                panel_width=panel_width, panel_height=panel_height
+                                theme_config=theme_config
                             )
                             try:
                                 img_bytes = fig_map.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
@@ -193,15 +231,10 @@ def generate_zip_package(
 
         # 6. Still Alive Map PNG
         if include_still_alive_png or include_png_all_layers:
-            if true_defect_coords:
+            if true_defect_data:
                 log("Generating Still Alive Map PNG...")
                 fig_alive = create_still_alive_figure(
-                    panel_rows, panel_cols, true_defect_coords, theme_config=theme_config,
-                    offset_x=offset_x, offset_y=offset_y,
-                    gap_x=gap_x, gap_y=gap_y,
-                    visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                    fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
-                    panel_width=panel_width, panel_height=panel_height
+                    panel_rows, panel_cols, true_defect_data, ctx, theme_config=theme_config
                 )
                 try:
                     img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
@@ -212,7 +245,7 @@ def generate_zip_package(
                     print(msg)
                     log(f"ERROR: {msg}")
             else:
-                log("Skipping Still Alive Map: No true defect coordinates found.")
+                log("Skipping Still Alive Map: No true defect data found.")
 
         # 7. Additional Analysis Charts
 
@@ -221,12 +254,7 @@ def generate_zip_package(
             try:
                 # Issue 3: Use Smoothed Density Contour Map
                 fig_heat = create_density_contour_map(
-                    full_df, panel_rows, panel_cols, theme_config=theme_config,
-                    offset_x=offset_x, offset_y=offset_y,
-                    gap_x=gap_x, gap_y=gap_y,
-                    visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                    fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
-                    panel_width=panel_width, panel_height=panel_height
+                    full_df, panel_rows, panel_cols, ctx, theme_config=theme_config
                 )
                 img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
                 zip_file.writestr("Images/Analysis_Heatmap.png", img_bytes)
@@ -239,12 +267,7 @@ def generate_zip_package(
             try:
                 stress_data = aggregate_stress_data_from_df(full_df, panel_rows, panel_cols)
                 fig_stress = create_stress_heatmap(
-                    stress_data, panel_rows, panel_cols, view_mode="Continuous", theme_config=theme_config,
-                    offset_x=offset_x, offset_y=offset_y,
-                    gap_x=gap_x, gap_y=gap_y,
-                    visual_origin_x=visual_origin_x, visual_origin_y=visual_origin_y,
-                    fixed_offset_x=fixed_offset_x, fixed_offset_y=fixed_offset_y,
-                    panel_width=panel_width, panel_height=panel_height
+                    stress_data, panel_rows, panel_cols, ctx, view_mode="Continuous", theme_config=theme_config
                 )
                 img_bytes = fig_stress.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
                 zip_file.writestr("Images/Analysis_StressMap_Cumulative.png", img_bytes)

@@ -2,7 +2,7 @@ import streamlit as st
 from typing import List, Optional
 import pandas as pd
 from src.state import SessionStore
-from src.utils import get_bu_name_from_filename
+from src.io.naming import get_bu_name_from_filename
 from src.enums import ViewMode, Quadrant
 from src.views.still_alive import render_still_alive_main
 from src.views.multi_layer import render_multi_layer_view
@@ -518,9 +518,10 @@ class ViewManager:
             with st.spinner("Generating Package..."):
                 full_df = self.store.layer_data.get_combined_dataframe()
 
-                # Get True Defect Coords (returns dict, convert keys to set)
+                # Get True Defect Coords (returns dict)
                 td_result = get_true_defect_coordinates(self.store.layer_data)
-                true_defect_coords = set(td_result.keys()) if td_result else set()
+                # Pass the full dictionary to the package generator so it can access metadata
+                true_defect_data = td_result if td_result else {}
 
                 # Fetch Theme for Reporting (Optional - for now using defaults/user choice in app state)
                 # Reporting might need to pass theme if PNGs are generated with it.
@@ -549,7 +550,7 @@ class ViewManager:
                     quadrant_selection=self.store.quadrant_selection,
                     verification_selection=self.store.verification_selection,
                     source_filename="Multiple Files",
-                    true_defect_coords=true_defect_coords,
+                    true_defect_data=true_defect_data,
                     ctx=ctx,
                     include_excel=include_excel,
                     include_coords=include_coords,
@@ -569,7 +570,7 @@ class ViewManager:
                 st.success("Package generated successfully!")
 
         if self.store.report_bytes:
-            from src.utils import generate_standard_filename
+            from src.io.naming import generate_standard_filename
 
             zip_filename = generate_standard_filename(
                 prefix="Defect_Analysis_Package",
