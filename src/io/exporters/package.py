@@ -5,7 +5,7 @@ Handles the generation of the downloadable ZIP package containing reports and im
 import io
 import zipfile
 import json
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, Union, List, Tuple
 from datetime import datetime
 
 from src.core.config import GAP_SIZE, PANEL_WIDTH, PANEL_HEIGHT, FRAME_WIDTH, FRAME_HEIGHT, SAFE_VERIFICATION_VALUES, PlotTheme
