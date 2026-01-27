@@ -16,6 +16,7 @@ from src.plotting.renderers.maps import (
     create_defect_map_figure, create_still_alive_figure, create_density_contour_map,
     create_stress_heatmap, create_cross_section_heatmap
 )
+from src.plotting.renderers.infographics import create_geometry_infographic
 from src.plotting.renderers.charts import (
     create_pareto_figure, create_defect_sankey, create_defect_sunburst
 )
@@ -49,6 +50,8 @@ def generate_zip_package(
     offset_y: float = 0.0,
     gap_x: float = GAP_SIZE,
     gap_y: float = GAP_SIZE,
+    dyn_gap_x: float = 0.0, # New argument
+    dyn_gap_y: float = 0.0, # New argument
     visual_origin_x: float = 0.0,
     visual_origin_y: float = 0.0,
     fixed_offset_x: float = 0.0,
@@ -80,6 +83,34 @@ def generate_zip_package(
 
     # --- Detailed Geometry Logging ---
     if ctx:
+        # Generate Geometry Infographic (Professional Image)
+        log("Generating Geometry Layout Infographic...")
+        try:
+            fig_geo = create_geometry_infographic(
+                ctx, fixed_offset_x, fixed_offset_y, dyn_gap_x, dyn_gap_y
+            )
+            # Use kaleido for high-quality static image
+            img_bytes = fig_geo.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
+            # Add to ZIP
+            # We put it in root or Images folder? Root is better for immediate visibility as requested.
+            # "so user can immediately see it"
+            # But let's keep Images organized.
+            # Actually, user said "an extra image should be downlod".
+            # putting it in Images/Geometry_Layout.png
+
+            # Or root? Let's put in Images folder to avoid clutter if they unzip.
+            # Actually, "download anything in reporting, an extra image".
+            # This implies alongside the report.
+            # Let's write to Images/Geometry_Infographic.png
+
+            # Wait, writing to zip buffer is done inside the 'with zipfile' block below.
+            # We are outside the block here.
+            # I need to move this logic INSIDE the block or store it.
+            # Let's just generate it inside the block.
+            pass
+        except Exception as e:
+            log(f"Error generating infographic: {e}")
+
         log("\n--- DETAILED GEOMETRY BREAKDOWN ---")
 
         # Horizontal
@@ -90,11 +121,11 @@ def generate_zip_package(
         q2_width = ctx.quad_width
         right_margin = FRAME_WIDTH - (q2_start_x + q2_width)
 
-        log(f"Horizontal (X): Left Margin: {q1_start_x:.2f} mm")
+        log(f"Horizontal (X): Left Margin: {q1_start_x:.2f} mm ({fixed_offset_x} Fixed + {dyn_gap_x} Dynamic)")
         log(f"Horizontal (X): Q1 Width: {q1_width:.2f} mm")
-        log(f"Horizontal (X): Inter-Quadrant Gap: {inter_gap_x:.2f} mm")
+        log(f"Horizontal (X): Inter-Quadrant Gap: {inter_gap_x:.2f} mm ({dyn_gap_x} Dyn + 3.0 Fixed + {dyn_gap_x} Dyn)")
         log(f"Horizontal (X): Q2 Width: {q2_width:.2f} mm")
-        log(f"Horizontal (X): Right Margin: {right_margin:.2f} mm")
+        log(f"Horizontal (X): Right Margin: {right_margin:.2f} mm ({fixed_offset_x} Fixed + {dyn_gap_x} Dynamic)")
 
         # Vertical
         q1_start_y = ctx.offset_y
@@ -104,11 +135,11 @@ def generate_zip_package(
         q3_height = ctx.quad_height
         bottom_margin = FRAME_HEIGHT - (q3_start_y + q3_height)
 
-        log(f"Vertical (Y): Top Margin: {q1_start_y:.2f} mm")
+        log(f"Vertical (Y): Top Margin: {q1_start_y:.2f} mm ({fixed_offset_y} Fixed + {dyn_gap_y} Dynamic)")
         log(f"Vertical (Y): Q1 Height: {q1_height:.2f} mm")
-        log(f"Vertical (Y): Inter-Quadrant Gap: {inter_gap_y:.2f} mm")
+        log(f"Vertical (Y): Inter-Quadrant Gap: {inter_gap_y:.2f} mm ({dyn_gap_y} Dyn + 3.0 Fixed + {dyn_gap_y} Dyn)")
         log(f"Vertical (Y): Q3 Height: {q3_height:.2f} mm")
-        log(f"Vertical (Y): Bottom Margin: {bottom_margin:.2f} mm")
+        log(f"Vertical (Y): Bottom Margin: {bottom_margin:.2f} mm ({fixed_offset_y} Fixed + {dyn_gap_y} Dynamic)")
 
         # Unit
         log(f"Unit Dimensions: {ctx.cell_width:.4f} x {ctx.cell_height:.4f} mm")
@@ -324,6 +355,21 @@ def generate_zip_package(
 
             except Exception as e:
                 msg = f"Failed to generate Root Cause HTML: {e}"
+                print(msg)
+                log(f"ERROR: {msg}")
+
+        # 8. Geometry Infographic
+        if ctx:
+            log("Generating Geometry Infographic...")
+            try:
+                fig_geo = create_geometry_infographic(
+                    ctx, fixed_offset_x, fixed_offset_y, dyn_gap_x, dyn_gap_y
+                )
+                img_bytes = fig_geo.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
+                zip_file.writestr("Geometry_Layout_Infographic.png", img_bytes)
+                log("Success.")
+            except Exception as e:
+                msg = f"Failed to generate Geometry Infographic: {e}"
                 print(msg)
                 log(f"ERROR: {msg}")
 
