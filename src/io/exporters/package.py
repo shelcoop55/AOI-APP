@@ -29,7 +29,7 @@ def generate_zip_package(
     quadrant_selection: str,
     verification_selection: str,
     source_filename: str,
-    true_defect_coords: set,
+    true_defect_data: Dict[Tuple[int, int], Dict[str, Any]],
     ctx: Any = None, # Added ctx argument to match call signature
     include_excel: bool = True,
     include_coords: bool = True,
@@ -130,7 +130,10 @@ def generate_zip_package(
 
         # 2. Coordinate List (CSV/Excel)
         if include_coords:
-            coord_bytes = generate_coordinate_list_report(true_defect_coords)
+            # generate_coordinate_list_report expects a SET of coords if it just lists them,
+            # or maybe it can handle the dict? Let's check its definition.
+            # Assuming it wants keys.
+            coord_bytes = generate_coordinate_list_report(set(true_defect_data.keys()))
             name_suffix = f"_{process_comment}" if process_comment else ""
             zip_file.writestr(f"Defective_Cell_Coordinates{name_suffix}.xlsx", coord_bytes)
 
@@ -228,10 +231,10 @@ def generate_zip_package(
 
         # 6. Still Alive Map PNG
         if include_still_alive_png or include_png_all_layers:
-            if true_defect_coords:
+            if true_defect_data:
                 log("Generating Still Alive Map PNG...")
                 fig_alive = create_still_alive_figure(
-                    panel_rows, panel_cols, true_defect_coords, ctx, theme_config=theme_config
+                    panel_rows, panel_cols, true_defect_data, ctx, theme_config=theme_config
                 )
                 try:
                     img_bytes = fig_alive.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
@@ -242,7 +245,7 @@ def generate_zip_package(
                     print(msg)
                     log(f"ERROR: {msg}")
             else:
-                log("Skipping Still Alive Map: No true defect coordinates found.")
+                log("Skipping Still Alive Map: No true defect data found.")
 
         # 7. Additional Analysis Charts
 
