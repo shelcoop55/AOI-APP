@@ -994,7 +994,8 @@ def create_animated_cross_section_heatmap(
                 z=z_data,
                 text=text_data,
                 texttemplate="%{text}",
-                textfont={"color": "white"}
+                textfont={"color": "white"},
+                colorscale='Inferno'
             )],
             name=str(i),
             layout=go.Layout(title_text=f"Root Cause - {slice_name} Slice: {i}")
