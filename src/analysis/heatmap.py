@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from src.analysis.base import AnalysisTool
-from src.plotting.renderers.maps import create_density_contour_map
+from src.plotting.renderers.maps import create_density_contour_map, create_unit_grid_heatmap
 from src.core.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT
 from src.views.utils import get_geometry_context
 
@@ -90,6 +90,14 @@ class HeatmapTool(AnalysisTool):
         smoothing = st.session_state.get("heatmap_sigma", 5) # Slider from manager.py
         saturation = 0 # Removed from context UI, default 0 or add if needed.
 
+        # New: Toggle for Heatmap Type
+        heatmap_type = st.radio(
+            "Visualization Type",
+            ["Smoothed Contour", "Unit Grid"],
+            horizontal=True,
+            key="heatmap_viz_type_toggle"
+        )
+
         # 5. View Mode
         view_mode = "Continuous"
 
@@ -115,22 +123,37 @@ class HeatmapTool(AnalysisTool):
         )
 
         if not combined_heatmap_df.empty:
-            flip_back = st.session_state.get("flip_back_side", True)
-            contour_fig = create_density_contour_map(
-                combined_heatmap_df, panel_rows, panel_cols,
-                ctx=ctx,
-                show_points=False,
-                smoothing_factor=smoothing * 5, # Scale slider 1-20 to meaningful param
-                saturation_cap=saturation,
-                show_grid=False,
-                view_mode=view_mode,
-                flip_back=flip_back,
-                quadrant_selection=selected_quadrant
-            )
+            # Retrieve Theme
+            current_theme = st.session_state.get('plot_theme', None)
 
-            # --- INTERACTIVITY: CLICK TO ZOOM ---
-            # Enable selection events to capture clicks
-            selection = st.plotly_chart(contour_fig, use_container_width=True, on_select="rerun", selection_mode="points")
+            if heatmap_type == "Unit Grid":
+                # Render Unit Grid Heatmap (Uses 'Inferno')
+                fig = create_unit_grid_heatmap(
+                    combined_heatmap_df,
+                    panel_rows,
+                    panel_cols,
+                    theme_config=current_theme
+                )
+                selection = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
+            else:
+                # Render Smoothed Contour (Uses 'Plasma')
+                flip_back = st.session_state.get("flip_back_side", True)
+                fig = create_density_contour_map(
+                    combined_heatmap_df, panel_rows, panel_cols,
+                    ctx=ctx,
+                    show_points=False,
+                    smoothing_factor=smoothing * 5, # Scale slider 1-20 to meaningful param
+                    saturation_cap=saturation,
+                    show_grid=False,
+                    view_mode=view_mode,
+                    flip_back=flip_back,
+                    quadrant_selection=selected_quadrant,
+                    theme_config=current_theme
+                )
+
+                # --- INTERACTIVITY: CLICK TO ZOOM ---
+                # Enable selection events to capture clicks
+                selection = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
 
             if selection and selection.selection and selection.selection["points"]:
                 # Only process if we are in "All" mode (Drill Down)
