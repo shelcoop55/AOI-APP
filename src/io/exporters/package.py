@@ -15,7 +15,7 @@ from src.io.exporters.excel import generate_excel_report, generate_coordinate_li
 from src.plotting.renderers.maps import (
     create_defect_map_figure, create_still_alive_figure, create_density_contour_map,
     create_stress_heatmap, create_cross_section_heatmap,
-    create_animated_cross_section_heatmap
+    create_animated_cross_section_heatmap, create_unit_grid_heatmap
 )
 from src.plotting.renderers.infographics import create_geometry_infographic
 from src.plotting.renderers.charts import (
@@ -283,17 +283,25 @@ def generate_zip_package(
         # 7. Additional Analysis Charts
 
         if include_heatmap_png:
-            log("Generating Heatmap PNG (Global)...")
+            log("Generating Heatmap PNGs (Global)...")
             try:
-                # Issue 3: Use Smoothed Density Contour Map
+                # 1. Smoothed Density Contour Map
                 # Fix: Hide Grid for clean export
-                fig_heat = create_density_contour_map(
+                fig_heat_smooth = create_density_contour_map(
                     full_df, panel_rows, panel_cols, ctx,
                     theme_config=theme_config,
                     show_grid=False
                 )
-                img_bytes = fig_heat.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
-                zip_file.writestr("Images/Analysis_Heatmap.png", img_bytes)
+                img_bytes_smooth = fig_heat_smooth.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
+                zip_file.writestr("Images/Analysis_Heatmap_Smoothed.png", img_bytes_smooth)
+
+                # 2. Unit Grid Heatmap
+                fig_heat_grid = create_unit_grid_heatmap(
+                    full_df, panel_rows, panel_cols, theme_config=theme_config
+                )
+                img_bytes_grid = fig_heat_grid.to_image(format="png", engine="kaleido", scale=2, width=1200, height=1200)
+                zip_file.writestr("Images/Analysis_Heatmap_Grid.png", img_bytes_grid)
+
                 log("Success.")
             except Exception as e:
                 log(f"ERROR Generating Heatmap: {e}")
