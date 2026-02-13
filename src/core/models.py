@@ -6,8 +6,11 @@ from dataclasses import dataclass
 import pandas as pd
 import numpy as np
 import uuid
+import logging
 from typing import Dict, List, Optional
-from src.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT, INTER_UNIT_GAP
+from src.core.config import PANEL_WIDTH, PANEL_HEIGHT, GAP_SIZE, QUADRANT_WIDTH, QUADRANT_HEIGHT, INTER_UNIT_GAP
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class BuildUpLayer:
@@ -121,7 +124,7 @@ class BuildUpLayer:
                 else:
                     use_spatial_coords = False
             except Exception as e:
-                print(f"Spatial mapping failed: {e}")
+                logger.warning(f"Spatial mapping failed: {e}")
                 use_spatial_coords = False
 
         if use_spatial_coords:
@@ -209,11 +212,13 @@ class PanelData:
         self._layers: Dict[int, Dict[str, BuildUpLayer]] = {}
         # Unique ID for caching/hashing purposes
         self.id = uuid.uuid4().hex
+        self._cached_combined_df: Optional[pd.DataFrame] = None
 
     def add_layer(self, layer: BuildUpLayer):
         if layer.layer_num not in self._layers:
             self._layers[layer.layer_num] = {}
         self._layers[layer.layer_num][layer.side] = layer
+        self._cached_combined_df = None  # Invalidate cache
 
     def get_layer(self, layer_num: int, side: str) -> Optional[BuildUpLayer]:
         return self._layers.get(layer_num, {}).get(side)
@@ -226,6 +231,10 @@ class PanelData:
 
     def get_combined_dataframe(self, filter_func=None) -> pd.DataFrame:
         """Returns a concatenated DataFrame of all layers."""
+        # Optimization: Return cached result if no filter is applied
+        if filter_func is None and self._cached_combined_df is not None:
+            return self._cached_combined_df
+
         dfs = []
         for layer_num in self._layers:
             for side in self._layers[layer_num]:
@@ -243,8 +252,15 @@ class PanelData:
                     dfs.append(df)
 
         if not dfs:
-            return pd.DataFrame()
-        return pd.concat(dfs, ignore_index=True)
+            res = pd.DataFrame()
+        else:
+            res = pd.concat(dfs, ignore_index=True)
+
+        # Cache result if no filter was applied
+        if filter_func is None:
+            self._cached_combined_df = res
+
+        return res
 
     def __bool__(self):
         return bool(self._layers)

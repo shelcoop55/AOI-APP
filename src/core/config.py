@@ -65,6 +65,16 @@ DEFAULT_THEME = PlotTheme(
     inner_gap_color='#000000'         # Default Black
 )
 
+# Light Theme (For Reporting/Printing)
+LIGHT_THEME = PlotTheme(
+    background_color='#FFFFFF',       # White
+    plot_area_color='#F0F2F6',        # Streamlit Light Grey
+    panel_background_color='#C87533', # Rich Copper (Keep Identity)
+    axis_color='#333333',             # Dark Grey for grid
+    text_color='#000000',             # Black
+    inner_gap_color='#E5E5E5'         # Light Grey
+)
+
 # --- Legacy Constants (Backward Compatibility) ---
 # These are used if no dynamic theme is passed
 PANEL_COLOR = DEFAULT_THEME.panel_background_color
@@ -117,6 +127,9 @@ FALLBACK_COLORS = NEON_PALETTE + [
 # --- Reporting Constants ---
 CRITICAL_DEFECT_TYPES = ["Short", "Cut/Short"]
 
+# --- Input Validation Constants ---
+FILENAME_PATTERN = r"BU-(\d{2})\s*([FB])"
+
 # --- Verification Logic ---
 # Values in the 'Verification' column that are considered "Safe" (Non-Defects).
 # Any value NOT in this list is treated as a "True Defect" that impacts yield.
@@ -132,8 +145,32 @@ SAFE_VERIFICATION_VALUES = [
 
 # --- Defect Styling (Loaded from JSON) ---
 import json
+import logging
+import plotly.colors as pcolors
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
+
+def get_extended_palette(n: int) -> List[str]:
+    """
+    Generates a list of n distinct colors.
+    Uses a combination of high-contrast qualitative palettes to ensure uniqueness.
+    """
+    # Combine robust palettes
+    base_palette = (
+        pcolors.qualitative.Plotly +
+        pcolors.qualitative.D3 +
+        pcolors.qualitative.G10 +
+        pcolors.qualitative.T10 +
+        pcolors.qualitative.Alphabet +
+        pcolors.qualitative.Dark24 +
+        pcolors.qualitative.Light24
+    )
+
+    if n <= len(base_palette):
+        return base_palette[:n]
+
+    # If we need more, cycle them
+    return [base_palette[i % len(base_palette)] for i in range(n)]
 
 def load_defect_styles() -> Dict[str, str]:
     """
@@ -146,13 +183,13 @@ def load_defect_styles() -> Dict[str, str]:
     Returns:
         Dict[str, str]: A dictionary mapping defect types to their corresponding colors.
     """
-    style_path = Path(__file__).parent.parent / "assets/defect_styles.json"
+    style_path = Path(__file__).parent.parent.parent / "assets/defect_styles.json"
     try:
         with open(style_path, 'r') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         # Fallback to a default map if the file is missing or corrupt
-        print(f"Warning: Could not load 'defect_styles.json' ({e}). Using default colors.")
+        logging.warning(f"Warning: Could not load 'defect_styles.json' ({e}). Using default colors.")
         return {
             'Nick': '#9B59B6', 'Short': '#E74C3C', 'Missing Feature': '#2ECC71',
             'Cut': '#1ABC9C', 'Fine Short': '#BE90D4', 'Pad Violation': '#BDC3C7',
