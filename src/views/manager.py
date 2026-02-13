@@ -2,15 +2,17 @@ import streamlit as st
 from typing import List, Optional
 import pandas as pd
 from src.state import SessionStore
-from src.utils import get_bu_name_from_filename
+from src.io.naming import get_bu_name_from_filename
 from src.enums import ViewMode, Quadrant
 from src.views.still_alive import render_still_alive_main
 from src.views.multi_layer import render_multi_layer_view
 from src.views.layer_view import render_layer_view
 from src.documentation import render_documentation
 from src.analysis import get_analysis_tool
-from src.reporting import generate_zip_package
-from src.data_handler import get_true_defect_coordinates
+from src.io.exporters.package import generate_zip_package
+from src.analytics.yield_analysis import get_true_defect_coordinates
+from src.core.geometry import GeometryEngine
+from src.core.config import DEFAULT_OFFSET_X, DEFAULT_OFFSET_Y
 import streamlit.components.v1 as components
 
 class ViewManager:
@@ -509,6 +511,18 @@ class ViewManager:
             include_heatmap_png = st.checkbox("Heatmap (PNG)", value=False)
             include_stress_png = st.checkbox("Stress Map (PNG)", value=False)
             include_root_cause_html = st.checkbox("Root Cause (HTML)", value=False)
+
+            rca_slice_axis = 'Y'
+            if include_root_cause_html:
+                rca_choice = st.radio(
+                    "RCA Slice Axis",
+                    ["Y (Row)", "X (Column)"],
+                    horizontal=True,
+                    key="rep_rca_axis",
+                    help="Select the slicing direction for the Root Cause Analysis animation."
+                )
+                rca_slice_axis = 'Y' if 'Y' in rca_choice else 'X'
+
             include_still_alive_png = st.checkbox("Still Alive Map (PNG)", value=False)
 
         st.markdown("---")
@@ -516,7 +530,11 @@ class ViewManager:
         if st.button("📦 Generate Download Package", type="primary", use_container_width=True):
             with st.spinner("Generating Package..."):
                 full_df = self.store.layer_data.get_combined_dataframe()
-                true_defect_coords = get_true_defect_coordinates(self.store.layer_data)
+
+                # Get True Defect Coords (returns dict)
+                td_result = get_true_defect_coordinates(self.store.layer_data)
+                # Pass the full dictionary to the package generator so it can access metadata
+                true_defect_data = td_result if td_result else {}
 
                 # Fetch Theme for Reporting (Optional - for now using defaults/user choice in app state)
                 # Reporting might need to pass theme if PNGs are generated with it.
@@ -525,6 +543,23 @@ class ViewManager:
                 # Fetch Layout Parameters from Session Store (Calculated in app.py)
                 params = self.store.analysis_params
 
+                # Construct Geometry Context
+                # NOTE: "gap_x" in params is the EFFECTIVE gap (Fixed + 2*Dyn).
+                # We need "dyn_gap_x" which is the actual dynamic component.
+                dyn_gap_x = params.get("dyn_gap_x", 3.0)
+                dyn_gap_y = params.get("dyn_gap_y", 3.0)
+                fixed_offset_x = params.get("fixed_offset_x", DEFAULT_OFFSET_X)
+                fixed_offset_y = params.get("fixed_offset_y", DEFAULT_OFFSET_Y)
+
+                ctx = GeometryEngine.calculate_layout(
+                    panel_rows=params.get('panel_rows', 7),
+                    panel_cols=params.get('panel_cols', 7),
+                    dyn_gap_x=dyn_gap_x,
+                    dyn_gap_y=dyn_gap_y,
+                    visual_origin_x=params.get("visual_origin_x", 0.0),
+                    visual_origin_y=params.get("visual_origin_y", 0.0)
+                )
+
                 self.store.report_bytes = generate_zip_package(
                     full_df=full_df,
                     panel_rows=params.get('panel_rows', 7),
@@ -532,7 +567,12 @@ class ViewManager:
                     quadrant_selection=self.store.quadrant_selection,
                     verification_selection=self.store.verification_selection,
                     source_filename="Multiple Files",
-                    true_defect_coords=true_defect_coords,
+                    true_defect_data=true_defect_data,
+                    ctx=ctx,
+                    dyn_gap_x=dyn_gap_x,
+                    dyn_gap_y=dyn_gap_y,
+                    fixed_offset_x=fixed_offset_x,
+                    fixed_offset_y=fixed_offset_y,
                     include_excel=include_excel,
                     include_coords=include_coords,
                     include_map=include_map,
@@ -543,26 +583,16 @@ class ViewManager:
                     include_stress_png=include_stress_png,
                     include_root_cause_html=include_root_cause_html,
                     include_still_alive_png=include_still_alive_png,
+                    rca_slice_axis=rca_slice_axis,
                     layer_data=self.store.layer_data,
                     process_comment=params.get("process_comment", ""),
                     lot_number=params.get("lot_number", ""),
-                    theme_config=current_theme,
-                    # Pass Layout Parameters for Consistent Plotting
-                    offset_x=params.get("offset_x", 0.0),
-                    offset_y=params.get("offset_y", 0.0),
-                    gap_x=params.get("gap_x", 3.0),
-                    gap_y=params.get("gap_y", 3.0),
-                    visual_origin_x=params.get("visual_origin_x", 0.0),
-                    visual_origin_y=params.get("visual_origin_y", 0.0),
-                    fixed_offset_x=params.get("fixed_offset_x", 0.0),
-                    fixed_offset_y=params.get("fixed_offset_y", 0.0),
-                    panel_width=params.get("panel_width", 470.0),
-                    panel_height=params.get("panel_height", 470.0)
+                    theme_config=current_theme
                 )
                 st.success("Package generated successfully!")
 
         if self.store.report_bytes:
-            from src.utils import generate_standard_filename
+            from src.io.naming import generate_standard_filename
 
             zip_filename = generate_standard_filename(
                 prefix="Defect_Analysis_Package",
